@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MobileIDE Editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; }
+    #editor { width: 100%; height: 100%; }
+    .loading { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-family: sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="editor"><div class="loading">Loading Editor...</div></div>
+  
+  <script src="./loader.min.js"></script>
+  <script>
+    let editor = null;
+    let currentModel = null;
+    const models = new Map();
+
+    require.config({ paths: { vs: './vs' } });
+
+    require(['vs/editor/editor.main'], function() {
+      monaco.editor.defineTheme('mobileide-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [
+          { token: 'comment', foreground: '6A9955' },
+          { token: 'keyword', foreground: '569CD6' },
+          { token: 'string', foreground: 'CE9178' },
+          { token: 'number', foreground: 'B5CEA8' },
+          { token: 'type', foreground: '4EC9B0' },
+          { token: 'function', foreground: 'DCDCAA' },
+          { token: 'variable', foreground: '9CDCFE' }
+        ],
+        colors: {
+          'editor.background': '#1e1e1e',
+          'editor.foreground': '#d4d4d4',
+          'editor.lineHighlightBackground': '#2a2d2e',
+          'editor.selectionBackground': '#264f78',
+          'editorCursor.foreground': '#d4d4d4',
+          'editorLineNumber.foreground': '#858585',
+          'editorLineNumber.activeForeground': '#c6c6c6'
+        }
+      });
+
+      monaco.editor.defineTheme('mobileide-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: { 'editor.background': '#ffffff', 'editor.foreground': '#000000' }
+      });
+
+      editor = monaco.editor.create(document.getElementById('editor'), {
+        value: '',
+        language: 'javascript',
+        theme: 'mobileide-dark',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        wordWrap: 'on',
+        fontSize: 14,
+        lineHeight: 20,
+        tabSize: 2,
+        scrollBeyondLastLine: false,
+        renderWhitespace: 'selection',
+        cursorBlinking: 'smooth',
+        smoothScrolling: true,
+        contextmenu: false,
+        quickSuggestions: true,
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnEnter: 'on',
+        tabCompletion: 'on',
+        formatOnPaste: true,
+        formatOnType: true,
+        autoClosingBrackets: 'always',
+        autoClosingQuotes: 'always',
+        folding: true,
+        foldingStrategy: 'indentation',
+        showFoldingControls: 'always',
+        matchBrackets: 'always',
+        autoIndent: 'full',
+        stickyScroll: { enabled: false },
+        padding: { top: 10, bottom: 10 }
+      });
+
+      editor.onDidChangeModelContent(() => {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'change', content: editor.getValue() }));
+      });
+
+      editor.onDidChangeCursorPosition((e) => {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'cursor', line: e.position.lineNumber, column: e.position.column }));
+      });
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+    });
+
+    document.addEventListener('message', (event) => { handleMessage(event.data); });
+    window.addEventListener('message', (event) => { handleMessage(event.data); });
+
+    function handleMessage(data) {
+      try {
+        const message = JSON.parse(data);
+        switch (message.type) {
+          case 'openFile': openFile(message.path, message.content, message.language); break;
+          case 'setContent': if (editor) editor.setValue(message.content); break;
+          case 'getContent':
+            if (editor) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', content: editor.getValue() }));
+            break;
+          case 'setTheme':
+            if (editor) monaco.editor.setTheme(message.theme === 'dark' ? 'mobileide-dark' : 'mobileide-light');
+            break;
+          case 'setFontSize': if (editor) editor.updateOptions({ fontSize: message.size }); break;
+          case 'setWordWrap': if (editor) editor.updateOptions({ wordWrap: message.enabled ? 'on' : 'off' }); break;
+          case 'setTabSize': if (editor) editor.updateOptions({ tabSize: message.size }); break;
+          case 'format': if (editor) editor.getAction('editor.action.formatDocument').run(); break;
+          case 'undo': if (editor) editor.trigger('keyboard', 'undo', null); break;
+          case 'redo': if (editor) editor.trigger('keyboard', 'redo', null); break;
+          case 'find': if (editor) editor.getAction('actions.find').run(); break;
+          case 'goToLine':
+            if (editor) { editor.revealLineInCenter(message.line); editor.setPosition({ lineNumber: message.line, column: 1 }); }
+            break;
+          case 'setDiagnostics': setDiagnostics(message.uri, message.diagnostics); break;
+          case 'focus': if (editor) editor.focus(); break;
+        }
+      } catch (e) { console.error('Error handling message:', e); }
+    }
+
+    function openFile(path, content, language) {
+      if (!editor) return;
+      const uri = monaco.Uri.parse(path);
+      let model = models.get(path);
+      if (model) { model.setValue(content); }
+      else { model = monaco.editor.createModel(content, language, uri); models.set(path, model); }
+      editor.setModel(model);
+      currentModel = model;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'fileOpened', path: path }));
+    }
+
+    function setDiagnostics(uri, diagnostics) {
+      const monacoDiagnostics = diagnostics.map(d => ({
+        severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : d.severity === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info,
+        message: d.message,
+        startLineNumber: d.startLine,
+        startColumn: d.startColumn,
+        endLineNumber: d.endLine,
+        endColumn: d.endColumn
+      }));
+      monaco.editor.setModelMarkers(monaco.editor.getModel(monaco.Uri.parse(uri)), 'mobileide', monacoDiagnostics);
+    }
+  </script>
+</body>
+</html>

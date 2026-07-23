@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MobileIDE Terminal</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #1e1e1e;
+    }
+    #terminal {
+      width: 100%;
+      height: 100%;
+      padding: 4px;
+    }
+    .xterm {
+      height: 100%;
+    }
+    .xterm-viewport {
+      overflow-y: auto !important;
+    }
+  </style>
+  <link rel="stylesheet" href="./xterm.css">
+</head>
+<body>
+  <div id="terminal"></div>
+  
+  <script src="./xterm.js"></script>
+  <script src="./xterm-addon-fit.js"></script>
+  <script src="./xterm-addon-webgl.js"></script>
+  <script>
+    // Terminal configuration
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontSize: 14,
+      fontFamily: 'monospace',
+      lineHeight: 1.2,
+      scrollback: 5000,
+      theme: {
+        background: '#1e1e1e',
+        foreground: '#d4d4d4',
+        cursor: '#d4d4d4',
+        cursorAccent: '#1e1e1e',
+        selectionBackground: '#264f78',
+        black: '#1e1e1e',
+        red: '#f44747',
+        green: '#6a9955',
+        yellow: '#d7ba7d',
+        blue: '#569cd6',
+        magenta: '#c586c0',
+        cyan: '#4ec9b0',
+        white: '#d4d4d4',
+        brightBlack: '#808080',
+        brightRed: '#f44747',
+        brightGreen: '#6a9955',
+        brightYellow: '#d7ba7d',
+        brightBlue: '#569cd6',
+        brightMagenta: '#c586c0',
+        brightCyan: '#4ec9b0',
+        brightWhite: '#ffffff'
+      },
+      allowProposedApi: true
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+
+    // Try to load WebGL addon for better performance
+    try {
+      const webglAddon = new WebglAddon.WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose();
+      });
+      term.loadAddon(webglAddon);
+    } catch (e) {
+      console.log('WebGL not available, using canvas renderer');
+    }
+
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    // Send data to React Native when user types
+    term.onData((data) => {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'input',
+        data: data
+      }));
+    });
+
+    // Handle resize
+    term.onResize(({ cols, rows }) => {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'resize',
+        cols: cols,
+        rows: rows
+      }));
+    });
+
+    // Listen for messages from React Native
+    document.addEventListener('message', (event) => {
+      handleMessage(event.data);
+    });
+
+    window.addEventListener('message', (event) => {
+      handleMessage(event.data);
+    });
+
+    function handleMessage(data) {
+      try {
+        const message = JSON.parse(data);
+        
+        switch (message.type) {
+          case 'output':
+            term.write(message.data);
+            break;
+            
+          case 'clear':
+            term.clear();
+            break;
+            
+          case 'resize':
+            term.resize(message.cols, message.rows);
+            break;
+            
+          case 'fit':
+            fitAddon.fit();
+            break;
+            
+          case 'theme':
+            term.options.theme = message.theme;
+            break;
+            
+          case 'fontSize':
+            term.options.fontSize = message.size;
+            fitAddon.fit();
+            break;
+            
+          case 'focus':
+            term.focus();
+            break;
+            
+          case 'blur':
+            term.blur();
+            break;
+            
+          case 'selectAll':
+            term.selectAll();
+            break;
+            
+          case 'getSelection':
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'selection',
+              data: term.getSelection()
+            }));
+            break;
+        }
+      } catch (e) {
+        console.error('Error handling message:', e);
+      }
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+    });
+
+    // Notify React Native that terminal is ready
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+      type: 'ready',
+      cols: term.cols,
+      rows: term.rows
+    }));
+
+    // Focus terminal on touch
+    document.getElementById('terminal').addEventListener('touchstart', () => {
+      term.focus();
+    });
+  </script>
+</body>
+</html>

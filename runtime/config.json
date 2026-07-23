@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "name": "MobileIDE Runtime",
+  "description": "Bundled developer runtime for MobileIDE",
+  "components": {
+    "node": {
+      "version": "20.x LTS",
+      "description": "Node.js JavaScript runtime",
+      "required": true
+    },
+    "npm": {
+      "version": "10.x",
+      "description": "Node package manager",
+      "required": true
+    },
+    "pnpm": {
+      "version": "8.x",
+      "description": "Fast, disk space efficient package manager",
+      "required": false
+    },
+    "bash": {
+      "version": "5.x",
+      "description": "Bourne Again Shell",
+      "required": true
+    },
+    "git": {
+      "version": "2.x",
+      "description": "Distributed version control",
+      "required": true
+    },
+    "python": {
+      "version": "3.x",
+      "description": "Python programming language",
+      "required": false
+    }
+  },
+  "utilities": [
+    "ls", "cat", "mkdir", "rm", "cp", "mv", 
+    "grep", "sed", "awk", "curl", "wget",
+    "tar", "gzip", "zip", "unzip"
+  ],
+  "architecture": "arm64-v8a",
+  "minSdk": 29,
+  "estimatedSize": "200MB"
+}
