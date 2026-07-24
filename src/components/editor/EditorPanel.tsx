@@ -1,20 +1,128 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { useEditorStore } from '../../stores';
 import { EditorView } from './EditorView';
 import { EditorTabs } from './EditorTabs';
+import { Icon } from '../icons';
 
 export const EditorPanel: React.FC = () => {
-  const { openFiles, activeFilePath, diagnostics, cursorLine, cursorColumn } = useEditorStore();
+  const {
+    openFiles,
+    activeFilePath,
+    diagnostics,
+    cursorLine,
+    cursorColumn,
+    saveFile,
+    saveAllFiles,
+    fontSize,
+    setFontSize,
+    toggleWordWrap,
+    wordWrap,
+  } = useEditorStore();
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const isCompact = width < 420 || isLandscape;
+  const [saving, setSaving] = useState(false);
 
   const activeFile = openFiles.find(f => f.path === activeFilePath);
   const diag = activeFile ? diagnostics[activeFile.path] : undefined;
   const errors = diag?.errors ?? 0;
   const warnings = diag?.warnings ?? 0;
+  const dirtyCount = openFiles.filter(f => f.isDirty).length;
+
+  const handleSave = useCallback(async () => {
+    if (!activeFilePath) return;
+    setSaving(true);
+    try {
+      await saveFile(activeFilePath);
+    } catch (e) {
+      Alert.alert('Save failed', (e as Error).message || 'Could not write file');
+    } finally {
+      setSaving(false);
+    }
+  }, [activeFilePath, saveFile]);
+
+  const handleSaveAll = useCallback(async () => {
+    setSaving(true);
+    try {
+      await saveAllFiles();
+    } catch (e) {
+      Alert.alert('Save all failed', (e as Error).message || 'Could not write files');
+    } finally {
+      setSaving(false);
+    }
+  }, [saveAllFiles]);
 
   return (
     <View style={styles.container}>
-      <EditorTabs />
+      <EditorTabs compact={isCompact} />
+
+      {/* Action toolbar — Save is always visible when a file is open */}
+      {activeFile && (
+        <View style={[styles.toolbar, isCompact && styles.toolbarCompact]}>
+          <TouchableOpacity
+            style={[styles.toolBtn, !activeFile.isDirty && styles.toolBtnDisabled]}
+            onPress={handleSave}
+            disabled={saving || !activeFile.isDirty}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Icon name="save" size={16} color={activeFile.isDirty ? '#ffffff' : '#777'} />
+                {!isCompact && (
+                  <Text
+                    style={[styles.toolBtnText, !activeFile.isDirty && styles.toolBtnTextDisabled]}
+                  >
+                    Save
+                  </Text>
+                )}
+              </>
+            )}
+          </TouchableOpacity>
+
+          {dirtyCount > 1 && (
+            <TouchableOpacity style={styles.toolBtn} onPress={handleSaveAll} disabled={saving}>
+              <Text style={styles.toolBtnText}>Save all ({dirtyCount})</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.toolSpacer} />
+
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => setFontSize(fontSize - 1)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.iconBtnText}>A−</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => setFontSize(fontSize + 1)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.iconBtnText}>A+</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={toggleWordWrap}>
+            <Text style={[styles.iconBtnText, wordWrap && styles.iconBtnActive]}>Wrap</Text>
+          </TouchableOpacity>
+
+          {activeFile.isDirty && (
+            <Text style={styles.dirtyBadge} numberOfLines={1}>
+              Unsaved
+            </Text>
+          )}
+        </View>
+      )}
+
       <View style={styles.editorContainer}>
         {activeFile ? (
           <EditorView
@@ -24,30 +132,31 @@ export const EditorPanel: React.FC = () => {
           />
         ) : (
           <View style={styles.welcomeScreen}>
-            <Text style={styles.welcomeTitle}>ADEV Studio</Text>
-            <Text style={styles.welcomeSubtitle}>Desktop-class development on Android</Text>
-            <View style={styles.shortcuts}>
-              <Text style={styles.shortcutText}>Open a file from the explorer to start editing</Text>
-              <Text style={styles.shortcutText}>Create a new project from the templates</Text>
-              <Text style={styles.shortcutText}>Use the terminal to run commands</Text>
-            </View>
+            <Text style={styles.welcomeTitle}>Editor</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Open a file from the Files tab to start editing
+            </Text>
+            <Text style={styles.welcomeHint}>
+              Tap the editor to show the keyboard · Save from the toolbar above
+            </Text>
           </View>
         )}
       </View>
+
       {activeFile && (
-        <View style={styles.statusBar}>
+        <View style={[styles.statusBar, isCompact && styles.statusBarCompact]}>
           <View style={styles.statusLeft}>
-            <View style={styles.statusItem}>
-              <Text style={[styles.statusIcon, errors > 0 ? styles.errorText : styles.mutedText]}>⨂</Text>
-              <Text style={errors > 0 ? styles.errorText : styles.mutedText}>{errors}</Text>
-            </View>
-            <View style={styles.statusItem}>
-              <Text style={[styles.statusIcon, warnings > 0 ? styles.warnText : styles.mutedText]}>⚠</Text>
-              <Text style={warnings > 0 ? styles.warnText : styles.mutedText}>{warnings}</Text>
-            </View>
+            <Text style={errors > 0 ? styles.errorText : styles.mutedText}>
+              {errors} err
+            </Text>
+            <Text style={warnings > 0 ? styles.warnText : styles.mutedText}>
+              {warnings} warn
+            </Text>
           </View>
           <View style={styles.statusRight}>
-            <Text style={styles.mutedText}>Ln {cursorLine}, Col {cursorColumn}</Text>
+            <Text style={styles.mutedText} numberOfLines={1}>
+              Ln {cursorLine}, Col {cursorColumn}
+            </Text>
             <Text style={styles.langText}>{activeFile.language}</Text>
           </View>
         </View>
@@ -63,51 +172,106 @@ const styles = StyleSheet.create({
   },
   editorContainer: {
     flex: 1,
+    minHeight: 80,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#252526',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e1e1e',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    minHeight: 40,
+    gap: 6,
+  },
+  toolbarCompact: {
+    paddingVertical: 4,
+    minHeight: 36,
+  },
+  toolBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 6,
+    minWidth: 44,
+    justifyContent: 'center',
+  },
+  toolBtnDisabled: {
+    backgroundColor: '#333',
+  },
+  toolBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  toolBtnTextDisabled: {
+    color: '#777',
+  },
+  toolSpacer: { flex: 1 },
+  iconBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  iconBtnText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  iconBtnActive: {
+    color: '#c4b5fd',
+  },
+  dirtyBadge: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   statusBar: {
-    height: 26,
+    minHeight: 26,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#007acc',
     paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusBarCompact: {
+    minHeight: 22,
+    paddingVertical: 2,
   },
   statusLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
   },
   statusRight: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  statusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  statusIcon: {
-    fontSize: 12,
-    marginRight: 4,
+    flexShrink: 1,
   },
   mutedText: {
     color: '#ffffff',
-    fontSize: 12,
-    marginLeft: 12,
+    fontSize: 11,
+    marginLeft: 8,
   },
   errorText: {
     color: '#ffd0d0',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   warnText: {
     color: '#fff0c0',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   langText: {
     color: '#ffffff',
-    fontSize: 12,
-    marginLeft: 12,
+    fontSize: 11,
+    marginLeft: 10,
     textTransform: 'uppercase',
   },
   welcomeScreen: {
@@ -115,26 +279,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#1e1e1e',
-    padding: 20,
+    padding: 24,
   },
   welcomeTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#ffffff',
     marginBottom: 8,
   },
   welcomeSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#888888',
-    marginBottom: 40,
+    textAlign: 'center',
+    marginBottom: 12,
   },
-  shortcuts: {
-    alignItems: 'center',
-  },
-  shortcutText: {
-    fontSize: 14,
-    color: '#666666',
-    marginBottom: 8,
+  welcomeHint: {
+    fontSize: 12,
+    color: '#555',
+    textAlign: 'center',
   },
 });
 

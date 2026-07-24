@@ -1,6 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useUIStore, useTerminalStore } from '../../stores';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useUIStore, useTerminalStore, useEditorStore } from '../../stores';
 import { Icon } from '../icons';
 
 const VIEW_TITLES: Record<string, string> = {
@@ -13,11 +13,15 @@ const VIEW_TITLES: Record<string, string> = {
 
 /**
  * Compact top app bar for the phone layout. Shows the current view title
- * and contextual actions (e.g. new terminal on the Terminal tab).
+ * and contextual actions (e.g. new terminal, save file).
  */
 export const MobileTopBar: React.FC = () => {
   const { activeView } = useUIStore();
   const { createSession } = useTerminalStore();
+  const { activeFilePath, openFiles, saveFile } = useEditorStore();
+  const [saving, setSaving] = useState(false);
+  const activeFile = openFiles.find(f => f.path === activeFilePath);
+  const isDirty = !!activeFile?.isDirty;
 
   const handleNewTerminal = async () => {
     try {
@@ -27,16 +31,42 @@ export const MobileTopBar: React.FC = () => {
     }
   };
 
+  const handleSave = async () => {
+    if (!activeFilePath || !isDirty) return;
+    setSaving(true);
+    try {
+      await saveFile(activeFilePath);
+    } catch (e) {
+      Alert.alert('Save failed', (e as Error).message || 'Could not write file');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.brand}>
         <Text style={styles.brandName}>ADEV</Text>
         <Text style={styles.brandSuffix}>Studio</Text>
         <Text style={styles.divider}>·</Text>
-        <Text style={styles.viewTitle}>{VIEW_TITLES[activeView]}</Text>
+        <Text style={styles.viewTitle} numberOfLines={1}>
+          {VIEW_TITLES[activeView]}
+          {activeView === 'editor' && activeFile ? ` · ${activeFile.name}` : ''}
+          {isDirty ? ' ●' : ''}
+        </Text>
       </View>
 
       <View style={styles.actions}>
+        {activeView === 'editor' && activeFile && (
+          <TouchableOpacity
+            style={[styles.action, styles.saveAction, !isDirty && styles.saveDisabled]}
+            onPress={handleSave}
+            disabled={!isDirty || saving}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Icon name="save" size={20} color={isDirty ? '#ffffff' : '#666'} />
+          </TouchableOpacity>
+        )}
         {activeView === 'terminal' && (
           <TouchableOpacity
             style={styles.action}
@@ -94,6 +124,15 @@ const styles = StyleSheet.create({
   action: {
     padding: 4,
     marginLeft: 8,
+  },
+  saveAction: {
+    backgroundColor: '#8b5cf6',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  saveDisabled: {
+    backgroundColor: '#333',
   },
 });
 

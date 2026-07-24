@@ -22,7 +22,8 @@ export type IconName =
   | 'debug'
   | 'refresh'
   | 'keyboard'
-  | 'copy';
+  | 'copy'
+  | 'save';
 
 export interface IconProps {
   name: IconName;
@@ -217,6 +218,14 @@ function renderPaths(
         <>
           <Rect {...stroke} x="9" y="9" width="11" height="11" rx="2" />
           <Path {...stroke} d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </>
+      );
+    case 'save':
+      return (
+        <>
+          <Path {...stroke} d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+          <Polyline {...stroke} points="17 21 17 13 7 13 7 21" />
+          <Polyline {...stroke} points="7 3 7 8 15 8" />
         </>
       );
     default:

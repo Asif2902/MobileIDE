@@ -1,10 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar as RNStatusBar,
   useWindowDimensions,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -28,10 +31,8 @@ import {
   setupProcessListeners,
 } from '../stores';
 
-// Only treat as tablet when BOTH dimensions are large enough. Phones in
-// landscape often exceed 768px width and would otherwise flip into the
-// desktop layout (BottomPanel + TerminalPanel), which stacked the
-// Terminal/Problems/Output/Debug headers twice.
+// Tablet: both dimensions large enough. Phones in landscape stay on the
+// mobile layout so we don't double-stack terminal headers.
 const TABLET_MIN_WIDTH = 900;
 const TABLET_MIN_HEIGHT = 600;
 
@@ -53,6 +54,23 @@ export const IDEScreen: React.FC = () => {
   const initWorkspace = useFileStore(state => state.initWorkspace);
   const { width, height } = useWindowDimensions();
   const isTablet = width >= TABLET_MIN_WIDTH && height >= TABLET_MIN_HEIGHT;
+  const isLandscape = width > height;
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const cleanupTerminal = setupTerminalListeners();
@@ -70,33 +88,37 @@ export const IDEScreen: React.FC = () => {
     }
   }, [isReady, initializeRuntime]);
 
-  // Restore/open a workspace once the runtime is ready so the Explorer and
-  // terminal always have a project to work in.
   useEffect(() => {
     if (isReady) {
       initWorkspace();
     }
   }, [isReady, initWorkspace]);
 
-  // ---- Tablet / large screen: classic side-by-side IDE layout ----
+  // ---- Tablet / large screen: side-by-side IDE ----
   if (isTablet) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <RNStatusBar barStyle="light-content" backgroundColor="#1e1e1e" />
-        <View style={styles.mainContainer}>
-          {isActivityBarVisible && <ActivityBar />}
-          <Sidebar />
-          <View style={styles.editorArea}>
-            <EditorPanel />
-            <BottomPanel />
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.mainContainer}>
+            {isActivityBarVisible && <ActivityBar />}
+            <Sidebar />
+            <View style={styles.editorArea}>
+              <EditorPanel />
+              {/* Shrink bottom panel when keyboard is open so the editor stays usable */}
+              {!keyboardVisible && <BottomPanel />}
+            </View>
           </View>
-        </View>
-        <StatusBar />
+          <StatusBar />
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
 
-  // ---- Phone: full-screen views + bottom tab navigation ----
+  // ---- Phone: full-screen views + bottom tabs ----
   const renderMobileView = () => {
     switch (activeView) {
       case 'files':
@@ -120,12 +142,27 @@ export const IDEScreen: React.FC = () => {
     }
   };
 
+  // Hide bottom nav while typing in the editor (portrait or landscape) so the
+  // soft keyboard + Monaco get maximum vertical space.
+  const hideBottomTabs =
+    keyboardVisible && (activeView === 'editor' || activeView === 'terminal');
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView
+      style={styles.container}
+      edges={hideBottomTabs ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
+    >
       <RNStatusBar barStyle="light-content" backgroundColor="#181818" />
-      <MobileTopBar />
-      <View style={styles.mobileContent}>{renderMobileView()}</View>
-      <BottomTabBar />
+      {/* Compact top bar in landscape to free vertical space */}
+      {!(isLandscape && keyboardVisible && activeView === 'editor') && <MobileTopBar />}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
+        <View style={styles.mobileContent}>{renderMobileView()}</View>
+      </KeyboardAvoidingView>
+      {!hideBottomTabs && <BottomTabBar />}
     </SafeAreaView>
   );
 };
@@ -135,6 +172,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1e1e1e',
   },
+  flex: {
+    flex: 1,
+  },
   mainContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -142,10 +182,12 @@ const styles = StyleSheet.create({
   editorArea: {
     flex: 1,
     flexDirection: 'column',
+    minWidth: 0,
   },
   mobileContent: {
     flex: 1,
     backgroundColor: '#1e1e1e',
+    minHeight: 0,
   },
   placeholder: {
     flex: 1,

@@ -2,16 +2,32 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>MobileIDE Editor</title>
   <link rel="stylesheet" href="./vs/editor/editor.main.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; }
-    #editor { width: 100%; height: 100%; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background-color: #1e1e1e;
+      /* Help Android WebView focus the hidden textarea */
+      -webkit-user-select: text;
+      user-select: text;
+      touch-action: manipulation;
+    }
+    #editor { width: 100%; height: 100%; position: relative; }
     .loading {
       display: flex; align-items: center; justify-content: center;
       height: 100%; color: #888; font-family: sans-serif;
+    }
+    /* Monaco input textarea must accept touches for the soft keyboard */
+    .monaco-editor .inputarea {
+      position: absolute !important;
+      opacity: 0.01 !important;
+      z-index: 10 !important;
+      /* Keep a non-zero hit target on Android WebView */
+      min-width: 1px !important;
+      min-height: 1px !important;
     }
   </style>
 </head>
@@ -19,15 +35,6 @@
   <div id="editor"><div class="loading">Loading Editor...</div></div>
 
   <script>
-    /*
-     * Android WebView + file:// cannot reliably host Monaco language workers
-     * (Worker constructor / importScripts fails with opaque Event errors that
-     * used to kill the whole editor UI). We therefore:
-     *  1. Provide a no-op Worker stub so monaco.editor.create never throws.
-     *  2. Use Monarch basic-language highlighters (main thread) for syntax colors.
-     *  3. Skip TS/JS semantic language services that need real workers.
-     * Editing, undo, find, multi-file models still work fully.
-     */
     var ASSET_BASE = 'file:///android_asset/editor/';
 
     function createStubWorker() {
@@ -50,10 +57,7 @@
 
     self.MonacoEnvironment = {
       baseUrl: ASSET_BASE,
-      getWorker: function () {
-        return createStubWorker();
-      },
-      // Some monaco builds still call getWorkerUrl; keep a safe data: URL.
+      getWorker: function () { return createStubWorker(); },
       getWorkerUrl: function () {
         var code = '/* monaco worker stub */ self.onmessage = function(){};';
         return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(code);
@@ -67,6 +71,7 @@
     var currentPath = '';
     var models = new Map();
     var fatalReported = false;
+    var applyingExternalEdit = false;
 
     function postRN(payload) {
       try {
@@ -75,12 +80,8 @@
     }
 
     function reportFatal(where, err) {
-      // Once the editor is up, never tear down the UI for secondary errors
-      // (failed CSS plugin, stub worker noise, etc.).
       if (editor || fatalReported) {
-        try {
-          postRN({ type: 'warn', where: where, message: stringifyErr(err) });
-        } catch (e) {}
+        try { postRN({ type: 'warn', where: where, message: stringifyErr(err) }); } catch (e) {}
         return;
       }
       fatalReported = true;
@@ -104,8 +105,6 @@
     }
 
     window.onerror = function (message, source, lineno, colno, error) {
-      // Ignore opaque Event noise from resource/worker loads once we are past boot
-      // or when the only signal is "[object Event]".
       var msgStr = typeof message === 'string' ? message : '';
       if (editor) return true;
       if (msgStr.indexOf('[object Event]') !== -1 && !error) return true;
@@ -115,7 +114,6 @@
     window.addEventListener('error', function (e) {
       var el = e && e.target;
       if (el && (el.src || el.href)) {
-        // Missing optional asset: log only, do not kill editor boot.
         postRN({ type: 'warn', where: 'resource', message: 'Failed to load: ' + (el.src || el.href) });
         e.preventDefault && e.preventDefault();
       }
@@ -130,22 +128,53 @@
 
     require.config({
       paths: { vs: './vs' },
-      // Avoid nls localization file fetches that break offline.
-      'vs/nls': {
-        availableLanguages: { '*': '' }
-      }
+      'vs/nls': { availableLanguages: { '*': '' } }
     });
     if (typeof require !== 'undefined' && require.config) {
       require.config({
-        onError: function (err) {
-          reportFatal('amd', err && (err.message || err));
-        }
+        onError: function (err) { reportFatal('amd', err && (err.message || err)); }
       });
+    }
+
+    /** Force soft keyboard: focus Monaco + its hidden textarea. */
+    function forceKeyboardFocus() {
+      if (!editor) return;
+      try {
+        editor.focus();
+        var ta = document.querySelector('.monaco-editor .inputarea');
+        if (ta) {
+          ta.setAttribute('inputmode', 'text');
+          ta.setAttribute('enterkeyhint', 'enter');
+          ta.setAttribute('autocapitalize', 'off');
+          ta.setAttribute('autocomplete', 'off');
+          ta.setAttribute('autocorrect', 'off');
+          ta.setAttribute('spellcheck', 'false');
+          // Android WebView often needs a real user-gesture focus on the textarea
+          ta.focus();
+          try {
+            var len = (ta.value && ta.value.length) || 0;
+            ta.setSelectionRange(len, len);
+          } catch (e) {}
+        }
+      } catch (e) {}
+    }
+
+    function wireMobileFocus(host) {
+      // Capture-phase touch so we beat Monaco's default handling when WebView is sticky
+      var openKb = function (ev) {
+        // Don't preventDefault — Monaco needs the event for caret placement
+        setTimeout(forceKeyboardFocus, 0);
+        setTimeout(forceKeyboardFocus, 50);
+      };
+      host.addEventListener('touchend', openKb, { passive: true });
+      host.addEventListener('click', openKb, { passive: true });
+      document.addEventListener('touchend', function (e) {
+        if (host.contains(e.target)) openKb(e);
+      }, { passive: true });
     }
 
     require(['vs/editor/editor.main'], function () {
       try {
-        // Soft diagnostics only — no semantic workers on Android file://.
         if (monaco.languages && monaco.languages.typescript) {
           var ts = monaco.languages.typescript;
           var soft = {
@@ -204,34 +233,48 @@
           wrappingStrategy: 'advanced',
           lineNumbersMinChars: 3,
           glyphMargin: false,
-          fontSize: 13,
-          lineHeight: 19,
+          fontSize: 14,
+          lineHeight: 22,
           tabSize: 2,
-          scrollBeyondLastLine: false,
-          renderWhitespace: 'selection',
-          cursorBlinking: 'smooth',
-          smoothScrolling: true,
+          scrollBeyondLastLine: true,
+          renderWhitespace: 'none',
+          cursorBlinking: 'blink',
+          smoothScrolling: false,
           contextmenu: false,
-          quickSuggestions: true,
-          suggestOnTriggerCharacters: true,
-          acceptSuggestionOnEnter: 'on',
-          tabCompletion: 'on',
+          // Mobile: keep suggestions light so the keyboard stays usable
+          quickSuggestions: false,
+          suggestOnTriggerCharacters: false,
+          acceptSuggestionOnEnter: 'off',
+          tabCompletion: 'off',
+          parameterHints: { enabled: false },
+          hover: { enabled: false },
           formatOnPaste: false,
           formatOnType: false,
-          autoClosingBrackets: 'always',
-          autoClosingQuotes: 'always',
-          folding: true,
-          matchBrackets: 'always',
-          autoIndent: 'full',
+          autoClosingBrackets: 'languageDefined',
+          autoClosingQuotes: 'languageDefined',
+          folding: false,
+          matchBrackets: 'near',
+          autoIndent: 'advanced',
           stickyScroll: { enabled: false },
-          padding: { top: 6, bottom: 6 },
-          // Avoid features that spin up workers aggressively.
+          padding: { top: 8, bottom: 48 },
           links: false,
-          colorDecorators: false
+          colorDecorators: false,
+          readOnly: false,
+          domReadOnly: false,
+          // Important for mobile caret/keyboard
+          accessibilitySupport: 'off',
+          mouseWheelZoom: false,
+          // Extra bottom space so last lines aren't under the soft keyboard
+          scrollbar: {
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+            alwaysConsumeMouseWheel: false
+          }
         });
 
         editor.onDidChangeModelContent(function () {
-          postRN({ type: 'change', content: editor.getValue() });
+          if (applyingExternalEdit) return;
+          postRN({ type: 'change', content: editor.getValue(), path: currentPath });
         });
 
         editor.onDidChangeCursorPosition(function (e) {
@@ -241,6 +284,18 @@
             column: e.position.column
           });
         });
+
+        // Ctrl/Cmd+S from hardware keyboard
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+          postRN({ type: 'saveRequest', path: currentPath, content: editor.getValue() });
+        });
+
+        wireMobileFocus(host);
+        // Layout after create — zero-size layout kills input on some WebViews
+        setTimeout(function () {
+          try { editor.layout(); } catch (e) {}
+          forceKeyboardFocus();
+        }, 100);
 
         postRN({ type: 'ready' });
       } catch (e) {
@@ -261,10 +316,13 @@
             openFile(message.path, message.content, message.language);
             break;
           case 'setContent':
-            if (editor) editor.setValue(message.content);
+            if (editor) {
+              applyingExternalEdit = true;
+              try { editor.setValue(message.content || ''); } finally { applyingExternalEdit = false; }
+            }
             break;
           case 'getContent':
-            if (editor) postRN({ type: 'content', content: editor.getValue() });
+            if (editor) postRN({ type: 'content', content: editor.getValue(), path: currentPath });
             break;
           case 'setTheme':
             if (editor) {
@@ -305,10 +363,22 @@
             }
             break;
           case 'focus':
-            if (editor) editor.focus();
+            forceKeyboardFocus();
+            break;
+          case 'blur':
+            if (editor) {
+              try {
+                var ta = document.querySelector('.monaco-editor .inputarea');
+                if (ta) ta.blur();
+              } catch (e) {}
+            }
+            break;
+          case 'layout':
+            if (editor) {
+              try { editor.layout(); } catch (e) {}
+            }
             break;
           case 'copy':
-            // Selection text posted to RN for system clipboard.
             if (editor) {
               var sel = editor.getModel().getValueInRange(editor.getSelection());
               postRN({ type: 'copyText', text: sel || editor.getValue() });
@@ -326,19 +396,50 @@
       var lang = language || 'plaintext';
       var uri = monaco.Uri.parse('inmemory://model/' + encodeURIComponent(path || 'untitled'));
       var model = models.get(path);
-      if (model) {
-        if (model.getValue() !== content) model.setValue(content || '');
-        if (model.getLanguageId() !== lang) {
-          monaco.editor.setModelLanguage(model, lang);
+      applyingExternalEdit = true;
+      try {
+        if (model) {
+          // content === null means "keep buffer" (same file, path already open).
+          // Only setValue when RN sends a real string (file switch / external reload).
+          if (content !== null && content !== undefined && typeof content === 'string') {
+            if (model.getValue() !== content) {
+              model.setValue(content);
+            }
+          }
+          if (model.getLanguageId() !== lang) {
+            monaco.editor.setModelLanguage(model, lang);
+          }
+        } else {
+          model = monaco.editor.createModel(
+            (content !== null && content !== undefined) ? content : '',
+            lang,
+            uri
+          );
+          models.set(path, model);
         }
-      } else {
-        model = monaco.editor.createModel(content || '', lang, uri);
-        models.set(path, model);
+        editor.setModel(model);
+        currentModel = model;
+      } finally {
+        applyingExternalEdit = false;
       }
-      editor.setModel(model);
-      currentModel = model;
       postRN({ type: 'fileOpened', path: path });
+      setTimeout(forceKeyboardFocus, 30);
+      setTimeout(function () { try { editor.layout(); } catch (e) {} }, 60);
     }
+
+    // Visual viewport changes (keyboard show/hide) — re-layout Monaco
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () {
+        if (editor) {
+          try { editor.layout(); } catch (e) {}
+        }
+      });
+    }
+    window.addEventListener('resize', function () {
+      if (editor) {
+        try { editor.layout(); } catch (e) {}
+      }
+    });
   </script>
 </body>
 </html>

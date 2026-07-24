@@ -1,5 +1,12 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  StyleSheet,
+  Platform,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { useEditorStore } from '../../stores';
@@ -8,22 +15,32 @@ import { ClipboardNativeModule } from '../../native';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WebViewAny = WebView as any;
 
-// Real Monaco editor bundled in the app assets. This is the genuine VS Code
-// editor engine, so it ships the same language services ("compilers") that
-// surface inline errors, warnings, hovers and IntelliSense on desktop.
 const MONACO_URI = 'file:///android_asset/editor/index.html';
 
 interface EditorViewProps {
   filePath: string;
   content: string;
   language: string;
+  onRequestFocus?: () => void;
 }
 
-export const EditorView: React.FC<EditorViewProps> = ({ filePath, content, language }) => {
+export const EditorView: React.FC<EditorViewProps> = ({
+  filePath,
+  content,
+  language,
+  onRequestFocus,
+}) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
-  const { updateContent, setDiagnostics, setCursor, fontSize, wordWrap, theme } = useEditorStore();
+  // Last path pushed into Monaco. Content updates from typing must NOT re-open
+  // the file or the caret/keyboard die on every keystroke.
+  const lastOpenedPath = useRef<string | null>(null);
+  const contentRef = useRef(content);
+  contentRef.current = content;
+
+  const { updateContent, setDiagnostics, setCursor, fontSize, wordWrap, theme, saveFile } =
+    useEditorStore();
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,7 +50,9 @@ export const EditorView: React.FC<EditorViewProps> = ({ filePath, content, langu
     if (readyTimer.current) clearTimeout(readyTimer.current);
     readyTimer.current = setTimeout(() => {
       if (!isReady.current) {
-        setErrorMsg('The editor engine did not finish loading. This can happen if the device WebView is out of date.');
+        setErrorMsg(
+          'The editor engine did not finish loading. Try Retry, or update Android System WebView.',
+        );
         setLoadState('error');
       }
     }, 25000);
@@ -41,37 +60,47 @@ export const EditorView: React.FC<EditorViewProps> = ({ filePath, content, langu
 
   useEffect(() => {
     startReadyTimer();
-    return () => { if (readyTimer.current) clearTimeout(readyTimer.current); };
+    return () => {
+      if (readyTimer.current) clearTimeout(readyTimer.current);
+    };
   }, [startReadyTimer]);
 
-  const reload = useCallback(() => {
-    isReady.current = false;
-    setErrorMsg('');
-    setLoadState('loading');
-    startReadyTimer();
-    webViewRef.current?.reload();
-  }, [startReadyTimer]);
-
-  const post = useCallback((payload: object) => {
-    if (isReady.current && webViewRef.current) {
-      webViewRef.current.injectJavaScript(
-        `handleMessage(${JSON.stringify(JSON.stringify(payload))}); true;`
-      );
-    }
+  const inject = useCallback((js: string) => {
+    webViewRef.current?.injectJavaScript(`${js}; true;`);
   }, []);
 
-  const openActiveFile = useCallback(() => {
-    if (isReady.current && webViewRef.current) {
-      webViewRef.current.injectJavaScript(
-        `openFile(${JSON.stringify(filePath)}, ${JSON.stringify(content)}, ${JSON.stringify(language)}); true;`
-      );
-    }
-  }, [filePath, content, language]);
+  const post = useCallback(
+    (payload: object) => {
+      if (isReady.current && webViewRef.current) {
+        inject(`handleMessage(${JSON.stringify(JSON.stringify(payload))})`);
+      }
+    },
+    [inject],
+  );
 
-  // Switch the model whenever the active file changes.
+  const pushFileToMonaco = useCallback(
+    (path: string, fileContent: string | null, lang: string) => {
+      if (!isReady.current || !webViewRef.current) return;
+      // null content => keep existing model buffer (path switch already loaded)
+      inject(
+        `openFile(${JSON.stringify(path)}, ${
+          fileContent === null ? 'null' : JSON.stringify(fileContent)
+        }, ${JSON.stringify(lang)})`,
+      );
+      lastOpenedPath.current = path;
+    },
+    [inject],
+  );
+
+  // Path / language changes only — never re-inject on every content keystroke.
   useEffect(() => {
-    openActiveFile();
-  }, [openActiveFile]);
+    if (!isReady.current) return;
+    if (lastOpenedPath.current !== filePath) {
+      pushFileToMonaco(filePath, contentRef.current, language);
+    } else {
+      pushFileToMonaco(filePath, null, language);
+    }
+  }, [filePath, language, pushFileToMonaco]);
 
   useEffect(() => {
     post({ type: 'setTheme', theme });
@@ -85,87 +114,141 @@ export const EditorView: React.FC<EditorViewProps> = ({ filePath, content, langu
     post({ type: 'setWordWrap', enabled: wordWrap });
   }, [wordWrap, post]);
 
-  const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
-    try {
-      const message = JSON.parse(event.nativeEvent.data);
+  const onLayout = useCallback(() => {
+    post({ type: 'layout' });
+  }, [post]);
 
-      switch (message.type) {
-        case 'ready':
-          isReady.current = true;
-          if (readyTimer.current) clearTimeout(readyTimer.current);
-          setLoadState('ready');
-          // Apply persisted preferences, then open the active file.
-          post({ type: 'setTheme', theme });
-          post({ type: 'setFontSize', size: fontSize });
-          post({ type: 'setWordWrap', enabled: wordWrap });
-          openActiveFile();
-          break;
+  const reload = useCallback(() => {
+    isReady.current = false;
+    lastOpenedPath.current = null;
+    setErrorMsg('');
+    setLoadState('loading');
+    startReadyTimer();
+    webViewRef.current?.reload();
+  }, [startReadyTimer]);
 
-        case 'change':
-          updateContent(filePath, message.content);
-          break;
+  const handleWebViewMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const message = JSON.parse(event.nativeEvent.data);
 
-        case 'cursor':
-          setCursor(message.line, message.column);
-          break;
+        switch (message.type) {
+          case 'ready':
+            isReady.current = true;
+            if (readyTimer.current) clearTimeout(readyTimer.current);
+            setLoadState('ready');
+            post({ type: 'setTheme', theme });
+            post({ type: 'setFontSize', size: fontSize });
+            post({ type: 'setWordWrap', enabled: wordWrap });
+            pushFileToMonaco(filePath, contentRef.current, language);
+            setTimeout(() => post({ type: 'focus' }), 200);
+            break;
 
-        case 'markers':
-          setDiagnostics(message.path || filePath, {
-            errors: message.errors || 0,
-            warnings: message.warnings || 0,
-            problems: message.problems || [],
-          });
-          break;
+          case 'change': {
+            const path = message.path || filePath;
+            updateContent(path, message.content);
+            break;
+          }
 
-        case 'fatal':
-          // The Monaco loader reported a hard failure; show the real reason
-          // instead of leaving the user on an endless spinner.
-          console.error(`Monaco fatal [${message.where}]:`, message.message);
-          isReady.current = false;
-          if (readyTimer.current) clearTimeout(readyTimer.current);
-          setErrorMsg(`Editor engine error (${message.where}): ${message.message}`);
-          setLoadState('error');
-          break;
+          case 'cursor':
+            setCursor(message.line, message.column);
+            break;
 
-        case 'warn':
-          // Non-fatal Monaco noise (stub workers, optional assets) — log only.
-          console.warn(`Monaco warn [${message.where}]:`, message.message);
-          break;
+          case 'markers':
+            setDiagnostics(message.path || filePath, {
+              errors: message.errors || 0,
+              warnings: message.warnings || 0,
+              problems: message.problems || [],
+            });
+            break;
 
-        case 'copyText':
-          ClipboardNativeModule.setString(message.text || '').catch(err => {
-            console.error('Editor clipboard copy failed:', err);
-          });
-          break;
+          case 'saveRequest':
+            saveFile(message.path || filePath).catch(err => console.error('Save failed:', err));
+            break;
+
+          case 'fatal':
+            console.error(`Monaco fatal [${message.where}]:`, message.message);
+            isReady.current = false;
+            if (readyTimer.current) clearTimeout(readyTimer.current);
+            setErrorMsg(`Editor engine error (${message.where}): ${message.message}`);
+            setLoadState('error');
+            break;
+
+          case 'warn':
+            console.warn(`Monaco warn [${message.where}]:`, message.message);
+            break;
+
+          case 'copyText':
+            ClipboardNativeModule.setString(message.text || '').catch(err => {
+              console.error('Editor clipboard copy failed:', err);
+            });
+            break;
+
+          case 'fileOpened':
+            onRequestFocus?.();
+            break;
+        }
+      } catch (error) {
+        console.error('Error handling WebView message:', error);
       }
-    } catch (error) {
-      console.error('Error handling WebView message:', error);
-    }
-  }, [filePath, post, openActiveFile, theme, fontSize, wordWrap, updateContent, setCursor, setDiagnostics]);
+    },
+    [
+      filePath,
+      language,
+      post,
+      pushFileToMonaco,
+      theme,
+      fontSize,
+      wordWrap,
+      updateContent,
+      setCursor,
+      setDiagnostics,
+      saveFile,
+      onRequestFocus,
+    ],
+  );
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={onLayout}>
       <WebViewAny
         ref={webViewRef}
         source={{ uri: MONACO_URI }}
         style={styles.webview}
         onMessage={handleWebViewMessage}
-        onError={() => { setErrorMsg('The editor page failed to load.'); setLoadState('error'); }}
-        onRenderProcessGone={() => { isReady.current = false; setErrorMsg('The editor process stopped unexpectedly.'); setLoadState('error'); }}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
+        onError={() => {
+          setErrorMsg('The editor page failed to load.');
+          setLoadState('error');
+        }}
+        onRenderProcessGone={() => {
+          isReady.current = false;
+          setErrorMsg('The editor process stopped unexpectedly.');
+          setLoadState('error');
+        }}
+        javaScriptEnabled
+        domStorageEnabled
         keyboardDisplayRequiresUserAction={false}
-        allowsInlineMediaPlayback={true}
+        hideKeyboardAccessoryView={false}
+        {...(Platform.OS === 'android'
+          ? {
+              nestedScrollEnabled: true,
+              overScrollMode: 'never',
+              androidLayerType: 'hardware',
+              focusable: true,
+            }
+          : {})}
+        allowsInlineMediaPlayback
         scalesPageToFit={false}
         originWhitelist={['*']}
-        // Required so Monaco can load its bundled assets and language workers
-        // from the file:// origin (this is what powers the live diagnostics).
-        allowFileAccess={true}
-        allowFileAccessFromFileURLs={true}
-        allowUniversalAccessFromFileURLs={true}
+        allowFileAccess
+        allowFileAccessFromFileURLs
+        allowUniversalAccessFromFileURLs
         mixedContentMode="always"
         setSupportMultipleWindows={false}
         androidHardwareAccelerationDisabled={false}
+        onTouchEnd={() => {
+          post({ type: 'focus' });
+          onRequestFocus?.();
+        }}
       />
       {loadState === 'loading' && (
         <View style={styles.overlay} pointerEvents="none">
@@ -187,14 +270,8 @@ export const EditorView: React.FC<EditorViewProps> = ({ filePath, content, langu
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1e1e1e',
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: '#1e1e1e',
-  },
+  container: { flex: 1, backgroundColor: '#1e1e1e' },
+  webview: { flex: 1, backgroundColor: '#1e1e1e' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#1e1e1e',
