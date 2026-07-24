@@ -37,6 +37,9 @@ local.properties
 # node.js
 #
 node_modules/
+# Keep the in-app bundled npm/corepack trees (Android runtime assets).
+!android/app/src/main/assets/runtime/lib/node_modules/
+!android/app/src/main/assets/runtime/lib/node_modules/**
 npm-debug.log
 yarn-error.log
 
