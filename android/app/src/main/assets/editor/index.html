@@ -4,150 +4,340 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>MobileIDE Editor</title>
+  <link rel="stylesheet" href="./vs/editor/editor.main.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; }
     #editor { width: 100%; height: 100%; }
-    .loading { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-family: sans-serif; }
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #888; font-family: sans-serif;
+    }
   </style>
 </head>
 <body>
   <div id="editor"><div class="loading">Loading Editor...</div></div>
-  
+
+  <script>
+    /*
+     * Android WebView + file:// cannot reliably host Monaco language workers
+     * (Worker constructor / importScripts fails with opaque Event errors that
+     * used to kill the whole editor UI). We therefore:
+     *  1. Provide a no-op Worker stub so monaco.editor.create never throws.
+     *  2. Use Monarch basic-language highlighters (main thread) for syntax colors.
+     *  3. Skip TS/JS semantic language services that need real workers.
+     * Editing, undo, find, multi-file models still work fully.
+     */
+    var ASSET_BASE = 'file:///android_asset/editor/';
+
+    function createStubWorker() {
+      var listeners = { message: [], error: [] };
+      return {
+        postMessage: function () {},
+        terminate: function () {},
+        addEventListener: function (type, fn) {
+          if (listeners[type]) listeners[type].push(fn);
+        },
+        removeEventListener: function (type, fn) {
+          if (!listeners[type]) return;
+          listeners[type] = listeners[type].filter(function (f) { return f !== fn; });
+        },
+        dispatchEvent: function () { return true; },
+        onmessage: null,
+        onerror: null
+      };
+    }
+
+    self.MonacoEnvironment = {
+      baseUrl: ASSET_BASE,
+      getWorker: function () {
+        return createStubWorker();
+      },
+      // Some monaco builds still call getWorkerUrl; keep a safe data: URL.
+      getWorkerUrl: function () {
+        var code = '/* monaco worker stub */ self.onmessage = function(){};';
+        return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(code);
+      }
+    };
+  </script>
   <script src="./loader.min.js"></script>
   <script>
-    let editor = null;
-    let currentModel = null;
-    const models = new Map();
+    var editor = null;
+    var currentModel = null;
+    var currentPath = '';
+    var models = new Map();
+    var fatalReported = false;
 
-    require.config({ paths: { vs: './vs' } });
+    function postRN(payload) {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      } catch (e) {}
+    }
 
-    require(['vs/editor/editor.main'], function() {
-      monaco.editor.defineTheme('mobileide-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [
-          { token: 'comment', foreground: '6A9955' },
-          { token: 'keyword', foreground: '569CD6' },
-          { token: 'string', foreground: 'CE9178' },
-          { token: 'number', foreground: 'B5CEA8' },
-          { token: 'type', foreground: '4EC9B0' },
-          { token: 'function', foreground: 'DCDCAA' },
-          { token: 'variable', foreground: '9CDCFE' }
-        ],
-        colors: {
-          'editor.background': '#1e1e1e',
-          'editor.foreground': '#d4d4d4',
-          'editor.lineHighlightBackground': '#2a2d2e',
-          'editor.selectionBackground': '#264f78',
-          'editorCursor.foreground': '#d4d4d4',
-          'editorLineNumber.foreground': '#858585',
-          'editorLineNumber.activeForeground': '#c6c6c6'
-        }
-      });
+    function reportFatal(where, err) {
+      // Once the editor is up, never tear down the UI for secondary errors
+      // (failed CSS plugin, stub worker noise, etc.).
+      if (editor || fatalReported) {
+        try {
+          postRN({ type: 'warn', where: where, message: stringifyErr(err) });
+        } catch (e) {}
+        return;
+      }
+      fatalReported = true;
+      postRN({ type: 'fatal', where: where, message: stringifyErr(err) });
+    }
 
-      monaco.editor.defineTheme('mobileide-light', {
-        base: 'vs',
-        inherit: true,
-        rules: [],
-        colors: { 'editor.background': '#ffffff', 'editor.foreground': '#000000' }
-      });
+    function stringifyErr(err) {
+      if (err == null) return 'unknown';
+      if (typeof err === 'string') return err;
+      if (err.message || err.stack) {
+        return (err.message || '') + (err.stack ? (' | stack: ' + err.stack) : '');
+      }
+      if (err.target && (err.target.src || err.target.href)) {
+        return 'resource-fail: ' + (err.target.src || err.target.href);
+      }
+      var parts = [];
+      if (err.type) parts.push('type=' + err.type);
+      if (err.filename) parts.push('file=' + err.filename + ':' + err.lineno + ':' + err.colno);
+      if (err.reason) parts.push('reason=' + (err.reason && err.reason.message ? err.reason.message : err.reason));
+      return parts.length ? parts.join(' ') : Object.prototype.toString.call(err);
+    }
 
-      editor = monaco.editor.create(document.getElementById('editor'), {
-        value: '',
-        language: 'javascript',
-        theme: 'mobileide-dark',
-        automaticLayout: true,
-        minimap: { enabled: false },
-        wordWrap: 'on',
-        fontSize: 14,
-        lineHeight: 20,
-        tabSize: 2,
-        scrollBeyondLastLine: false,
-        renderWhitespace: 'selection',
-        cursorBlinking: 'smooth',
-        smoothScrolling: true,
-        contextmenu: false,
-        quickSuggestions: true,
-        suggestOnTriggerCharacters: true,
-        acceptSuggestionOnEnter: 'on',
-        tabCompletion: 'on',
-        formatOnPaste: true,
-        formatOnType: true,
-        autoClosingBrackets: 'always',
-        autoClosingQuotes: 'always',
-        folding: true,
-        foldingStrategy: 'indentation',
-        showFoldingControls: 'always',
-        matchBrackets: 'always',
-        autoIndent: 'full',
-        stickyScroll: { enabled: false },
-        padding: { top: 10, bottom: 10 }
-      });
-
-      editor.onDidChangeModelContent(() => {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'change', content: editor.getValue() }));
-      });
-
-      editor.onDidChangeCursorPosition((e) => {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'cursor', line: e.position.lineNumber, column: e.position.column }));
-      });
-
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+    window.onerror = function (message, source, lineno, colno, error) {
+      // Ignore opaque Event noise from resource/worker loads once we are past boot
+      // or when the only signal is "[object Event]".
+      var msgStr = typeof message === 'string' ? message : '';
+      if (editor) return true;
+      if (msgStr.indexOf('[object Event]') !== -1 && !error) return true;
+      reportFatal('onerror', msgStr || error || message);
+      return true;
+    };
+    window.addEventListener('error', function (e) {
+      var el = e && e.target;
+      if (el && (el.src || el.href)) {
+        // Missing optional asset: log only, do not kill editor boot.
+        postRN({ type: 'warn', where: 'resource', message: 'Failed to load: ' + (el.src || el.href) });
+        e.preventDefault && e.preventDefault();
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+      if (editor) {
+        postRN({ type: 'warn', where: 'unhandledrejection', message: stringifyErr(e && e.reason) });
+        return;
+      }
+      reportFatal('unhandledrejection', e && e.reason);
     });
 
-    document.addEventListener('message', (event) => { handleMessage(event.data); });
-    window.addEventListener('message', (event) => { handleMessage(event.data); });
+    require.config({
+      paths: { vs: './vs' },
+      // Avoid nls localization file fetches that break offline.
+      'vs/nls': {
+        availableLanguages: { '*': '' }
+      }
+    });
+    if (typeof require !== 'undefined' && require.config) {
+      require.config({
+        onError: function (err) {
+          reportFatal('amd', err && (err.message || err));
+        }
+      });
+    }
+
+    require(['vs/editor/editor.main'], function () {
+      try {
+        // Soft diagnostics only — no semantic workers on Android file://.
+        if (monaco.languages && monaco.languages.typescript) {
+          var ts = monaco.languages.typescript;
+          var soft = {
+            noSemanticValidation: true,
+            noSyntaxValidation: true,
+            noSuggestionDiagnostics: true
+          };
+          try {
+            ts.typescriptDefaults.setDiagnosticsOptions(soft);
+            ts.javascriptDefaults.setDiagnosticsOptions(soft);
+            ts.typescriptDefaults.setEagerModelSync(false);
+            ts.javascriptDefaults.setEagerModelSync(false);
+          } catch (e) {}
+        }
+
+        monaco.editor.defineTheme('mobileide-dark', {
+          base: 'vs-dark',
+          inherit: true,
+          rules: [
+            { token: 'comment', foreground: '6A9955' },
+            { token: 'keyword', foreground: '569CD6' },
+            { token: 'string', foreground: 'CE9178' },
+            { token: 'number', foreground: 'B5CEA8' },
+            { token: 'type', foreground: '4EC9B0' },
+            { token: 'function', foreground: 'DCDCAA' },
+            { token: 'variable', foreground: '9CDCFE' }
+          ],
+          colors: {
+            'editor.background': '#1e1e1e',
+            'editor.foreground': '#d4d4d4',
+            'editor.lineHighlightBackground': '#2a2d2e',
+            'editor.selectionBackground': '#264f78',
+            'editorCursor.foreground': '#d4d4d4',
+            'editorLineNumber.foreground': '#858585',
+            'editorLineNumber.activeForeground': '#c6c6c6'
+          }
+        });
+
+        monaco.editor.defineTheme('mobileide-light', {
+          base: 'vs',
+          inherit: true,
+          rules: [],
+          colors: { 'editor.background': '#ffffff', 'editor.foreground': '#000000' }
+        });
+
+        var host = document.getElementById('editor');
+        host.innerHTML = '';
+
+        editor = monaco.editor.create(host, {
+          value: '',
+          language: 'javascript',
+          theme: 'mobileide-dark',
+          automaticLayout: true,
+          minimap: { enabled: false },
+          wordWrap: 'on',
+          wrappingStrategy: 'advanced',
+          lineNumbersMinChars: 3,
+          glyphMargin: false,
+          fontSize: 13,
+          lineHeight: 19,
+          tabSize: 2,
+          scrollBeyondLastLine: false,
+          renderWhitespace: 'selection',
+          cursorBlinking: 'smooth',
+          smoothScrolling: true,
+          contextmenu: false,
+          quickSuggestions: true,
+          suggestOnTriggerCharacters: true,
+          acceptSuggestionOnEnter: 'on',
+          tabCompletion: 'on',
+          formatOnPaste: false,
+          formatOnType: false,
+          autoClosingBrackets: 'always',
+          autoClosingQuotes: 'always',
+          folding: true,
+          matchBrackets: 'always',
+          autoIndent: 'full',
+          stickyScroll: { enabled: false },
+          padding: { top: 6, bottom: 6 },
+          // Avoid features that spin up workers aggressively.
+          links: false,
+          colorDecorators: false
+        });
+
+        editor.onDidChangeModelContent(function () {
+          postRN({ type: 'change', content: editor.getValue() });
+        });
+
+        editor.onDidChangeCursorPosition(function (e) {
+          postRN({
+            type: 'cursor',
+            line: e.position.lineNumber,
+            column: e.position.column
+          });
+        });
+
+        postRN({ type: 'ready' });
+      } catch (e) {
+        reportFatal('create', e);
+      }
+    }, function (err) {
+      reportFatal('require', err);
+    });
+
+    document.addEventListener('message', function (event) { handleMessage(event.data); });
+    window.addEventListener('message', function (event) { handleMessage(event.data); });
 
     function handleMessage(data) {
       try {
-        const message = JSON.parse(data);
+        var message = JSON.parse(data);
         switch (message.type) {
-          case 'openFile': openFile(message.path, message.content, message.language); break;
-          case 'setContent': if (editor) editor.setValue(message.content); break;
+          case 'openFile':
+            openFile(message.path, message.content, message.language);
+            break;
+          case 'setContent':
+            if (editor) editor.setValue(message.content);
+            break;
           case 'getContent':
-            if (editor) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'content', content: editor.getValue() }));
+            if (editor) postRN({ type: 'content', content: editor.getValue() });
             break;
           case 'setTheme':
-            if (editor) monaco.editor.setTheme(message.theme === 'dark' ? 'mobileide-dark' : 'mobileide-light');
+            if (editor) {
+              monaco.editor.setTheme(message.theme === 'dark' ? 'mobileide-dark' : 'mobileide-light');
+            }
             break;
-          case 'setFontSize': if (editor) editor.updateOptions({ fontSize: message.size }); break;
-          case 'setWordWrap': if (editor) editor.updateOptions({ wordWrap: message.enabled ? 'on' : 'off' }); break;
-          case 'setTabSize': if (editor) editor.updateOptions({ tabSize: message.size }); break;
-          case 'format': if (editor) editor.getAction('editor.action.formatDocument').run(); break;
-          case 'undo': if (editor) editor.trigger('keyboard', 'undo', null); break;
-          case 'redo': if (editor) editor.trigger('keyboard', 'redo', null); break;
-          case 'find': if (editor) editor.getAction('actions.find').run(); break;
+          case 'setFontSize':
+            if (editor) editor.updateOptions({ fontSize: message.size });
+            break;
+          case 'setWordWrap':
+            if (editor) editor.updateOptions({ wordWrap: message.enabled ? 'on' : 'off' });
+            break;
+          case 'setTabSize':
+            if (editor) editor.updateOptions({ tabSize: message.size });
+            break;
+          case 'format':
+            if (editor) {
+              var act = editor.getAction('editor.action.formatDocument');
+              if (act) act.run();
+            }
+            break;
+          case 'undo':
+            if (editor) editor.trigger('keyboard', 'undo', null);
+            break;
+          case 'redo':
+            if (editor) editor.trigger('keyboard', 'redo', null);
+            break;
+          case 'find':
+            if (editor) {
+              var find = editor.getAction('actions.find');
+              if (find) find.run();
+            }
+            break;
           case 'goToLine':
-            if (editor) { editor.revealLineInCenter(message.line); editor.setPosition({ lineNumber: message.line, column: 1 }); }
+            if (editor) {
+              editor.revealLineInCenter(message.line);
+              editor.setPosition({ lineNumber: message.line, column: 1 });
+            }
             break;
-          case 'setDiagnostics': setDiagnostics(message.uri, message.diagnostics); break;
-          case 'focus': if (editor) editor.focus(); break;
+          case 'focus':
+            if (editor) editor.focus();
+            break;
+          case 'copy':
+            // Selection text posted to RN for system clipboard.
+            if (editor) {
+              var sel = editor.getModel().getValueInRange(editor.getSelection());
+              postRN({ type: 'copyText', text: sel || editor.getValue() });
+            }
+            break;
         }
-      } catch (e) { console.error('Error handling message:', e); }
+      } catch (e) {
+        console.error('Error handling message:', e);
+      }
     }
 
     function openFile(path, content, language) {
       if (!editor) return;
-      const uri = monaco.Uri.parse(path);
-      let model = models.get(path);
-      if (model) { model.setValue(content); }
-      else { model = monaco.editor.createModel(content, language, uri); models.set(path, model); }
+      currentPath = path || '';
+      var lang = language || 'plaintext';
+      var uri = monaco.Uri.parse('inmemory://model/' + encodeURIComponent(path || 'untitled'));
+      var model = models.get(path);
+      if (model) {
+        if (model.getValue() !== content) model.setValue(content || '');
+        if (model.getLanguageId() !== lang) {
+          monaco.editor.setModelLanguage(model, lang);
+        }
+      } else {
+        model = monaco.editor.createModel(content || '', lang, uri);
+        models.set(path, model);
+      }
       editor.setModel(model);
       currentModel = model;
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'fileOpened', path: path }));
-    }
-
-    function setDiagnostics(uri, diagnostics) {
-      const monacoDiagnostics = diagnostics.map(d => ({
-        severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : d.severity === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info,
-        message: d.message,
-        startLineNumber: d.startLine,
-        startColumn: d.startColumn,
-        endLineNumber: d.endLine,
-        endColumn: d.endColumn
-      }));
-      monaco.editor.setModelMarkers(monaco.editor.getModel(monaco.Uri.parse(uri)), 'mobileide', monacoDiagnostics);
+      postRN({ type: 'fileOpened', path: path });
     }
   </script>
 </body>

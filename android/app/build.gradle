@@ -82,8 +82,8 @@ android {
         applicationId "com.mobileide.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 2
+        versionName "1.1.0"
         ndk {
             abiFilters "arm64-v8a"
         }
@@ -120,11 +120,175 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
+        jniLibs {
+            // Legacy packaging keeps native libs uncompressed and extracted to
+            // nativeLibraryDir at install time, which is the ONLY app-owned
+            // exec-permitted location on Android 10+ (targetSdk 34).
+            useLegacyPackaging = true
+        }
+        // Our runtime executables (node, git, bash, ...) are shipped AS lib*.so.
+        // They are real ARM64 ELF binaries and MUST NOT be stripped/altered by AGP.
+        doNotStrip "*/arm64-v8a/lib*.so"
+    }
+    // The runtime binaries are relocated into jniLibs by prepareRuntimeNativeLibs.
+    sourceSets {
+        main {
+            jniLibs.srcDirs += file("src/main/jniLibs")
+        }
+    }
+}
+
+/**
+ * Relocate the bundled developer runtime.
+ *
+ * Android forbids execve() of any file living in the writable data dir
+ * (filesDir/runtime/bin). The one app-owned, exec-permitted location is
+ * nativeLibraryDir, which is populated from lib*.so entries in jniLibs.
+ *
+ * This task scans src/main/assets/runtime for real ELF binaries, copies each
+ * one to src/main/jniLibs/arm64-v8a/lib<mangled>.so (de-duplicated by content
+ * hash so identical git builtins share a single .so), writes a JSON map of
+ * originalRelPath -> libName to assets/runtime/native-map.json, and removes the
+ * original ELF from assets so it is not packaged twice. RuntimeManager reads the
+ * map at runtime and rebuilds a symlink farm pointing at nativeLibraryDir.
+ *
+ * Non-ELF support files (JS, shell scripts, config) are left in assets and are
+ * extracted normally.
+ */
+def runtimeAssetsDir = file("src/main/assets/runtime")
+def jniLibsArm64Dir = file("src/main/jniLibs/arm64-v8a")
+def nativeMapFile = new File(runtimeAssetsDir, "native-map.json")
+
+def isElfFile = { java.io.File f ->
+    if (!f.isFile() || f.length() < 4L) return false
+    f.withInputStream { ins ->
+        byte[] magic = new byte[4]
+        int n = ins.read(magic)
+        return n == 4 && (magic[0] & 0xFF) == 0x7F && magic[1] == (byte) 'E' && magic[2] == (byte) 'L' && magic[3] == (byte) 'F'
+    }
+}
+
+def sha256Hex = { java.io.File f ->
+    def md = java.security.MessageDigest.getInstance("SHA-256")
+    f.withInputStream { ins ->
+        byte[] buf = new byte[16384]
+        int r
+        while ((r = ins.read(buf)) != -1) md.update(buf, 0, r)
+    }
+    return md.digest().collect { String.format("%02x", it & 0xFF) }.join("")
+}
+
+def mangleLibName = { String relPath ->
+    "lib" + relPath.replaceAll("[^a-zA-Z0-9]+", "_") + ".so"
+}
+
+/**
+ * Android asset packaging drops directories whose names start with '_'.
+ * npm's @sigstore/protobuf-specs uses dist/__generated__/ which must be
+ * renamed to dist/generated/ (and JS requires rewritten) or every `npm`
+ * invocation fails with MODULE_NOT_FOUND for './generated/envelope'.
+ * This task is a safety net in case fetch-runtime.sh was skipped.
+ */
+task sanitizeRuntimeNpmAssets {
+    description = "Rename underscore-prefixed npm dirs so aapt packages them"
+    doLast {
+        def npmRoot = new File(runtimeAssetsDir, "lib/node_modules")
+        if (!npmRoot.exists()) {
+            logger.lifecycle("[runtime] no npm tree; skipping underscore sanitize")
+            return
+        }
+        // Deepest first so nested renames stay valid.
+        def dirs = []
+        npmRoot.eachDirRecurse { d ->
+            if (d.name.startsWith("_")) dirs << d
+        }
+        dirs.sort { -it.absolutePath.length() }
+        int renamed = 0
+        dirs.each { d ->
+            def newName = d.name.replaceFirst(/^_+/, "")
+            if (newName.isEmpty() || newName == d.name) return
+            def target = new File(d.parentFile, newName)
+            if (target.exists()) {
+                logger.warn("[runtime] skip rename ${d.name}: ${target} exists")
+                return
+            }
+            if (d.renameTo(target)) {
+                renamed++
+                logger.lifecycle("[runtime] renamed ${d.name} -> ${newName}")
+            }
+        }
+        // Patch JS require paths still pointing at __generated__
+        int patched = 0
+        npmRoot.eachFileRecurse { f ->
+            if (!f.isFile() || !f.name.endsWith(".js")) return
+            def text = f.getText("UTF-8")
+            if (!text.contains("__generated__")) return
+            f.write(text.replace("__generated__", "generated"), "UTF-8")
+            patched++
+        }
+        logger.lifecycle("[runtime] sanitize npm assets: renamed=${renamed} patchedJs=${patched}")
+    }
+}
+
+task prepareRuntimeNativeLibs {
+    description = "Relocate ELF runtime binaries from assets into jniLibs as lib*.so"
+    dependsOn sanitizeRuntimeNpmAssets
+    doLast {
+        if (!runtimeAssetsDir.exists()) {
+            logger.lifecycle("[runtime] no runtime assets dir; skipping relocation")
+            return
+        }
+        jniLibsArm64Dir.mkdirs()
+
+        // Merge with any previously generated map so the task is idempotent.
+        def map = [:]
+        if (nativeMapFile.exists()) {
+            try {
+                map = new groovy.json.JsonSlurper().parse(nativeMapFile) as Map
+            } catch (ignored) {
+                map = [:]
+            }
+        }
+
+        def hashToLib = [:]
+        int relocated = 0
+        runtimeAssetsDir.traverse(type: groovy.io.FileType.FILES) { java.io.File f ->
+            if (f == nativeMapFile) return
+            if (!isElfFile(f)) return
+            def relPath = runtimeAssetsDir.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+            def hash = sha256Hex(f)
+            def libName = hashToLib[hash]
+            if (libName == null) {
+                libName = mangleLibName(relPath)
+                new File(jniLibsArm64Dir, libName).bytes = f.bytes
+                hashToLib[hash] = libName
+            }
+            map[relPath] = libName
+            f.delete()
+            relocated++
+        }
+
+        nativeMapFile.parentFile.mkdirs()
+        nativeMapFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(map))
+        logger.lifecycle("[runtime] relocated ${relocated} ELF binaries; native-map has ${map.size()} entries -> ${jniLibsArm64Dir}")
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn prepareRuntimeNativeLibs
 }
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // JGit - pure Java git implementation for Git UI panel
+    implementation("org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r")
+    implementation("org.slf4j:slf4j-nop:1.7.36")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

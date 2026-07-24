@@ -16,7 +16,10 @@ class MobileIDEPackage : ReactPackage {
             MobileIDENativeModule(reactContext),
             PtyNativeModule(reactContext),
             FileSystemNativeModule(reactContext),
-            ProcessNativeModule(reactContext)
+            ProcessNativeModule(reactContext),
+            GitNativeModule(reactContext),
+            StorageNativeModule(reactContext),
+            ClipboardNativeModule(reactContext)
         )
     }
 

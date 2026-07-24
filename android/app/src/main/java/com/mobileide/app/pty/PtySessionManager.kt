@@ -37,6 +37,9 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
     private val sessions = ConcurrentHashMap<Int, PtySession>()
     private val sessionIdCounter = AtomicInteger(0)
 
+    // Cached result of the bundled-bash usability probe (null = not yet checked).
+    private var bashUsable: Boolean? = null
+
     /**
      * Create a new PTY session with a shell process
      */
@@ -58,14 +61,14 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
         // fall back to a plain ProcessBuilder shell so the terminal still works
         // (and never hard-crashes the app when the native lib is missing).
         val backend: TerminalBackend = if (PtyProcess.isNativeLoaded) {
-            val shellPath = "${runtimeManager.getBinDir()}/bash"
-            val args = arrayOf(shellPath, "--login")
+            val shellPath = resolveShell()
+            val args = arrayOf(shellPath, "-i")
             NativePtyBackend(
                 createPtyProcess(sessionId, shellPath, args, env, workingDir, cols, rows)
             )
         } else {
             Log.w(TAG, "Native PTY unavailable; using ProcessBuilder shell fallback")
-            ProcessShellBackend(resolveFallbackShell(), env, workingDir)
+            ProcessShellBackend(resolveShell(), env, workingDir)
         }
 
         val session = PtySession(
@@ -83,15 +86,38 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
     }
 
     /**
-     * Resolve a usable shell binary for the fallback backend.
+     * Resolve a usable shell binary.
+     * Prefers the bundled bash (a symlink into nativeLibraryDir) so shell
+     * functions like command_not_found_handle and the npm/npx shims work.
+     * If bash cannot actually run (missing shared libs on this device) we
+     * automatically degrade to /system/bin/sh (mksh), which always works.
      */
-    private fun resolveFallbackShell(): String {
-        val candidates = listOf(
-            "${runtimeManager.getBinDir()}/bash",
-            "/system/bin/sh",
-            "/bin/sh"
-        )
-        return candidates.firstOrNull { File(it).exists() } ?: "/system/bin/sh"
+    private fun resolveShell(): String {
+        val bash = "${runtimeManager.getBinDir()}/bash"
+        if (isBashUsable(bash)) return bash
+        return "/system/bin/sh"
+    }
+
+    /** One-time (cached) probe that the bundled bash can execute on this device. */
+    private fun isBashUsable(bashPath: String): Boolean {
+        bashUsable?.let { return it }
+        val f = File(bashPath)
+        if (!f.exists()) {
+            bashUsable = false
+            return false
+        }
+        val ok = try {
+            val pb = ProcessBuilder(bashPath, "-c", "exit 0")
+            pb.environment().putAll(runtimeManager.getEnvironment())
+            val p = pb.start()
+            p.waitFor()
+            p.exitValue() == 0
+        } catch (e: Exception) {
+            Log.w(TAG, "Bundled bash not usable, falling back to /system/bin/sh: ${e.message}")
+            false
+        }
+        bashUsable = ok
+        return ok
     }
 
     /**

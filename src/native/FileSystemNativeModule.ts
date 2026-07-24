@@ -52,6 +52,7 @@ export interface FileSystemNativeInterface {
   watchDirectory(path: string): Promise<string>;
   stopWatching(watchId: string): Promise<boolean>;
   getWorkspaces(): Promise<WorkspaceEntry[]>;
+  openExternalFolder(path: string): Promise<FileEntry[]>;
 }
 
 export const FileSystemNativeModule = FileSystemNative as FileSystemNativeInterface;

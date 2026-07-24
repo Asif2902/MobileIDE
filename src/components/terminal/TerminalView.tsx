@@ -1,20 +1,59 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { View, StyleSheet, Modal, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { WebView } from 'react-native-webview';
-import type { WebViewMessageEvent, WebView as WebViewType } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 import { useTerminalStore, getOutputBuffer } from '../../stores';
-import { PtyEventEmitter, PTY_EVENTS, TerminalOutputEvent } from '../../native';
+import {
+  PtyEventEmitter,
+  PTY_EVENTS,
+  TerminalOutputEvent,
+  TerminalExitEvent,
+  ClipboardNativeModule,
+} from '../../native';
+import { TerminalAccessoryBar } from './TerminalAccessoryBar';
+import { Icon } from '../icons';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const WebViewAny = WebView as any;
 
 interface TerminalViewProps {
   sessionId: number;
+  active?: boolean;
 }
 
-export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId }) => {
-  const webViewRef = useRef<WebViewType>(null);
+export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = true }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
   const pendingOutput = useRef<string[]>([]);
-  
+
+  // Ctrl/Alt "armed" state mirrored from the WebView so the accessory bar can
+  // highlight the modifier while it waits for the next key.
+  const [ctrlArmed, setCtrlArmed] = useState(false);
+  const [altArmed, setAltArmed] = useState(false);
+  const [fontSize, setFontSize] = useState(12);
+
+  // Selection modal state for finger text selection
+  const [isSelectModalVisible, setIsSelectModalVisible] = useState(false);
+  const [selectModalText, setSelectModalText] = useState('');
+
   const { writeToSession, resizeSession } = useTerminalStore();
+  const isKeyboardBarVisible = useTerminalStore(state => state.isKeyboardBarVisible);
+
+  // Post a message into the terminal WebView's handleMessage() dispatcher.
+  const postToWeb = useCallback((msg: object) => {
+    webViewRef.current?.injectJavaScript(
+      `handleMessage(${JSON.stringify(JSON.stringify(msg))}); true;`,
+    );
+  }, []);
+
+  const changeFontSize = useCallback((delta: number) => {
+    setFontSize(prev => {
+      const next = Math.max(9, Math.min(22, prev + delta));
+      postToWeb({ type: 'fontSize', size: next });
+      return next;
+    });
+  }, [postToWeb]);
 
   // Subscribe to terminal output
   useEffect(() => {
@@ -39,6 +78,40 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId }) => {
 
     return () => subscription.remove();
   }, [sessionId]);
+
+  // Show a clear notice when the shell/process exits so a dead terminal is not
+  // mistaken for a frozen one (e.g. after a command crashes the session).
+  useEffect(() => {
+    const subscription = PtyEventEmitter.addListener(
+      PTY_EVENTS.EXIT,
+      (event: TerminalExitEvent) => {
+        if (event.sessionId === sessionId) {
+          const notice = `\r\n\x1b[33m[process exited with code ${event.exitCode}]\x1b[0m\r\n`;
+          if (isReady.current && webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              handleMessage(${JSON.stringify(JSON.stringify({ type: 'output', data: notice }))});
+              true;
+            `);
+          } else {
+            pendingOutput.current.push(notice);
+          }
+        }
+      }
+    );
+    return () => subscription.remove();
+  }, [sessionId]);
+
+  // When this terminal becomes the active tab, re-fit to the current viewport
+  // and focus it so the keyboard targets the right session.
+  useEffect(() => {
+    if (active && isReady.current && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        handleMessage(${JSON.stringify(JSON.stringify({ type: 'fit' }))});
+        handleMessage(${JSON.stringify(JSON.stringify({ type: 'focus' }))});
+        true;
+      `);
+    }
+  }, [active]);
 
   const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
     try {
@@ -84,115 +157,47 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId }) => {
         case 'resize':
           resizeSession(sessionId, message.cols, message.rows);
           break;
+
+        case 'modifier':
+          setCtrlArmed(!!message.ctrl);
+          setAltArmed(!!message.alt);
+          break;
+
+        case 'openSelectionModal':
+          setSelectModalText(message.bufferText || '');
+          setIsSelectModalVisible(true);
+          break;
+
+        case 'copyText':
+          // System clipboard via native module (WebView clipboard is unreliable).
+          ClipboardNativeModule.setString(message.text || '').catch(err => {
+            console.error('Clipboard copy failed:', err);
+          });
+          break;
+
+        case 'requestPaste':
+          ClipboardNativeModule.getString()
+            .then(text => {
+              if (text) {
+                postToWeb({ type: 'pasteText', data: text });
+              }
+            })
+            .catch(err => console.error('Clipboard paste failed:', err));
+          break;
+
+        case 'copied':
+          break;
       }
     } catch (error) {
       console.error('Error handling WebView message:', error);
     }
-  }, [sessionId, writeToSession, resizeSession]);
-
-  const terminalHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; }
-        #terminal { width: 100%; height: 100%; padding: 4px; }
-        .xterm { height: 100%; }
-        .xterm-viewport { overflow-y: auto !important; }
-      </style>
-    </head>
-    <body>
-      <div id="terminal"></div>
-      <script>
-        // Simple terminal emulation without xterm.js for now
-        const terminal = document.getElementById('terminal');
-        let output = '';
-        
-        const term = {
-          write: function(data) {
-            output += data;
-            terminal.innerHTML = '<pre style="color:#d4d4d4;font-family:monospace;font-size:14px;white-space:pre-wrap;word-wrap:break-word;margin:0;">' + escapeHtml(output) + '</pre>';
-            terminal.scrollTop = terminal.scrollHeight;
-          },
-          clear: function() {
-            output = '';
-            terminal.innerHTML = '';
-          },
-          cols: 80,
-          rows: 24,
-          focus: function() {},
-          blur: function() {}
-        };
-        
-        function escapeHtml(text) {
-          const div = document.createElement('div');
-          div.textContent = text;
-          return div.innerHTML;
-        }
-        
-        function handleMessage(data) {
-          try {
-            const message = JSON.parse(data);
-            switch (message.type) {
-              case 'output':
-                term.write(message.data);
-                break;
-              case 'clear':
-                term.clear();
-                break;
-              case 'focus':
-                term.focus();
-                break;
-            }
-          } catch (e) {
-            console.error('Error:', e);
-          }
-        }
-        
-        // Keyboard input handling
-        document.addEventListener('keydown', function(e) {
-          let data = '';
-          if (e.key === 'Enter') data = '\\r';
-          else if (e.key === 'Backspace') data = '\\x7f';
-          else if (e.key === 'Tab') { data = '\\t'; e.preventDefault(); }
-          else if (e.key === 'Escape') data = '\\x1b';
-          else if (e.ctrlKey && e.key.length === 1) {
-            data = String.fromCharCode(e.key.toUpperCase().charCodeAt(0) - 64);
-          }
-          else if (e.key.length === 1) data = e.key;
-          
-          if (data) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'input',
-              data: data
-            }));
-          }
-        });
-        
-        // Notify ready
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'ready',
-          cols: term.cols,
-          rows: term.rows
-        }));
-        
-        // Focus on touch
-        terminal.addEventListener('touchstart', function() {
-          term.focus();
-        });
-      </script>
-    </body>
-    </html>
-  `;
+  }, [sessionId, writeToSession, resizeSession, postToWeb]);
 
   return (
     <View style={styles.container}>
-      <WebView
+      <WebViewAny
         ref={webViewRef}
-        source={{ html: terminalHtml }}
+        source={{ uri: 'file:///android_asset/terminal/index.html' }}
         style={styles.webview}
         onMessage={handleWebViewMessage}
         javaScriptEnabled={true}
@@ -204,7 +209,62 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId }) => {
         setSupportMultipleWindows={false}
         androidHardwareAccelerationDisabled={false}
         originWhitelist={['*']}
+        // Required so the bundled xterm.js and its addons load from file://.
+        allowFileAccess={true}
+        allowFileAccessFromFileURLs={true}
+        allowUniversalAccessFromFileURLs={true}
+        mixedContentMode="always"
       />
+      {active && isKeyboardBarVisible && (
+        <TerminalAccessoryBar
+          ctrlArmed={ctrlArmed}
+          altArmed={altArmed}
+          onKey={seq => postToWeb({ type: 'key', data: seq })}
+          onCtrl={() => postToWeb({ type: 'armCtrl' })}
+          onAlt={() => postToWeb({ type: 'armAlt' })}
+          onCopy={() => postToWeb({ type: 'copy' })}
+          onPaste={() => postToWeb({ type: 'requestPasteFromNative' })}
+          onSelectText={() => postToWeb({ type: 'openSelectModal' })}
+          onFontSmaller={() => changeFontSize(-1)}
+          onFontLarger={() => changeFontSize(1)}
+        />
+      )}
+
+      {/* Modal for touch finger selection */}
+      <Modal
+        visible={isSelectModalVisible}
+        animationType="slide"
+        onRequestClose={() => setIsSelectModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select & Copy Terminal Text</Text>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setIsSelectModalVisible(false)}
+            >
+              <Icon name="close" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.modalHint}>
+            Touch and drag handles to select specific text to copy:
+          </Text>
+          <ScrollView style={styles.modalTextContainer}>
+            <Text selectable style={styles.selectableInput}>
+              {selectModalText}
+            </Text>
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.copyAllButton}
+            onPress={() => {
+              ClipboardNativeModule.setString(selectModalText || '').catch(() => {});
+              setIsSelectModalVisible(false);
+            }}
+          >
+            <Text style={styles.copyAllButtonText}>Copy all</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -217,6 +277,61 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: '#1e1e1e',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#1e1e1e',
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
+  },
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  closeButton: {
+    padding: 6,
+  },
+  modalHint: {
+    color: '#8a8a92',
+    fontSize: 12,
+    marginVertical: 8,
+  },
+  modalTextContainer: {
+    flex: 1,
+    backgroundColor: '#141414',
+    borderRadius: 6,
+    borderColor: '#2a2a2a',
+    borderWidth: 1,
+    padding: 10,
+  },
+  selectableInput: {
+    flex: 1,
+    color: '#d4d4d4',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    textAlignVertical: 'top',
+  },
+  copyAllButton: {
+    marginTop: 12,
+    backgroundColor: '#8b5cf6',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  copyAllButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

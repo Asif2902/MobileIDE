@@ -15,6 +15,8 @@ interface TerminalState {
   sessions: TerminalSession[];
   activeSessionId: number | null;
   isCreating: boolean;
+  // Whether the Termux-style extra-keys accessory bar is shown above the keyboard.
+  isKeyboardBarVisible: boolean;
   
   // Actions
   createSession: (cwd?: string) => Promise<number>;
@@ -25,6 +27,7 @@ interface TerminalState {
   sendInterrupt: (sessionId: number) => Promise<void>;
   sendTab: (sessionId: number) => Promise<void>;
   refreshSessions: () => Promise<void>;
+  toggleKeyboardBar: () => void;
   
   // Event handlers
   handleOutput: (event: TerminalOutputEvent) => void;
@@ -46,6 +49,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   isCreating: false,
+  isKeyboardBarVisible: true,
+
+  toggleKeyboardBar: () => {
+    set(state => ({ isKeyboardBarVisible: !state.isKeyboardBarVisible }));
+  },
 
   createSession: async (cwd?: string) => {
     set({ isCreating: true });

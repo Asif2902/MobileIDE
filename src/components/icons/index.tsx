@@ -20,7 +20,9 @@ export type IconName =
   | 'problems'
   | 'output'
   | 'debug'
-  | 'refresh';
+  | 'refresh'
+  | 'keyboard'
+  | 'copy';
 
 export interface IconProps {
   name: IconName;
@@ -197,6 +199,24 @@ function renderPaths(
         <>
           <Polyline {...stroke} points="23 4 23 10 17 10" />
           <Path {...stroke} d="M20.5 15a9 9 0 1 1-2.1-9.4L23 10" />
+        </>
+      );
+    case 'keyboard':
+      return (
+        <>
+          <Rect {...stroke} x="2" y="6" width="20" height="12" rx="2" />
+          <Line {...stroke} x1="6" y1="10" x2="6.01" y2="10" />
+          <Line {...stroke} x1="10" y1="10" x2="10.01" y2="10" />
+          <Line {...stroke} x1="14" y1="10" x2="14.01" y2="10" />
+          <Line {...stroke} x1="18" y1="10" x2="18.01" y2="10" />
+          <Line {...stroke} x1="8" y1="14" x2="16" y2="14" />
+        </>
+      );
+    case 'copy':
+      return (
+        <>
+          <Rect {...stroke} x="9" y="9" width="11" height="11" rx="2" />
+          <Path {...stroke} d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </>
       );
     default:

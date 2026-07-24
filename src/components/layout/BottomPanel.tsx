@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useUIStore, BottomPanelView } from '../../stores';
 import { TerminalPanel } from '../terminal';
 import { Icon, IconName } from '../icons';
+import { ProblemsView, OutputView, DebugView } from './BottomPanelViews';
 
 interface PanelTab {
   id: BottomPanelView;
@@ -33,25 +34,14 @@ export const BottomPanel: React.FC = () => {
   const renderContent = () => {
     switch (activeBottomPanelView) {
       case 'terminal':
-        return <TerminalPanel />;
+        // embedded: BottomPanel already owns Terminal/Problems/Output/Debug tabs
+        return <TerminalPanel embedded />;
       case 'problems':
-        return (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>No problems detected</Text>
-          </View>
-        );
+        return <ProblemsView />;
       case 'output':
-        return (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Output console</Text>
-          </View>
-        );
+        return <OutputView />;
       case 'debug':
-        return (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Debug console</Text>
-          </View>
-        );
+        return <DebugView />;
       default:
         return null;
     }

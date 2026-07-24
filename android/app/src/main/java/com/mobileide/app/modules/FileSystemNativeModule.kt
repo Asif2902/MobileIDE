@@ -403,6 +403,40 @@ class FileSystemNativeModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * Open a real external folder (e.g. under /storage/emulated/0) and return
+     * its entries. Requires all-files access to have been granted.
+     */
+    @ReactMethod
+    fun openExternalFolder(path: String, promise: Promise) {
+        scope.launch {
+            try {
+                val fs = getFileSystem()
+                val entries = fs.openExternalFolder(path)
+
+                val result = Arguments.createArray()
+                entries.forEach { entry ->
+                    result.pushMap(Arguments.createMap().apply {
+                        putString("name", entry.name)
+                        putString("path", entry.path)
+                        putBoolean("isDirectory", entry.isDirectory)
+                        putDouble("size", entry.size.toDouble())
+                        putDouble("modifiedTime", entry.modifiedTime.toDouble())
+                        putBoolean("isHidden", entry.isHidden)
+                    })
+                }
+
+                withContext(Dispatchers.Main) {
+                    promise.resolve(result)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    promise.reject("FS_ERROR", e.message)
+                }
+            }
+        }
+    }
+
     private fun sendEvent(eventName: String, params: WritableMap) {
         reactApplicationContext
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

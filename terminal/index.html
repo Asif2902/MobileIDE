@@ -16,16 +16,20 @@
       overflow: hidden;
       background-color: #1e1e1e;
     }
+    /* xterm owns the cell grid — do not CSS-wrap .xterm-rows (breaks columns). */
     #terminal {
       width: 100%;
       height: 100%;
-      padding: 4px;
+      padding: 2px;
+      overflow: hidden;
     }
     .xterm {
       height: 100%;
+      width: 100%;
     }
     .xterm-viewport {
       overflow-y: auto !important;
+      overflow-x: hidden !important;
     }
   </style>
   <link rel="stylesheet" href="./xterm.css">
@@ -41,10 +45,11 @@
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
-      fontSize: 14,
+      fontSize: 12,
       fontFamily: 'monospace',
       lineHeight: 1.2,
       scrollback: 5000,
+      convertEol: true,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -74,7 +79,6 @@
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
 
-    // Try to load WebGL addon for better performance
     try {
       const webglAddon = new WebglAddon.WebglAddon();
       webglAddon.onContextLoss(() => {
@@ -87,6 +91,54 @@
 
     term.open(document.getElementById('terminal'));
     fitAddon.fit();
+
+    function copyToClipboard(text) {
+      if (!text) return;
+      let ok = false;
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+      } catch (e) { ok = false; }
+      if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+      }
+      try { term.focus(); } catch (e) {}
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copied', length: text.length }));
+    }
+
+    function getBufferText() {
+      try {
+        const buf = term.buffer.active;
+        const lines = [];
+        for (let i = 0; i < buf.length; i++) {
+          const line = buf.getLine(i);
+          if (line) { lines.push(line.translateToString(true)); }
+        }
+        return lines.join('\n').replace(/\n+$/, '');
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function handleCopyCommand() {
+      const sel = term.getSelection();
+      if (sel && sel.length > 0) {
+        copyToClipboard(sel);
+      } else {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'openSelectionModal',
+          bufferText: getBufferText()
+        }));
+      }
+    }
 
     // Send data to React Native when user types
     term.onData((data) => {
@@ -154,6 +206,17 @@
             
           case 'selectAll':
             term.selectAll();
+            break;
+            
+          case 'copy':
+            handleCopyCommand();
+            break;
+
+          case 'openSelectModal':
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'openSelectionModal',
+              bufferText: getBufferText()
+            }));
             break;
             
           case 'getSelection':

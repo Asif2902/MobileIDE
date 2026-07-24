@@ -91,8 +91,11 @@
         automaticLayout: true,
         minimap: { enabled: false },
         wordWrap: 'on',
-        fontSize: 14,
-        lineHeight: 20,
+        wrappingStrategy: 'advanced',
+        lineNumbersMinChars: 3,
+        glyphMargin: false,
+        fontSize: 13,
+        lineHeight: 19,
         tabSize: 2,
         scrollBeyondLastLine: false,
         renderWhitespace: 'selection',
@@ -107,13 +110,11 @@
         formatOnType: true,
         autoClosingBrackets: 'always',
         autoClosingQuotes: 'always',
-        folding: true,
-        foldingStrategy: 'indentation',
-        showFoldingControls: 'always',
+        folding: false,
         matchBrackets: 'always',
         autoIndent: 'full',
         stickyScroll: { enabled: false },
-        padding: { top: 10, bottom: 10 }
+        padding: { top: 6, bottom: 6 }
       });
 
       // Listen for content changes

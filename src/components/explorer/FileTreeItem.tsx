@@ -1,36 +1,27 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { FileEntry } from '../../native';
-import { useFileStore, useEditorStore } from '../../stores';
-import { Icon } from '../icons';
+import { useFileStore, useEditorStore, useUIStore } from '../../stores';
 
 interface FileTreeItemProps {
   entry: FileEntry;
   depth: number;
 }
 
-// Color hint for common source file extensions.
-const getFileColor = (name: string): string => {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const colorMap: Record<string, string> = {
-    js: '#f7df1e',
-    jsx: '#61dafb',
-    ts: '#3178c6',
-    tsx: '#61dafb',
-    json: '#cbcb41',
-    html: '#e34c26',
-    css: '#563d7c',
-    scss: '#cf649a',
-    md: '#42a5f5',
-    py: '#3572A5',
-  };
-  return colorMap[ext] || '#8a8a92';
-};
+// Guard rails so the Monaco editor never hangs on content it cannot render.
+const MAX_EDITABLE_BYTES = 3 * 1024 * 1024; // 3 MB
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'pdf', 'zip', 'gz',
+  'tar', 'rar', '7z', 'apk', 'jar', 'so', 'dll', 'exe', 'bin', 'o', 'a', 'class',
+  'mp3', 'mp4', 'mov', 'avi', 'mkv', 'wav', 'flac', 'ttf', 'otf', 'woff', 'woff2',
+  'node', 'wasm', 'db', 'sqlite', 'sqlite3',
+]);
 
 export const FileTreeItem: React.FC<FileTreeItemProps> = ({ entry, depth }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const { fileTree, expandedFolders, toggleFolder, loadDirectory } = useFileStore();
   const { openFile } = useEditorStore();
+  const { setActiveView } = useUIStore();
   
   const isExpanded = expandedFolders.has(entry.path);
   const children = fileTree.get(entry.path) || [];
@@ -42,7 +33,18 @@ export const FileTreeItem: React.FC<FileTreeItemProps> = ({ entry, depth }) => {
         loadDirectory(entry.path);
       }
     } else {
-      openFile(entry.path);
+      const ext = entry.name.split('.').pop()?.toLowerCase() || '';
+      if (BINARY_EXTENSIONS.has(ext)) {
+        Alert.alert('Binary file', `"${entry.name}" is a binary file and can't be opened in the text editor.`);
+        return;
+      }
+      if (entry.size > MAX_EDITABLE_BYTES) {
+        const mb = (entry.size / (1024 * 1024)).toFixed(1);
+        Alert.alert('File too large', `"${entry.name}" is ${mb} MB. Files over 3 MB can't be opened in the editor.`);
+        return;
+      }
+      setActiveView('editor');
+      openFile(entry.path).catch(e => Alert.alert('Could not open file', e?.message || String(e)));
     }
   };
 
@@ -53,18 +55,11 @@ export const FileTreeItem: React.FC<FileTreeItemProps> = ({ entry, depth }) => {
         onPress={handlePress}
         onLongPress={() => setIsRenaming(true)}
       >
-        {entry.isDirectory && (
-          <View style={styles.chevron}>
-            <Icon name={isExpanded ? 'chevron-down' : 'chevron-right'} size={12} color="#8a8a92" />
-          </View>
+        {entry.isDirectory ? (
+          <Text style={styles.folderIcon}>{isExpanded ? '\u25BC' : '\u25B6'} \uD83D\uDCC1</Text>
+        ) : (
+          <Text style={styles.fileIcon}>{'\uD83D\uDCC4'}</Text>
         )}
-        <View style={styles.icon}>
-          {entry.isDirectory ? (
-            <Icon name={isExpanded ? 'folder-open' : 'folder'} size={15} color="#dcb67a" />
-          ) : (
-            <Icon name="file" size={15} color={getFileColor(entry.name)} />
-          )}
-        </View>
         <Text style={styles.name} numberOfLines={1}>
           {entry.name}
         </Text>
@@ -85,17 +80,19 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 8,
     paddingRight: 8,
   },
-  icon: {
+  folderIcon: {
+    fontSize: 13,
     marginRight: 6,
   },
-  chevron: {
-    marginRight: 2,
+  fileIcon: {
+    fontSize: 13,
+    marginRight: 6,
   },
   name: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#cccccc',
     flex: 1,
   },

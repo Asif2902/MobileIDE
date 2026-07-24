@@ -10,12 +10,31 @@ export interface OpenFile {
   isDirty: boolean;
 }
 
+export interface Problem {
+  severity: 'error' | 'warning' | 'info' | 'hint';
+  message: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  source: string;
+}
+
+export interface FileDiagnostics {
+  errors: number;
+  warnings: number;
+  problems: Problem[];
+}
+
 interface EditorState {
   openFiles: OpenFile[];
   activeFilePath: string | null;
   fontSize: number;
   wordWrap: boolean;
   theme: 'dark' | 'light';
+  diagnostics: Record<string, FileDiagnostics>;
+  cursorLine: number;
+  cursorColumn: number;
   
   // Actions
   openFile: (path: string) => Promise<void>;
@@ -27,6 +46,8 @@ interface EditorState {
   setFontSize: (size: number) => void;
   toggleWordWrap: () => void;
   setTheme: (theme: 'dark' | 'light') => void;
+  setDiagnostics: (path: string, diagnostics: FileDiagnostics) => void;
+  setCursor: (line: number, column: number) => void;
 }
 
 // Language detection from file extension
@@ -80,6 +101,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   fontSize: 14,
   wordWrap: true,
   theme: 'dark',
+  diagnostics: {},
+  cursorLine: 1,
+  cursorColumn: 1,
 
   openFile: async (path: string) => {
     const state = get();
@@ -118,7 +142,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const activeFilePath = state.activeFilePath === path
         ? (openFiles.length > 0 ? openFiles[openFiles.length - 1].path : null)
         : state.activeFilePath;
-      return { openFiles, activeFilePath };
+      const diagnostics = { ...state.diagnostics };
+      delete diagnostics[path];
+      return { openFiles, activeFilePath, diagnostics };
     });
   },
 
@@ -175,5 +201,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTheme: (theme: 'dark' | 'light') => {
     set({ theme });
+  },
+
+  setDiagnostics: (path: string, diagnostics: FileDiagnostics) => {
+    set(state => ({ diagnostics: { ...state.diagnostics, [path]: diagnostics } }));
+  },
+
+  setCursor: (line: number, column: number) => {
+    set({ cursorLine: line, cursorColumn: column });
   },
 }));

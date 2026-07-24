@@ -27,11 +27,31 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
         val realPath = runtimeManager.resolveVirtualPath(virtualPath)
         val file = File(realPath)
         
-        // Security check: ensure path is within runtime root
+        // Security check: allow the runtime sandbox, the read-only system tree,
+        // and (when the user has granted all-files access) real external storage
+        // so CLI tools and the editor can operate on real project folders.
+        //
+        // Compare canonical paths on both sides. context.filesDir reports the
+        // /data/user/0/<pkg> path, but File.canonicalPath resolves the
+        // /data/user/0 -> /data/data symlink, so a raw startsWith check wrongly
+        // rejects every runtime path as "outside sandbox".
         val canonicalPath = file.canonicalPath
-        val runtimeRoot = runtimeManager.getRuntimeRoot()
+        val runtimeRoot = try {
+            File(runtimeManager.getRuntimeRoot()).canonicalPath
+        } catch (e: IOException) {
+            runtimeManager.getRuntimeRoot()
+        }
+        val allowedPrefixes = listOf(
+            runtimeRoot,
+            "/system",
+            "/storage",
+            "/sdcard",
+            "/mnt",
+            "/data/data",
+            "/data/user"
+        )
         
-        if (!canonicalPath.startsWith(runtimeRoot) && !canonicalPath.startsWith("/system")) {
+        if (allowedPrefixes.none { canonicalPath.startsWith(it) }) {
             throw SecurityException("Access denied: path outside sandbox")
         }
         
@@ -395,6 +415,32 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
     fun getWorkspaces(): List<FileEntry> {
         return listDir(RuntimeManager.VIRTUAL_WORKSPACES)
             .filter { it.isDirectory }
+    }
+
+    /**
+     * Open an external (real) folder, e.g. under /storage/emulated/0.
+     * Requires all-files access to have been granted; the sandbox check in
+     * resolvePath permits /storage, /sdcard and /mnt paths.
+     */
+    fun openExternalFolder(realPath: String): List<FileEntry> {
+        val dir = resolvePath(realPath)
+        if (!dir.exists()) throw IOException("Folder not found: $realPath")
+        if (!dir.isDirectory) throw IOException("Not a directory: $realPath")
+
+        return dir.listFiles()?.map { file ->
+            FileEntry(
+                name = file.name,
+                path = file.absolutePath,
+                isDirectory = file.isDirectory,
+                size = if (file.isFile) file.length() else 0,
+                modifiedTime = file.lastModified(),
+                isHidden = file.name.startsWith("."),
+                isReadable = file.canRead(),
+                isWritable = file.canWrite(),
+                isExecutable = file.canExecute()
+            )
+        }?.sortedWith(compareByDescending<FileEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
+            ?: emptyList()
     }
 }
 

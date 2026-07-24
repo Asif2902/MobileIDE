@@ -3,7 +3,9 @@ package com.mobileide.app.runtime
 import android.content.Context
 import android.content.res.AssetManager
 import android.system.Os
+import android.system.OsConstants
 import android.util.Log
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -11,16 +13,28 @@ import java.io.IOException
 /**
  * RuntimeManager handles extraction and management of the bundled developer runtime.
  * The runtime includes Node.js, Bash, Git, and core utilities for ARM64 Android.
- * 
+ *
+ * Execution model
+ * ---------------
+ * Android 10+ (this app targets SDK 34) forbids execve() of any file that lives
+ * in the writable app data dir (filesDir/runtime/bin). The only app-owned,
+ * exec-permitted location is nativeLibraryDir. The Gradle task
+ * `prepareRuntimeNativeLibs` therefore relocates every ELF binary into
+ * jniLibs/arm64-v8a/lib<mangled>.so and writes assets/runtime/native-map.json
+ * (originalRelPath -> libName). At init we rebuild a *symlink farm* inside the
+ * runtime tree: each original path (bin/node, bin/git, bin/git-core/...) becomes
+ * a symlink to nativeLibraryDir/lib<mangled>.so. Non-ELF support files (JS,
+ * shell scripts, config) are extracted normally.
+ *
  * Runtime root structure:
  * {filesDir}/runtime/
- * ├── bin/          (read-only executables)
- * ├── lib/          (shared libraries)
- * ├── home/         (user home directory)
+ * ├── bin/          (symlinks into nativeLibraryDir + non-ELF helpers)
+ * ├── lib/          (shared libraries / node_modules)
+ * ├── home/         (user home directory, .npm-global, .local/bin)
  * ├── workspaces/   (all projects)
  * ├── tmp/          (temporary files)
  * ├── cache/        (npm cache, etc.)
- * └── etc/          (minimal config)
+ * └── etc/          (minimal config, ssl/certs, git-templates)
  */
 class RuntimeManager(private val context: Context) {
 
@@ -28,8 +42,11 @@ class RuntimeManager(private val context: Context) {
         private const val TAG = "RuntimeManager"
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
-        private const val CURRENT_RUNTIME_VERSION = "1.0.0"
-        
+        // Bump whenever bundled runtime assets change so devices re-extract.
+        private const val CURRENT_RUNTIME_VERSION = "1.3.0"
+        private const val NATIVE_MAP_FILE = "native-map.json"
+        private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
+
         // Virtual root paths (exposed to user)
         const val VIRTUAL_ROOT = "/root"
         const val VIRTUAL_BIN = "/root/bin"
@@ -48,15 +65,54 @@ class RuntimeManager(private val context: Context) {
     private val cacheDir: File by lazy { File(runtimeRoot, "cache") }
     private val etcDir: File by lazy { File(runtimeRoot, "etc") }
 
+    // Global CLI install locations (npm -g, pip --user style, etc.)
+    private val npmGlobalDir: File by lazy { File(homeDir, ".npm-global") }
+    private val localBinDir: File by lazy { File(homeDir, ".local/bin") }
+    private val caBundleFile: File by lazy { File(etcDir, "ssl/certs/ca-bundle.crt") }
+    private val gitTemplateDir: File by lazy { File(etcDir, "git-templates") }
+
     /**
      * Check if runtime is already installed and up-to-date
      */
     fun isRuntimeReady(): Boolean {
         val versionFile = File(runtimeRoot, RUNTIME_VERSION_FILE)
         if (!versionFile.exists()) return false
-        
-        val installedVersion = versionFile.readText().trim()
-        return installedVersion == CURRENT_RUNTIME_VERSION && binDir.exists() && binDir.isDirectory
+        if (versionFile.readText().trim() != CURRENT_RUNTIME_VERSION) return false
+        if (!binDir.exists() || !binDir.isDirectory) return false
+
+        // Re-initialize whenever the bundled binary/library set changes, even if
+        // the version string is unchanged. The fingerprint of native-map.json
+        // (shipped in the APK) is compared against the fingerprint captured at the
+        // last successful init; a mismatch means .so files were added/changed and
+        // the symlink farm must be rebuilt. This self-heals the case where a newer
+        // APK adds shared libraries but reuses the same runtime version.
+        val stored = File(runtimeRoot, RUNTIME_FINGERPRINT_FILE)
+        if (!stored.exists()) return false
+        val current = assetNativeMapFingerprint() ?: return false
+        if (stored.readText().trim() != current) return false
+
+        // Guard against a partial/corrupted prior init: the node binary symlink
+        // must resolve to a real file (File.exists() follows symlinks, so a
+        // dangling link returns false and triggers a rebuild).
+        if (!File(binDir, "node").exists()) return false
+
+        return true
+    }
+
+    /**
+     * SHA-256 of the native-map.json bundled in the APK assets. Detects when the
+     * runtime binary/library set has changed between app upgrades so the symlink
+     * farm is rebuilt even if CURRENT_RUNTIME_VERSION was not bumped.
+     */
+    private fun assetNativeMapFingerprint(): String? {
+        return try {
+            val bytes = context.assets.open("$RUNTIME_DIR/$NATIVE_MAP_FILE").use { it.readBytes() }
+            java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not fingerprint native-map.json: ${e.message}")
+            null
+        }
     }
 
     /**
@@ -66,27 +122,59 @@ class RuntimeManager(private val context: Context) {
     @Throws(IOException::class)
     fun initializeRuntime(onProgress: ((String, Float) -> Unit)? = null) {
         Log.i(TAG, "Initializing runtime v$CURRENT_RUNTIME_VERSION")
-        
+
         onProgress?.invoke("Creating directories...", 0.05f)
         createDirectoryStructure()
-        
-        onProgress?.invoke("Extracting binaries...", 0.1f)
+        restoreBinWritability()
+
+        onProgress?.invoke("Extracting runtime files...", 0.1f)
         extractRuntimeAssets(onProgress)
-        
-        onProgress?.invoke("Setting permissions...", 0.85f)
+
+        onProgress?.invoke("Setting permissions...", 0.8f)
         setExecutablePermissions()
-        
+
+        onProgress?.invoke("Linking native binaries...", 0.85f)
+        buildSymlinkFarm()
+        createDropbearAliases()
+        createGitRemoteAliases()
+
         onProgress?.invoke("Protecting runtime...", 0.9f)
         protectBinDirectory()
-        
-        onProgress?.invoke("Configuring environment...", 0.95f)
+
+        onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
-        
-        // Mark runtime as installed
+
+        onProgress?.invoke("Preparing certificates...", 0.95f)
+        setupCaBundle()
+
+        onProgress?.invoke("Creating workspace...", 0.97f)
+        createGlobalDirs()
+        createDefaultWorkspace()
+
+        // Mark runtime as installed. The fingerprint is written last so that an
+        // interrupted init is not mistaken for a complete one on next launch.
         File(runtimeRoot, RUNTIME_VERSION_FILE).writeText(CURRENT_RUNTIME_VERSION)
-        
+        assetNativeMapFingerprint()?.let {
+            File(runtimeRoot, RUNTIME_FINGERPRINT_FILE).writeText(it)
+        }
+
         onProgress?.invoke("Runtime ready!", 1.0f)
         Log.i(TAG, "Runtime initialization complete")
+    }
+
+    /**
+     * A prior init marks bin/ (and its files) read-only via protectBinDirectory().
+     * Before re-extracting assets on an upgrade we must restore write access
+     * across the bin tree, otherwise overwriting a protected helper script throws
+     * and aborts the rebuild. Cheap because bin/ holds only a handful of files.
+     */
+    private fun restoreBinWritability() {
+        if (!binDir.exists()) return
+        fun walk(f: File) {
+            try { f.setWritable(true, false) } catch (_: Exception) { }
+            if (f.isDirectory) f.listFiles()?.forEach { walk(it) }
+        }
+        walk(binDir)
     }
 
     /**
@@ -97,35 +185,38 @@ class RuntimeManager(private val context: Context) {
             if (!dir.exists()) {
                 dir.mkdirs()
                 Log.d(TAG, "Created directory: ${dir.absolutePath}")
+            } else {
+                // Ensure a previously read-only bin dir can be refreshed.
+                dir.setWritable(true, false)
             }
         }
     }
 
     /**
-     * Extract runtime binaries from APK assets to runtime directory
+     * Extract runtime support files from APK assets to the runtime directory.
+     * ELF binaries no longer live in assets (they were relocated to jniLibs by
+     * the Gradle task); only JS, shell scripts, config and native-map.json are
+     * extracted here.
      */
     private fun extractRuntimeAssets(onProgress: ((String, Float) -> Unit)? = null) {
         val assetManager = context.assets
         val runtimeAssetPath = "runtime"
-        
+
         try {
             val assets = assetManager.list(runtimeAssetPath) ?: emptyArray()
             if (assets.isEmpty()) {
-                Log.w(TAG, "No runtime assets found - creating placeholder binaries")
-                createPlaceholderBinaries()
+                Log.e(TAG, "No runtime assets found - runtime binaries are missing")
                 return
             }
-            
+
             val totalAssets = assets.size.toFloat()
             assets.forEachIndexed { index, assetName ->
-                val progress = 0.1f + (0.75f * (index / totalAssets))
+                val progress = 0.1f + (0.65f * (index / totalAssets))
                 onProgress?.invoke("Extracting $assetName...", progress)
                 extractAssetRecursive(assetManager, "$runtimeAssetPath/$assetName", runtimeRoot)
             }
         } catch (e: IOException) {
             Log.e(TAG, "Error extracting runtime assets", e)
-            // Create placeholder binaries for development
-            createPlaceholderBinaries()
         }
     }
 
@@ -134,12 +225,12 @@ class RuntimeManager(private val context: Context) {
      */
     private fun extractAssetRecursive(assetManager: AssetManager, assetPath: String, destDir: File) {
         val assets = assetManager.list(assetPath)
-        
+
         if (assets.isNullOrEmpty()) {
             // It's a file, extract it
             val fileName = assetPath.substringAfterLast('/')
             val destFile = File(destDir, fileName)
-            
+
             assetManager.open(assetPath).use { input ->
                 FileOutputStream(destFile).use { output ->
                     input.copyTo(output)
@@ -150,7 +241,7 @@ class RuntimeManager(private val context: Context) {
             val dirName = assetPath.substringAfterLast('/')
             val subDir = File(destDir, dirName)
             if (!subDir.exists()) subDir.mkdirs()
-            
+
             assets.forEach { asset ->
                 extractAssetRecursive(assetManager, "$assetPath/$asset", subDir)
             }
@@ -158,59 +249,139 @@ class RuntimeManager(private val context: Context) {
     }
 
     /**
-     * Create placeholder scripts for development when real binaries aren't bundled.
-     * In production, real ARM64 binaries would be in assets.
+     * Build the symlink farm: for every entry in native-map.json, create a
+     * symlink inside the runtime tree pointing at the real ELF that now lives in
+     * nativeLibraryDir (the only exec-permitted location on Android 10+).
      */
-    private fun createPlaceholderBinaries() {
-        Log.w(TAG, "Creating placeholder runtime - bundle real binaries for production")
-        
-        // Create a basic bash wrapper that uses system shell
-        val bashScript = File(binDir, "bash")
-        bashScript.writeText("""
-            #!/system/bin/sh
-            # MobileIDE Bash wrapper
-            # In production, this is a real bash binary
-            exec /system/bin/sh "$@"
-        """.trimIndent())
-        
-        val shLink = File(binDir, "sh")
-        shLink.writeText("""
-            #!/system/bin/sh
-            exec /system/bin/sh "$@"
-        """.trimIndent())
-        
-        // Create node placeholder (would be real binary in production)
-        val nodeScript = File(binDir, "node")
-        nodeScript.writeText("""
-            #!/system/bin/sh
-            echo "MobileIDE Node.js Runtime"
-            echo "Node placeholder - bundle real node binary for production"
-            echo "Version: v20.0.0-mobileide"
-        """.trimIndent())
-        
-        // Create npm placeholder
-        val npmScript = File(binDir, "npm")
-        npmScript.writeText("""
-            #!/system/bin/sh
-            echo "npm placeholder - bundle real npm for production"
-        """.trimIndent())
-        
-        // Create common utility wrappers
-        listOf("ls", "cat", "mkdir", "rm", "cp", "mv", "grep", "echo", "pwd", "cd").forEach { cmd ->
-            val script = File(binDir, cmd)
-            script.writeText("""
-                #!/system/bin/sh
-                exec /system/bin/$cmd "$@" 2>/dev/null || echo "$cmd: command available"
-            """.trimIndent())
+    private fun buildSymlinkFarm() {
+        val mapFile = File(runtimeRoot, NATIVE_MAP_FILE)
+        if (!mapFile.exists()) {
+            Log.w(TAG, "native-map.json not found - runtime binaries unavailable")
+            return
         }
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val entries = try {
+            parseNativeMap(mapFile.readText())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse native-map.json", e)
+            return
+        }
+
+        var created = 0
+        for ((relPath, libName) in entries) {
+            val target = File(nativeLibDir, libName)
+            val link = File(runtimeRoot, relPath)
+            try {
+                link.parentFile?.let {
+                    it.mkdirs()
+                    it.setWritable(true, false)
+                }
+                if (link.exists() || isSymlink(link)) link.delete()
+                if (!target.exists()) {
+                    Log.w(TAG, "Native lib missing for $relPath: ${target.absolutePath}")
+                    continue
+                }
+                Os.symlink(target.absolutePath, link.absolutePath)
+                created++
+            } catch (e: Exception) {
+                Log.e(TAG, "Symlink failed for $relPath", e)
+            }
+        }
+        Log.i(TAG, "Symlink farm ready: $created binaries linked to $nativeLibDir")
+    }
+
+    private fun isSymlink(file: File): Boolean = try {
+        OsConstants.S_ISLNK(Os.lstat(file.absolutePath).st_mode)
+    } catch (e: Exception) {
+        false
     }
 
     /**
-     * Set executable permissions on all binaries in bin/ and subdirectories
+     * Dropbear ships as a single multi-call binary (dropbearmulti) that
+     * dispatches on argv[0]. If it was embedded (relocated to
+     * libbin_dropbearmulti.so), create symlinks for each applet so `dbclient`,
+     * `scp`, `dropbearkey`, `dropbearconvert` resolve on PATH. The `ssh` name is
+     * provided as a shell shim (rc files) since it is not a native applet name.
+     */
+    private fun createDropbearAliases() {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val dropbearLib = File(nativeLibDir, "libbin_dropbearmulti.so")
+        if (!dropbearLib.exists()) {
+            Log.d(TAG, "dropbear not embedded; skipping ssh aliases")
+            return
+        }
+        binDir.setWritable(true, false)
+        listOf("dbclient", "scp", "dropbearkey", "dropbearconvert").forEach { name ->
+            val link = File(binDir, name)
+            try {
+                if (link.exists() || isSymlink(link)) link.delete()
+                Os.symlink(dropbearLib.absolutePath, link.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "dropbear alias $name failed", e)
+            }
+        }
+        Log.i(TAG, "Dropbear ssh applets linked (dbclient, scp, dropbearkey, dropbearconvert)")
+    }
+
+    /**
+     * Git looks up protocol helpers as `git-remote-<scheme>` under GIT_EXEC_PATH.
+     * We ship a single ELF (`git-remote-http`) that handles both http and https
+     * (same as upstream git, where git-remote-https is a hardlink/symlink to it).
+     * Without the https name, `git clone https://...` fails with:
+     *   git: 'remote-https' is not a git command
+     */
+    private fun createGitRemoteAliases() {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val httpLib = File(nativeLibDir, "libbin_git_core_git_remote_http.so")
+        val httpLink = File(binDir, "git-core/git-remote-http")
+        val target: String = when {
+            httpLib.exists() -> httpLib.absolutePath
+            httpLink.exists() -> try {
+                httpLink.canonicalPath
+            } catch (_: Exception) {
+                httpLink.absolutePath
+            }
+            else -> {
+                Log.w(TAG, "git-remote-http missing; HTTPS clone will fail")
+                return
+            }
+        }
+
+        val gitCore = File(binDir, "git-core")
+        gitCore.mkdirs()
+        gitCore.setWritable(true, false)
+
+        // Upstream names that resolve to the same remote-http helper binary.
+        listOf("git-remote-https", "git-remote-ftp", "git-remote-ftps").forEach { name ->
+            val link = File(gitCore, name)
+            try {
+                if (link.exists() || isSymlink(link)) link.delete()
+                Os.symlink(target, link.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "git remote alias $name failed", e)
+            }
+        }
+        Log.i(TAG, "git remote helpers linked (https/ftp/ftps -> remote-http)")
+    }
+
+    private fun parseNativeMap(json: String): Map<String, String> {
+        val obj = JSONObject(json)
+        val result = LinkedHashMap<String, String>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            result[k] = obj.getString(k)
+        }
+        return result
+    }
+
+    /**
+     * Set executable permissions on non-symlink files in bin/ and subdirectories.
+     * Symlinks resolve to nativeLibraryDir, which is already exec-permitted.
      */
     private fun setExecutablePermissions() {
         setPermissionsRecursive(binDir)
-        
+
         // Also set permissions on lib directory
         libDir.listFiles()?.forEach { file ->
             if (file.isFile) {
@@ -249,67 +420,214 @@ class RuntimeManager(private val context: Context) {
      * Setup environment configuration files
      */
     private fun setupEnvironment() {
-        // Create .bashrc
-        val bashrc = File(homeDir, ".bashrc")
-        bashrc.writeText(getBashrcContent())
-        
-        // Create .profile
+        gitTemplateDir.mkdirs()
+
+        // Create .profile (sourced by mksh on Android)
         val profile = File(homeDir, ".profile")
         profile.writeText(getProfileContent())
-        
+
+        // Also create .bashrc in case bash is used later
+        val bashrc = File(homeDir, ".bashrc")
+        bashrc.writeText(getBashrcContent())
+
+        // Create .mkshrc for Android's default shell
+        val mkshrc = File(homeDir, ".mkshrc")
+        mkshrc.writeText(getMkshrcContent())
+
         // Create minimal /etc files for git
         val passwd = File(etcDir, "passwd")
-        passwd.writeText("root:x:0:0:root:${homeDir.absolutePath}:/bin/bash\n")
-        
+        passwd.writeText("root:x:0:0:root:${homeDir.absolutePath}:/bin/sh\n")
+
         val group = File(etcDir, "group")
         group.writeText("root:x:0:\n")
-        
+
         // Create git config
         val gitconfig = File(homeDir, ".gitconfig")
         if (!gitconfig.exists()) {
             gitconfig.writeText("""
                 [user]
-                    name = MobileIDE User
-                    email = user@mobileide.local
+                    name = A Dev Studio User
+                    email = user@adevstudio.local
                 [core]
-                    editor = nano
+                    editor = vi
                 [init]
                     defaultBranch = main
             """.trimIndent())
         }
     }
 
-    private fun getBashrcContent(): String = """
-        # MobileIDE Bash Configuration
-        export PS1='\[\033[01;32m\]mobileide\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-        export EDITOR=nano
-        export LANG=en_US.UTF-8
-        
-        # Aliases
+    /**
+     * Create global CLI install locations so `npm install -g` works and the
+     * installed bins are on PATH.
+     */
+    private fun createGlobalDirs() {
+        listOf(
+            npmGlobalDir,
+            File(npmGlobalDir, "bin"),
+            File(npmGlobalDir, "lib/node_modules"),
+            localBinDir
+        ).forEach { if (!it.exists()) it.mkdirs() }
+    }
+
+    /**
+     * Assemble a CA bundle so git https + npm registry TLS work. Prefer a
+     * bundled bundle; otherwise concatenate the Android system trust store into
+     * a single PEM file.
+     */
+    private fun setupCaBundle() {
+        try {
+            if (caBundleFile.exists() && caBundleFile.length() > 0) return
+            caBundleFile.parentFile?.mkdirs()
+            val sysCerts = File("/system/etc/security/cacerts")
+            if (sysCerts.isDirectory) {
+                caBundleFile.bufferedWriter().use { w ->
+                    sysCerts.listFiles()?.forEach { c ->
+                        if (c.isFile) {
+                            try {
+                                w.write(c.readText())
+                                w.write("\n")
+                            } catch (_: Exception) { }
+                        }
+                    }
+                }
+                Log.i(TAG, "Assembled CA bundle (${caBundleFile.length()} bytes)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "CA bundle assembly failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Create a default workspace with a welcome file so the file explorer isn't empty
+     */
+    private fun createDefaultWorkspace() {
+        val defaultProject = File(workspacesDir, "my-project")
+        if (!defaultProject.exists()) {
+            defaultProject.mkdirs()
+
+            // Create a welcome file
+            File(defaultProject, "index.js").writeText("""
+                // Welcome to A Dev Studio!
+                // This is your first project.
+                
+                function greet(name) {
+                  console.log(`Hello, ${'$'}{name}! Welcome to A Dev Studio.`);
+                }
+                
+                greet('World');
+                
+                // Try running: node index.js
+            """.trimIndent())
+
+            // Create package.json
+            File(defaultProject, "package.json").writeText("""
+                {
+                  "name": "my-project",
+                  "version": "1.0.0",
+                  "main": "index.js",
+                  "scripts": {
+                    "start": "node index.js"
+                  }
+                }
+            """.trimIndent())
+
+            // Create a README
+            File(defaultProject, "README.md").writeText("""
+                # My Project
+                
+                Created with A Dev Studio.
+                
+                ## Getting Started
+                
+                ```bash
+                node index.js
+                ```
+            """.trimIndent())
+
+            Log.i(TAG, "Created default workspace: ${defaultProject.absolutePath}")
+        }
+    }
+
+    private fun getMkshrcContent(): String = """
+        # A Dev Studio - mksh configuration
+        export PS1='adev:${'$'}PWD ${'$'} '
+        export EDITOR=vi
+
+        # node & git are on PATH via the symlink farm.
+        # npm/npx/corepack run through node (their scripts live in a noexec dir).
+        npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
+        npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
+        corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+
+        # ssh via bundled dropbear: dbclient/scp are on PATH when embedded.
+        command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
+
+        # mksh has no command_not_found_handle, so generate function shims for
+        # every globally-installed CLI. Re-run 'adev-rehash' after 'npm i -g'.
+        adev-rehash() {
+            shimf="${'$'}HOME/.adev-shims"
+            : > "${'$'}shimf"
+            for f in "${'$'}HOME/.npm-global/bin"/* "${'$'}HOME/.local/bin"/*; do
+                [ -f "${'$'}f" ] || continue
+                n=${'$'}{f##*/}
+                printf '%s() { node "%s" "${'$'}@"; }\n' "${'$'}n" "${'$'}f" >> "${'$'}shimf"
+            done
+            . "${'$'}shimf"
+        }
+        adev-rehash 2>/dev/null
+
         alias ll='ls -la'
         alias la='ls -a'
         alias ..='cd ..'
-        alias ...='cd ../..'
         alias cls='clear'
-        
-        # Node.js
-        alias npm='npm --prefix ${VIRTUAL_ROOT}'
-        alias node='${VIRTUAL_BIN}/node'
-        
-        # Quick commands
-        alias projects='cd ${VIRTUAL_WORKSPACES}'
-        alias home='cd ${VIRTUAL_HOME}'
-        
-        # History
-        export HISTSIZE=1000
+        alias projects='cd ${workspacesDir.absolutePath}'
+
+        echo "Welcome to A Dev Studio Terminal"
+    """.trimIndent()
+
+    private fun getBashrcContent(): String = """
+        # A Dev Studio - bash configuration
+        export PS1='\[\033[01;32m\]adev\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]${'$'} '
+        export EDITOR=vi
+        export LANG=en_US.UTF-8
+
+        # node & git resolve on PATH via the symlink farm (bin/, bin/git-core/).
+        # npm/npx/corepack run through node (their scripts live in a noexec dir).
+        npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
+        npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
+        corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+
+        # ssh via bundled dropbear: dbclient/scp are on PATH when embedded.
+        command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
+
+        # Dispatch any globally-installed CLI (npm i -g ...) through node so tools
+        # like tsc, expo, vercel, wrangler, firebase work like on the desktop.
+        command_not_found_handle() {
+            local cmd="${'$'}1"; shift
+            for base in "${'$'}HOME/.npm-global/bin" "${'$'}HOME/.local/bin"; do
+                if [ -f "${'$'}base/${'$'}cmd" ]; then
+                    node "${'$'}base/${'$'}cmd" "${'$'}@"
+                    return ${'$'}?
+                fi
+            done
+            echo "adev: ${'$'}cmd: command not found" >&2
+            return 127
+        }
+
+        alias ll='ls -la'
+        alias la='ls -a'
+        alias ..='cd ..'
+        alias cls='clear'
+        alias projects='cd ${workspacesDir.absolutePath}'
+
+        export HISTSIZE=2000
         export HISTFILE=${homeDir.absolutePath}/.bash_history
-        
-        echo "Welcome to MobileIDE Terminal"
-        echo "Type 'help' for available commands"
+
+        echo "Welcome to A Dev Studio Terminal"
     """.trimIndent()
 
     private fun getProfileContent(): String = """
-        # MobileIDE Profile
+        # A Dev Studio Profile
         if [ -f ${homeDir.absolutePath}/.bashrc ]; then
             . ${homeDir.absolutePath}/.bashrc
         fi
@@ -324,28 +642,73 @@ class RuntimeManager(private val context: Context) {
     fun getTmpDir(): String = tmpDir.absolutePath
     fun getCacheDir(): String = cacheDir.absolutePath
     fun getEtcDir(): String = etcDir.absolutePath
+    fun getNativeLibDir(): String = context.applicationInfo.nativeLibraryDir
 
     /**
      * Get the environment map for process execution
      */
     fun getEnvironment(): Map<String, String> {
-        return mapOf(
-            "PATH" to "${binDir.absolutePath}:${binDir.absolutePath}/git-core:/system/bin:/system/xbin",
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val globalBin = File(npmGlobalDir, "bin").absolutePath
+        val localBin = localBinDir.absolutePath
+        // Prefer the bundled bash (via its symlink) so command_not_found_handle works.
+        val shell = File(binDir, "bash").let { if (it.exists()) it.absolutePath else "/system/bin/sh" }
+
+        val env = mutableMapOf(
+            "PATH" to listOf(
+                globalBin,
+                localBin,
+                binDir.absolutePath,
+                "${binDir.absolutePath}/git-core",
+                nativeLibDir,
+                "/system/bin",
+                "/system/xbin"
+            ).joinToString(":"),
             "HOME" to homeDir.absolutePath,
             "TMPDIR" to tmpDir.absolutePath,
+            "TEMP" to tmpDir.absolutePath,
+            "TMP" to tmpDir.absolutePath,
             "PREFIX" to runtimeRoot.absolutePath,
-            "NODE_PATH" to "${runtimeRoot.absolutePath}/lib/node_modules",
-            "NPM_CONFIG_PREFIX" to runtimeRoot.absolutePath,
+            "LD_LIBRARY_PATH" to "${libDir.absolutePath}:$nativeLibDir",
+            // Prefer the bundled npm tree for requires; global modules second.
+            "NODE_PATH" to listOf(
+                "${libDir.absolutePath}/node_modules",
+                "${npmGlobalDir.absolutePath}/lib/node_modules"
+            ).joinToString(":"),
+            "NPM_CONFIG_PREFIX" to npmGlobalDir.absolutePath,
             "NPM_CONFIG_CACHE" to cacheDir.absolutePath,
+            // Avoid interactive update noise and optional fund prompts on mobile.
+            "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
+            "NPM_CONFIG_FUND" to "false",
+            "NPM_CONFIG_AUDIT" to "false",
             "USER" to "root",
-            "SHELL" to "${binDir.absolutePath}/bash",
+            "LOGNAME" to "root",
+            "SHELL" to shell,
+            "ENV" to "${homeDir.absolutePath}/.mkshrc",
             "TERM" to "xterm-256color",
+            "COLORTERM" to "truecolor",
             "LANG" to "en_US.UTF-8",
             "LC_ALL" to "en_US.UTF-8",
             "GIT_EXEC_PATH" to "${binDir.absolutePath}/git-core",
+            "GIT_TEMPLATE_DIR" to gitTemplateDir.absolutePath,
+            // Prefer HTTP/1.1 for flaky mobile TLS stacks with libcurl.
+            "GIT_HTTP_LOW_SPEED_LIMIT" to "1000",
+            "GIT_HTTP_LOW_SPEED_TIME" to "30",
+            "HOSTNAME" to "adev",
             "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath
         )
+
+        // TLS: prefer a bundled/assembled CA bundle; else use the system store.
+        if (caBundleFile.exists() && caBundleFile.length() > 0) {
+            env["SSL_CERT_FILE"] = caBundleFile.absolutePath
+            env["GIT_SSL_CAINFO"] = caBundleFile.absolutePath
+            env["NODE_EXTRA_CA_CERTS"] = caBundleFile.absolutePath
+        } else {
+            env["SSL_CERT_DIR"] = "/system/etc/security/cacerts"
+            env["GIT_SSL_CAPATH"] = "/system/etc/security/cacerts"
+        }
+        return env
     }
 
     /**

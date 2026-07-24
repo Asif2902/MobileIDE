@@ -5,9 +5,12 @@ import { EditorView } from './EditorView';
 import { EditorTabs } from './EditorTabs';
 
 export const EditorPanel: React.FC = () => {
-  const { openFiles, activeFilePath } = useEditorStore();
-  
+  const { openFiles, activeFilePath, diagnostics, cursorLine, cursorColumn } = useEditorStore();
+
   const activeFile = openFiles.find(f => f.path === activeFilePath);
+  const diag = activeFile ? diagnostics[activeFile.path] : undefined;
+  const errors = diag?.errors ?? 0;
+  const warnings = diag?.warnings ?? 0;
 
   return (
     <View style={styles.container}>
@@ -31,6 +34,24 @@ export const EditorPanel: React.FC = () => {
           </View>
         )}
       </View>
+      {activeFile && (
+        <View style={styles.statusBar}>
+          <View style={styles.statusLeft}>
+            <View style={styles.statusItem}>
+              <Text style={[styles.statusIcon, errors > 0 ? styles.errorText : styles.mutedText]}>⨂</Text>
+              <Text style={errors > 0 ? styles.errorText : styles.mutedText}>{errors}</Text>
+            </View>
+            <View style={styles.statusItem}>
+              <Text style={[styles.statusIcon, warnings > 0 ? styles.warnText : styles.mutedText]}>⚠</Text>
+              <Text style={warnings > 0 ? styles.warnText : styles.mutedText}>{warnings}</Text>
+            </View>
+          </View>
+          <View style={styles.statusRight}>
+            <Text style={styles.mutedText}>Ln {cursorLine}, Col {cursorColumn}</Text>
+            <Text style={styles.langText}>{activeFile.language}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -42,6 +63,52 @@ const styles = StyleSheet.create({
   },
   editorContainer: {
     flex: 1,
+  },
+  statusBar: {
+    height: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#007acc',
+    paddingHorizontal: 10,
+  },
+  statusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  statusIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  mutedText: {
+    color: '#ffffff',
+    fontSize: 12,
+    marginLeft: 12,
+  },
+  errorText: {
+    color: '#ffd0d0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  warnText: {
+    color: '#fff0c0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  langText: {
+    color: '#ffffff',
+    fontSize: 12,
+    marginLeft: 12,
+    textTransform: 'uppercase',
   },
   welcomeScreen: {
     flex: 1,

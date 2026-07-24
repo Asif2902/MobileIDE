@@ -18,11 +18,16 @@ import {
 import { EditorPanel } from '../components/editor';
 import { TerminalPanel } from '../components/terminal';
 import { FileExplorer } from '../components/explorer';
+import { GitPanel } from '../components/git';
 import { Icon, IconName } from '../components/icons';
-import { useRuntimeStore, useUIStore, setupTerminalListeners } from '../stores';
+import { useRuntimeStore, useUIStore, useFileStore, setupTerminalListeners } from '../stores';
 
-// Phones use a full-screen tab layout; wider screens keep the desktop layout.
-const TABLET_BREAKPOINT = 768;
+// Only treat as tablet when BOTH dimensions are large enough. Phones in
+// landscape often exceed 768px width and would otherwise flip into the
+// desktop layout (BottomPanel + TerminalPanel), which stacked the
+// Terminal/Problems/Output/Debug headers twice.
+const TABLET_MIN_WIDTH = 900;
+const TABLET_MIN_HEIGHT = 600;
 
 const PlaceholderView: React.FC<{ icon: IconName; title: string; subtitle: string }> = ({
   icon,
@@ -39,8 +44,9 @@ const PlaceholderView: React.FC<{ icon: IconName; title: string; subtitle: strin
 export const IDEScreen: React.FC = () => {
   const { isReady, checkRuntime, initializeRuntime } = useRuntimeStore();
   const { isActivityBarVisible, activeView } = useUIStore();
-  const { width } = useWindowDimensions();
-  const isTablet = width >= TABLET_BREAKPOINT;
+  const initWorkspace = useFileStore(state => state.initWorkspace);
+  const { width, height } = useWindowDimensions();
+  const isTablet = width >= TABLET_MIN_WIDTH && height >= TABLET_MIN_HEIGHT;
 
   useEffect(() => {
     const cleanup = setupTerminalListeners();
@@ -53,6 +59,14 @@ export const IDEScreen: React.FC = () => {
       initializeRuntime();
     }
   }, [isReady, initializeRuntime]);
+
+  // Restore/open a workspace once the runtime is ready so the Explorer and
+  // terminal always have a project to work in.
+  useEffect(() => {
+    if (isReady) {
+      initWorkspace();
+    }
+  }, [isReady, initWorkspace]);
 
   // ---- Tablet / large screen: classic side-by-side IDE layout ----
   if (isTablet) {
@@ -82,13 +96,7 @@ export const IDEScreen: React.FC = () => {
       case 'terminal':
         return <TerminalPanel />;
       case 'git':
-        return (
-          <PlaceholderView
-            icon="git"
-            title="Source Control"
-            subtitle="Git integration is coming soon"
-          />
-        );
+        return <GitPanel />;
       case 'settings':
         return (
           <PlaceholderView

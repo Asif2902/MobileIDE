@@ -1,14 +1,19 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { useTerminalStore } from '../../stores';
+import { useTerminalStore, useFileStore } from '../../stores';
 import { Icon } from '../icons';
 
 export const TerminalTabs: React.FC = () => {
   const { sessions, activeSessionId, setActiveSession, createSession, closeSession } = useTerminalStore();
+  const isKeyboardBarVisible = useTerminalStore(state => state.isKeyboardBarVisible);
+  const toggleKeyboardBar = useTerminalStore(state => state.toggleKeyboardBar);
+  const currentWorkspaceRealPath = useFileStore(state => state.currentWorkspaceRealPath);
 
   const handleNewTerminal = async () => {
     try {
-      await createSession();
+      // Start new terminals in the currently opened folder so tools like npm/git
+      // operate on the open project instead of the runtime home directory.
+      await createSession(currentWorkspaceRealPath || undefined);
     } catch (error) {
       console.error('Failed to create terminal:', error);
     }
@@ -22,7 +27,7 @@ export const TerminalTabs: React.FC = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
       >
-        {sessions.map((session) => (
+        {sessions.map((session, index) => (
           <TouchableOpacity
             key={session.id}
             style={[
@@ -38,7 +43,7 @@ export const TerminalTabs: React.FC = () => {
               ]}
               numberOfLines={1}
             >
-              {session.title}
+              {`Terminal ${index + 1}`}
             </Text>
             <TouchableOpacity
               style={styles.closeButton}
@@ -51,6 +56,13 @@ export const TerminalTabs: React.FC = () => {
         ))}
       </ScrollView>
       
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={toggleKeyboardBar}
+      >
+        <Icon name="keyboard" size={18} color={isKeyboardBarVisible ? '#ffffff' : '#6e6e6e'} />
+      </TouchableOpacity>
+
       <TouchableOpacity 
         style={styles.addButton}
         onPress={handleNewTerminal}
