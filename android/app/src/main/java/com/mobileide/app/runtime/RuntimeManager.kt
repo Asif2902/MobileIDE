@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.3.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.4.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -137,12 +137,14 @@ class RuntimeManager(private val context: Context) {
         buildSymlinkFarm()
         createDropbearAliases()
         createGitRemoteAliases()
+        createBusyboxAliases()
 
         onProgress?.invoke("Protecting runtime...", 0.9f)
         protectBinDirectory()
 
         onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
+        setupNpmrc()
 
         onProgress?.invoke("Preparing certificates...", 0.95f)
         setupCaBundle()
@@ -364,6 +366,55 @@ class RuntimeManager(private val context: Context) {
         Log.i(TAG, "git remote helpers linked (https/ftp/ftps -> remote-http)")
     }
 
+    /**
+     * Busybox is a multi-call binary: argv[0] selects the applet (ls, cat, …).
+     * When embedded as libbin_busybox.so, create symlinks for the most useful
+     * applets so a minimal userland is available without relying only on toybox.
+     */
+    private fun createBusyboxAliases() {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val busyboxLib = File(nativeLibDir, "libbin_busybox.so")
+        if (!busyboxLib.exists()) {
+            Log.d(TAG, "busybox not embedded; relying on /system/bin toybox")
+            return
+        }
+        binDir.setWritable(true, false)
+        // Keep names that do not clobber our own node/git/bash ELFs.
+        val applets = listOf(
+            "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown",
+            "touch", "find", "grep", "sed", "awk", "head", "tail", "wc", "sort", "uniq",
+            "tr", "cut", "xargs", "tee", "diff", "which", "uname", "whoami", "id",
+            "pwd", "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
+            "tar", "gzip", "gunzip", "bzip2", "xz", "wget", "vi", "less", "more",
+            "ps", "kill", "killall", "pgrep", "pkill", "du", "df", "realpath",
+            "dirname", "basename", "env", "printenv", "seq", "yes", "true", "false",
+            "test", "echo", "printf"
+        )
+        var n = 0
+        applets.forEach { name ->
+            val link = File(binDir, name)
+            // Never replace real primary tools we ship as dedicated ELFs.
+            if (name == "bash" || name == "node" || name == "git") return@forEach
+            try {
+                if (link.exists() || isSymlink(link)) link.delete()
+                Os.symlink(busyboxLib.absolutePath, link.absolutePath)
+                n++
+            } catch (e: Exception) {
+                Log.e(TAG, "busybox alias $name failed", e)
+            }
+        }
+        // Also expose the multi-call binary itself as `busybox`.
+        try {
+            val link = File(binDir, "busybox")
+            if (link.exists() || isSymlink(link)) link.delete()
+            Os.symlink(busyboxLib.absolutePath, link.absolutePath)
+            n++
+        } catch (e: Exception) {
+            Log.e(TAG, "busybox self-link failed", e)
+        }
+        Log.i(TAG, "busybox applets linked: $n")
+    }
+
     private fun parseNativeMap(json: String): Map<String, String> {
         val obj = JSONObject(json)
         val result = LinkedHashMap<String, String>()
@@ -458,7 +509,7 @@ class RuntimeManager(private val context: Context) {
 
     /**
      * Create global CLI install locations so `npm install -g` works and the
-     * installed bins are on PATH.
+     * installed bins are discoverable via shell shims / termux-exec.
      */
     private fun createGlobalDirs() {
         listOf(
@@ -467,6 +518,61 @@ class RuntimeManager(private val context: Context) {
             File(npmGlobalDir, "lib/node_modules"),
             localBinDir
         ).forEach { if (!it.exists()) it.mkdirs() }
+    }
+
+    /**
+     * Write a user .npmrc tuned for Android (prefix, cache, quieter installs).
+     * Always overwrite so upgrades pick up new defaults.
+     */
+    private fun setupNpmrc() {
+        try {
+            val npmrc = File(homeDir, ".npmrc")
+            npmrc.writeText(
+                """
+                prefix=${npmGlobalDir.absolutePath}
+                cache=${cacheDir.absolutePath}
+                fund=false
+                audit=false
+                update-notifier=false
+                # Pure-JS packages install fine. Native (node-gyp) modules need a
+                # C/C++ toolchain which is not bundled — they will fail to build.
+                fetch-retries=3
+                fetch-retry-mintimeout=20000
+                fetch-retry-maxtimeout=120000
+                """.trimIndent() + "\n"
+            )
+            // npm lifecycle hook: rehash global CLI shims after any install.
+            val hooksDir = File(homeDir, ".npm-global/etc")
+            hooksDir.mkdirs()
+            // Document limits for the user (opened from Files if needed).
+            File(homeDir, "ADEV-RUNTIME.md").writeText(
+                """
+                # A Dev Studio runtime notes
+
+                ## What works
+                - node, npm, npx, corepack (yarn/pnpm via corepack)
+                - git (including HTTPS)
+                - busybox applets (ls, cat, grep, tar, …) when busybox is embedded
+                - pure JavaScript packages: `npm install lodash express typescript …`
+
+                ## Global CLIs (`npm i -g tsc` etc.)
+                - On Android, app data is noexec. We use termux-exec (LD_PRELOAD) so
+                  shebang scripts can run, plus shell shims (`adev-rehash`).
+                - After `npm i -g …`, run: `adev-rehash` (mksh) or open a new terminal.
+
+                ## What will NOT install / build
+                - Native addons that need node-gyp, python, make, gcc
+                  (e.g. better-sqlite3, bcrypt, sharp, many @napi-rs packages)
+                - Full desktop Linux toolchains (not bundled)
+
+                ## Tips
+                - Prefer `npm install` (project-local) and `npx <tool>`
+                - Use `node ./node_modules/<pkg>/bin/…` if a bin still fails
+                """.trimIndent() + "\n"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "setupNpmrc failed: ${e.message}")
+        }
     }
 
     /**
@@ -553,26 +659,37 @@ class RuntimeManager(private val context: Context) {
         export PS1='adev:${'$'}PWD ${'$'} '
         export EDITOR=vi
 
-        # node & git are on PATH via the symlink farm.
-        # npm/npx/corepack run through node (their scripts live in a noexec dir).
+        # Always run package managers through node (assets live under noexec).
         npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
         npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
-        corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+        if [ -f "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" ]; then
+          corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+          yarn() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" yarn "${'$'}@"; }
+          pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
+        fi
 
-        # ssh via bundled dropbear: dbclient/scp are on PATH when embedded.
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
-        # mksh has no command_not_found_handle, so generate function shims for
-        # every globally-installed CLI. Re-run 'adev-rehash' after 'npm i -g'.
+        # Run a JS CLI file via node (shebang-safe on noexec).
+        adev-node-bin() {
+            local f="${'$'}1"; shift
+            [ -f "${'$'}f" ] || return 127
+            # Strip shebang and run with node if it looks like JS; else try node anyway.
+            node "${'$'}f" "${'$'}@"
+        }
+
+        # mksh: function shims for global + common local bins. Re-run after npm i -g.
         adev-rehash() {
             shimf="${'$'}HOME/.adev-shims"
             : > "${'$'}shimf"
             for f in "${'$'}HOME/.npm-global/bin"/* "${'$'}HOME/.local/bin"/*; do
                 [ -f "${'$'}f" ] || continue
                 n=${'$'}{f##*/}
+                case "${'$'}n" in npm|npx|node|corepack) continue ;; esac
                 printf '%s() { node "%s" "${'$'}@"; }\n' "${'$'}n" "${'$'}f" >> "${'$'}shimf"
             done
-            . "${'$'}shimf"
+            . "${'$'}shimf" 2>/dev/null
+            echo "adev: rehashed global CLI shims"
         }
         adev-rehash 2>/dev/null
 
@@ -591,27 +708,41 @@ class RuntimeManager(private val context: Context) {
         export EDITOR=vi
         export LANG=en_US.UTF-8
 
-        # node & git resolve on PATH via the symlink farm (bin/, bin/git-core/).
-        # npm/npx/corepack run through node (their scripts live in a noexec dir).
         npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
         npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
-        corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+        if [ -f "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" ]; then
+          corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
+          yarn() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" yarn "${'$'}@"; }
+          pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
+        fi
 
-        # ssh via bundled dropbear: dbclient/scp are on PATH when embedded.
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
-        # Dispatch any globally-installed CLI (npm i -g ...) through node so tools
-        # like tsc, expo, vercel, wrangler, firebase work like on the desktop.
+        # Prefer node for any JS bin under global/local prefixes when the command
+        # is not found as a real executable (PATH does not list noexec dirs first).
         command_not_found_handle() {
             local cmd="${'$'}1"; shift
+            local base f
             for base in "${'$'}HOME/.npm-global/bin" "${'$'}HOME/.local/bin"; do
-                if [ -f "${'$'}base/${'$'}cmd" ]; then
-                    node "${'$'}base/${'$'}cmd" "${'$'}@"
+                f="${'$'}base/${'$'}cmd"
+                if [ -f "${'$'}f" ]; then
+                    node "${'$'}f" "${'$'}@"
                     return ${'$'}?
                 fi
             done
+            # Project-local node_modules/.bin (common after npm install)
+            if [ -f "./node_modules/.bin/${'$'}cmd" ]; then
+                node "./node_modules/.bin/${'$'}cmd" "${'$'}@"
+                return ${'$'}?
+            fi
             echo "adev: ${'$'}cmd: command not found" >&2
             return 127
+        }
+
+        # Same rehash helper as mksh (optional explicit shims for builtins shadowing).
+        adev-rehash() {
+            hash -r 2>/dev/null
+            echo "adev: bash hash cleared; globals resolve via command_not_found_handle + termux-exec"
         }
 
         alias ll='ls -la'
@@ -654,15 +785,22 @@ class RuntimeManager(private val context: Context) {
         // Prefer the bundled bash (via its symlink) so command_not_found_handle works.
         val shell = File(binDir, "bash").let { if (it.exists()) it.absolutePath else "/system/bin/sh" }
 
+        // PATH order is deliberate:
+        // 1) bin/ — our exec-safe symlinks (node, git, bash, busybox applets)
+        // 2) git-core helpers
+        // 3) system tools
+        // 4) npm global/local bins LAST — with termux-exec LD_PRELOAD they can
+        //    run; if preload fails, shell shims / command_not_found still help.
+        // Putting globals first caused Permission denied before shims could run.
         val env = mutableMapOf(
             "PATH" to listOf(
-                globalBin,
-                localBin,
                 binDir.absolutePath,
                 "${binDir.absolutePath}/git-core",
                 nativeLibDir,
                 "/system/bin",
-                "/system/xbin"
+                "/system/xbin",
+                globalBin,
+                localBin
             ).joinToString(":"),
             "HOME" to homeDir.absolutePath,
             "TMPDIR" to tmpDir.absolutePath,
@@ -677,6 +815,7 @@ class RuntimeManager(private val context: Context) {
             ).joinToString(":"),
             "NPM_CONFIG_PREFIX" to npmGlobalDir.absolutePath,
             "NPM_CONFIG_CACHE" to cacheDir.absolutePath,
+            "NPM_CONFIG_USERCONFIG" to File(homeDir, ".npmrc").absolutePath,
             // Avoid interactive update noise and optional fund prompts on mobile.
             "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
             "NPM_CONFIG_FUND" to "false",
@@ -698,6 +837,22 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath
         )
+
+        // termux-exec: LD_PRELOAD hooks execve so shebang scripts under the
+        // writable app data dir can run (Android 10+ noexec). Prefer the
+        // linker variant used on modern Termux / targetSdk 34.
+        val preloadCandidates = listOf(
+            File(nativeLibDir, "liblib_libtermux_exec_linker_ld_preload_so.so"),
+            File(nativeLibDir, "liblib_libtermux_exec_direct_ld_preload_so.so"),
+            File(libDir, "libtermux-exec-linker-ld-preload.so"),
+            File(libDir, "libtermux-exec-direct-ld-preload.so")
+        )
+        val preload = preloadCandidates.firstOrNull { it.exists() }
+        if (preload != null) {
+            env["LD_PRELOAD"] = preload.absolutePath
+            // Hint for termux-exec system_linker_exec path on newer Android.
+            env["TERMUX_EXEC__EXECVE_CALL__INTERCEPT"] = "enable"
+        }
 
         // TLS: prefer a bundled/assembled CA bundle; else use the system store.
         if (caBundleFile.exists() && caBundleFile.length() > 0) {

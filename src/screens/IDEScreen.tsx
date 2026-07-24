@@ -20,7 +20,13 @@ import { TerminalPanel } from '../components/terminal';
 import { FileExplorer } from '../components/explorer';
 import { GitPanel } from '../components/git';
 import { Icon, IconName } from '../components/icons';
-import { useRuntimeStore, useUIStore, useFileStore, setupTerminalListeners } from '../stores';
+import {
+  useRuntimeStore,
+  useUIStore,
+  useFileStore,
+  setupTerminalListeners,
+  setupProcessListeners,
+} from '../stores';
 
 // Only treat as tablet when BOTH dimensions are large enough. Phones in
 // landscape often exceed 768px width and would otherwise flip into the
@@ -49,9 +55,13 @@ export const IDEScreen: React.FC = () => {
   const isTablet = width >= TABLET_MIN_WIDTH && height >= TABLET_MIN_HEIGHT;
 
   useEffect(() => {
-    const cleanup = setupTerminalListeners();
+    const cleanupTerminal = setupTerminalListeners();
+    const cleanupProcess = setupProcessListeners();
     checkRuntime();
-    return cleanup;
+    return () => {
+      cleanupTerminal();
+      cleanupProcess();
+    };
   }, [checkRuntime]);
 
   useEffect(() => {

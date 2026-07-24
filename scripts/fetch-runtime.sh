@@ -316,6 +316,17 @@ main() {
   fetch_npm  || warn "npm fetch skipped/failed"
   fetch_ssh  || warn "ssh fetch skipped/failed"
   fetch_python || warn "python fetch skipped/failed"
+  # Optional: static armv8l busybox multi-call (ls/cat/grep/tar/… applets).
+  if [ -n "${BUSYBOX_URL:-}" ]; then
+    log "Fetching busybox from BUSYBOX_URL"
+    curl -fL --retry 3 -o "$BIN_DIR/busybox" "$BUSYBOX_URL" && chmod +x "$BIN_DIR/busybox" && ok "busybox" \
+      || warn "busybox download failed"
+  else
+    BB_URL="https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv8l"
+    log "Fetching busybox-armv8l"
+    curl -fL --retry 3 -o "$BIN_DIR/busybox" "$BB_URL" && chmod +x "$BIN_DIR/busybox" && ok "busybox" \
+      || warn "busybox download failed (set BUSYBOX_URL to override)"
+  fi
   dedup_gitcore || true
   strip_elf || true
 
