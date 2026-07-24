@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.4.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.5.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -138,6 +138,7 @@ class RuntimeManager(private val context: Context) {
         createDropbearAliases()
         createGitRemoteAliases()
         createBusyboxAliases()
+        createNpmShellAlias()
 
         onProgress?.invoke("Protecting runtime...", 0.9f)
         protectBinDirectory()
@@ -415,6 +416,36 @@ class RuntimeManager(private val context: Context) {
         Log.i(TAG, "busybox applets linked: $n")
     }
 
+    /**
+     * Link bin/adev-npm-shell to the native trampoline that runs npm lifecycle
+     * scripts via node when filesDir is noexec (fixes Permission denied on
+     * node_modules/.bin shims and postinstall .mjs files).
+     */
+    private fun createNpmShellAlias() {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        // CMake names it libbin_adev_npm_shell.so (see cpp/CMakeLists.txt).
+        val candidates = listOf(
+            File(nativeLibDir, "libbin_adev_npm_shell.so"),
+            File(nativeLibDir, "libadev_npm_shell.so")
+        )
+        val target = candidates.firstOrNull { it.exists() }
+        if (target == null) {
+            Log.w(TAG, "adev-npm-shell ELF missing in $nativeLibDir — npm scripts may hit noexec")
+            return
+        }
+        binDir.setWritable(true, false)
+        listOf("adev-npm-shell", "npm-shell").forEach { name ->
+            val link = File(binDir, name)
+            try {
+                if (link.exists() || isSymlink(link)) link.delete()
+                Os.symlink(target.absolutePath, link.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "npm-shell alias $name failed", e)
+            }
+        }
+        Log.i(TAG, "adev-npm-shell linked -> ${target.absolutePath}")
+    }
+
     private fun parseNativeMap(json: String): Map<String, String> {
         val obj = JSONObject(json)
         val result = LinkedHashMap<String, String>()
@@ -527,6 +558,7 @@ class RuntimeManager(private val context: Context) {
     private fun setupNpmrc() {
         try {
             val npmrc = File(homeDir, ".npmrc")
+            val scriptShell = File(binDir, "adev-npm-shell").absolutePath
             npmrc.writeText(
                 """
                 prefix=${npmGlobalDir.absolutePath}
@@ -534,8 +566,11 @@ class RuntimeManager(private val context: Context) {
                 fund=false
                 audit=false
                 update-notifier=false
-                # Pure-JS packages install fine. Native (node-gyp) modules need a
-                # C/C++ toolchain which is not bundled — they will fail to build.
+                # Run lifecycle scripts through our noexec-safe trampoline.
+                script-shell=${scriptShell}
+                # Skip optional native addons (utf-8-validate, bufferutil, …) so
+                # installs succeed with pure-JS fallbacks when node-gyp is absent.
+                optional=false
                 fetch-retries=3
                 fetch-retry-mintimeout=20000
                 fetch-retry-maxtimeout=120000
@@ -564,9 +599,14 @@ class RuntimeManager(private val context: Context) {
                 - Native addons that need node-gyp, python, make, gcc
                   (e.g. better-sqlite3, bcrypt, sharp, many @napi-rs packages)
                 - Full desktop Linux toolchains (not bundled)
+                - Optional native deps are skipped by default (`optional=false`) so
+                  packages like `ws` use pure-JS fallbacks (utf-8-validate skipped)
 
                 ## Tips
                 - Prefer `npm install` (project-local) and `npx <tool>`
+                - Lifecycle scripts run via `adev-npm-shell` (fixes Permission denied
+                  on node_modules/.bin under Android noexec)
+                - Platform packages (e.g. opencode-android-arm64) may need manual install
                 - Use `node ./node_modules/<pkg>/bin/…` if a bin still fails
                 """.trimIndent() + "\n"
             )
@@ -820,6 +860,8 @@ class RuntimeManager(private val context: Context) {
             "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
             "NPM_CONFIG_FUND" to "false",
             "NPM_CONFIG_AUDIT" to "false",
+            // Skip optional native deps by default (ws fallbacks work without them).
+            "NPM_CONFIG_OPTIONAL" to "false",
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
@@ -835,8 +877,23 @@ class RuntimeManager(private val context: Context) {
             "GIT_HTTP_LOW_SPEED_TIME" to "30",
             "HOSTNAME" to "adev",
             "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
-            "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath
+            "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath,
+            // Used by adev-npm-shell to locate libbin_node.so if PATH node is missing.
+            "MOBILEIDE_NATIVE_LIB" to nativeLibDir
         )
+
+        // npm lifecycle: trampoline that runs JS bins via node (noexec-safe).
+        val npmShellLink = File(binDir, "adev-npm-shell")
+        val npmShellNative = File(nativeLibDir, "libbin_adev_npm_shell.so")
+        val npmShellPath = when {
+            npmShellLink.exists() -> npmShellLink.absolutePath
+            npmShellNative.exists() -> npmShellNative.absolutePath
+            else -> null
+        }
+        if (npmShellPath != null) {
+            env["NPM_CONFIG_SCRIPT_SHELL"] = npmShellPath
+            env["npm_config_script_shell"] = npmShellPath
+        }
 
         // termux-exec: LD_PRELOAD hooks execve so shebang scripts under the
         // writable app data dir can run (Android 10+ noexec). Prefer the

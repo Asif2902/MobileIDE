@@ -230,7 +230,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         />
       )}
 
-      {/* Modal for touch finger selection */}
+      {/* Modal for touch selection — header/footer fixed; body scrolls fully. */}
       <Modal
         visible={isSelectModalVisible}
         animationType="slide"
@@ -247,22 +247,36 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             </TouchableOpacity>
           </View>
           <Text style={styles.modalHint}>
-            Touch and drag handles to select specific text to copy:
+            Scroll the log, then long-press to select. Use Copy all for the full buffer.
           </Text>
-          <ScrollView style={styles.modalTextContainer}>
+          <ScrollView
+            style={styles.modalTextContainer}
+            contentContainerStyle={styles.modalTextContent}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
             <Text selectable style={styles.selectableInput}>
               {selectModalText}
             </Text>
           </ScrollView>
-          <TouchableOpacity
-            style={styles.copyAllButton}
-            onPress={() => {
-              ClipboardNativeModule.setString(selectModalText || '').catch(() => {});
-              setIsSelectModalVisible(false);
-            }}
-          >
-            <Text style={styles.copyAllButtonText}>Copy all</Text>
-          </TouchableOpacity>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={styles.copyAllButton}
+              onPress={() => {
+                ClipboardNativeModule.setString(selectModalText || '').catch(() => {});
+                setIsSelectModalVisible(false);
+              }}
+            >
+              <Text style={styles.copyAllButtonText}>Copy all</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalCancelButton}
+              onPress={() => setIsSelectModalVisible(false)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>
@@ -281,9 +295,9 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: '#1e1e1e',
-    paddingTop: 12,
+    paddingTop: 48,
     paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingBottom: 16,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -292,11 +306,13 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#333333',
+    flexShrink: 0,
   },
   modalTitle: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+    flex: 1,
   },
   closeButton: {
     padding: 6,
@@ -305,26 +321,36 @@ const styles = StyleSheet.create({
     color: '#8a8a92',
     fontSize: 12,
     marginVertical: 8,
+    flexShrink: 0,
   },
   modalTextContainer: {
     flex: 1,
+    minHeight: 120,
     backgroundColor: '#141414',
     borderRadius: 6,
     borderColor: '#2a2a2a',
     borderWidth: 1,
-    padding: 10,
+  },
+  modalTextContent: {
+    padding: 12,
+    paddingBottom: 32,
+    flexGrow: 1,
   },
   selectableInput: {
-    flex: 1,
     color: '#d4d4d4',
     fontFamily: 'monospace',
     fontSize: 12,
-    textAlignVertical: 'top',
+    lineHeight: 18,
+    // Do not use flex:1 on Text inside ScrollView — it blocks tall content scroll.
+  },
+  modalFooter: {
+    flexShrink: 0,
+    paddingTop: 12,
+    gap: 8,
   },
   copyAllButton: {
-    marginTop: 12,
     backgroundColor: '#8b5cf6',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
@@ -332,6 +358,17 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalCancelButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  modalCancelText: {
+    color: '#a1a1aa',
+    fontSize: 14,
   },
 });
 

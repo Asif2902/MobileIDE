@@ -82,8 +82,8 @@ android {
         applicationId "com.mobileide.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 4
+        versionName "1.2.1"
         ndk {
             abiFilters "arm64-v8a"
         }
@@ -280,6 +280,46 @@ task prepareRuntimeNativeLibs {
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn prepareRuntimeNativeLibs
+}
+
+/**
+ * CMake builds adev-npm-shell as an executable named libbin_adev_npm_shell.so.
+ * AGP only auto-packages SHARED libs, so we copy the ELF into jniLibs after
+ * each externalNativeBuild* task so RuntimeManager can symlink bin/adev-npm-shell.
+ */
+tasks.configureEach { task ->
+    if (task.name.startsWith("externalNativeBuild")) {
+        task.doLast {
+            def abi = "arm64-v8a"
+            def outDir = file("${buildDir}/intermediates/cxx")
+            def found = null
+            if (outDir.exists()) {
+                outDir.eachFileRecurse { f ->
+                    if (f.isFile() && f.name == "libbin_adev_npm_shell.so") {
+                        found = f
+                    }
+                }
+            }
+            // Also search .cxx which AGP uses for cmake outputs
+            def cxx = file("${projectDir}/.cxx")
+            if (found == null && cxx.exists()) {
+                cxx.eachFileRecurse { f ->
+                    if (f.isFile() && f.name == "libbin_adev_npm_shell.so") {
+                        found = f
+                    }
+                }
+            }
+            if (found != null) {
+                def destDir = file("src/main/jniLibs/${abi}")
+                destDir.mkdirs()
+                def dest = new File(destDir, "libbin_adev_npm_shell.so")
+                dest.bytes = found.bytes
+                logger.lifecycle("[runtime] packaged adev-npm-shell -> ${dest} (${dest.length()} bytes)")
+            } else {
+                logger.warn("[runtime] libbin_adev_npm_shell.so not found after ${task.name}")
+            }
+        }
+    }
 }
 
 dependencies {
