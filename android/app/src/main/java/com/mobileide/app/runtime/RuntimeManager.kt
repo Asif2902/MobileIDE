@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.5.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.6.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -145,6 +145,7 @@ class RuntimeManager(private val context: Context) {
 
         onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
+        setupPlatformSpoof()
         setupNpmrc()
 
         onProgress?.invoke("Preparing certificates...", 0.95f)
@@ -552,6 +553,43 @@ class RuntimeManager(private val context: Context) {
     }
 
     /**
+     * Ensure the platform-spoof preload script is present under the runtime
+     * tree (copied from assets, or written if missing). Used via NODE_OPTIONS.
+     */
+    private fun setupPlatformSpoof() {
+        try {
+            val dest = File(libDir, "adev-platform-spoof.js")
+            dest.parentFile?.mkdirs()
+            // Prefer the asset shipped in the APK (updated on each runtime extract).
+            val assetPath = "runtime/lib/adev-platform-spoof.js"
+            try {
+                context.assets.open(assetPath).use { input ->
+                    FileOutputStream(dest).use { output -> input.copyTo(output) }
+                }
+            } catch (_: Exception) {
+                if (!dest.exists()) {
+                    dest.writeText(
+                        """
+                        try{
+                          Object.defineProperty(process,'platform',{get:function(){return 'linux'}});
+                          Object.defineProperty(process,'arch',{get:function(){return 'arm64'}});
+                          var os=require('os');
+                          os.platform=function(){return 'linux'};
+                          os.arch=function(){return 'arm64'};
+                          os.type=function(){return 'Linux'};
+                          process.adevPlatformSpoof='linux-arm64';
+                        }catch(e){}
+                        """.trimIndent()
+                    )
+                }
+            }
+            Log.i(TAG, "Platform spoof ready: ${dest.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "setupPlatformSpoof failed: ${e.message}")
+        }
+    }
+
+    /**
      * Write a user .npmrc tuned for Android (prefix, cache, quieter installs).
      * Always overwrite so upgrades pick up new defaults.
      */
@@ -568,9 +606,13 @@ class RuntimeManager(private val context: Context) {
                 update-notifier=false
                 # Run lifecycle scripts through our noexec-safe trampoline.
                 script-shell=${scriptShell}
-                # Skip optional native addons (utf-8-validate, bufferutil, …) so
-                # installs succeed with pure-JS fallbacks when node-gyp is absent.
-                optional=false
+                # Pretend we are linux/arm64 so optional platform packages resolve
+                # (opencode, codex, esbuild, …) instead of missing *-android-arm64.
+                platform=linux
+                arch=arm64
+                # Allow optionalDependencies (needed for platform binary packages).
+                # Pure-JS fallbacks still apply when a native optional fails.
+                optional=true
                 fetch-retries=3
                 fetch-retry-mintimeout=20000
                 fetch-retry-maxtimeout=120000
@@ -584,30 +626,39 @@ class RuntimeManager(private val context: Context) {
                 """
                 # A Dev Studio runtime notes
 
+                ## Platform identity (linux arm64 spoof)
+                Node and npm report **linux / arm64** (not android) so CLI tools
+                install the same optional packages as Linux aarch64:
+
+                    node -p "process.platform + ' ' + process.arch"
+                    # => linux arm64
+
+                This is intentional. Check: `node -p "process.adevPlatformSpoof"`
+
                 ## What works
                 - node, npm, npx, corepack (yarn/pnpm via corepack)
-                - git (including HTTPS)
-                - busybox applets (ls, cat, grep, tar, …) when busybox is embedded
-                - pure JavaScript packages: `npm install lodash express typescript …`
+                - git (HTTPS), busybox applets, pure JS packages
+                - Many prebuilt **linux-arm64** optional deps (esbuild, etc.)
+                - Lifecycle scripts via adev-npm-shell (noexec-safe)
 
-                ## Global CLIs (`npm i -g tsc` etc.)
-                - On Android, app data is noexec. We use termux-exec (LD_PRELOAD) so
-                  shebang scripts can run, plus shell shims (`adev-rehash`).
-                - After `npm i -g …`, run: `adev-rehash` (mksh) or open a new terminal.
+                ## Global CLIs
+                - After `npm i -g …`: `adev-rehash` (mksh) or new terminal
+                - If a tool still looks for android packages, re-open the app so
+                  runtime re-inits and NODE_OPTIONS spoof is active
 
-                ## What will NOT install / build
-                - Native addons that need node-gyp, python, make, gcc
-                  (e.g. better-sqlite3, bcrypt, sharp, many @napi-rs packages)
-                - Full desktop Linux toolchains (not bundled)
-                - Optional native deps are skipped by default (`optional=false`) so
-                  packages like `ws` use pure-JS fallbacks (utf-8-validate skipped)
+                ## CLI agents (OpenCode, Codex, Grok, …)
+                1. Prefer: `npm i -g <tool>` with linux-arm64 spoof active
+                2. If postinstall asks for a platform package, install it explicitly, e.g.
+                     npm i -g @openai/codex
+                   or the package name printed in the error
+                3. If the binary installs but will not run: it may be glibc-linked.
+                   Prefer musl/static builds or Termux/Android builds when published.
+                4. Grok usually has no official CLI — use the API with a small node script
 
-                ## Tips
-                - Prefer `npm install` (project-local) and `npx <tool>`
-                - Lifecycle scripts run via `adev-npm-shell` (fixes Permission denied
-                  on node_modules/.bin under Android noexec)
-                - Platform packages (e.g. opencode-android-arm64) may need manual install
-                - Use `node ./node_modules/<pkg>/bin/…` if a bin still fails
+                ## What still fails
+                - Packages that must **compile** native code (node-gyp / python / gcc)
+                - glibc-only linux binaries that cannot load on Android bionic
+                - Tools with no linux-arm64 and no android-arm64 artifact at all
                 """.trimIndent() + "\n"
             )
         } catch (e: Exception) {
@@ -708,6 +759,19 @@ class RuntimeManager(private val context: Context) {
           pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
         fi
 
+        # Report Linux/arm64 to shell tools that call uname (install scripts).
+        uname() {
+          case "${'$'}1" in
+            -m|-p|-i) echo aarch64 ;;
+            -s) echo Linux ;;
+            -o) echo GNU/Linux ;;
+            -a) echo "Linux adev 5.15.0 aarch64 GNU/Linux" ;;
+            -r) command uname -r 2>/dev/null || echo 5.15.0 ;;
+            "") echo Linux ;;
+            *) command uname "${'$'}@" 2>/dev/null || echo Linux ;;
+          esac
+        }
+
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
         # Run a JS CLI file via node (shebang-safe on noexec).
@@ -755,6 +819,19 @@ class RuntimeManager(private val context: Context) {
           yarn() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" yarn "${'$'}@"; }
           pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
         fi
+
+        # Report Linux/arm64 to shell tools that call uname (install scripts).
+        uname() {
+          case "${'$'}1" in
+            -m|-p|-i) echo aarch64 ;;
+            -s) echo Linux ;;
+            -o) echo GNU/Linux ;;
+            -a) echo "Linux adev 5.15.0 aarch64 GNU/Linux" ;;
+            -r) command uname -r 2>/dev/null || echo 5.15.0 ;;
+            "") echo Linux ;;
+            *) command uname "${'$'}@" 2>/dev/null || echo Linux ;;
+          esac
+        }
 
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
@@ -860,8 +937,15 @@ class RuntimeManager(private val context: Context) {
             "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
             "NPM_CONFIG_FUND" to "false",
             "NPM_CONFIG_AUDIT" to "false",
-            // Skip optional native deps by default (ws fallbacks work without them).
-            "NPM_CONFIG_OPTIONAL" to "false",
+            // Allow optionalDependencies (platform binary packages for CLIs).
+            "NPM_CONFIG_OPTIONAL" to "true",
+            // Force npm's package resolution to linux/arm64 (not android).
+            "npm_config_platform" to "linux",
+            "npm_config_arch" to "arm64",
+            "npm_config_target_platform" to "linux",
+            "npm_config_target_arch" to "arm64",
+            "NPM_CONFIG_PLATFORM" to "linux",
+            "NPM_CONFIG_ARCH" to "arm64",
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
@@ -881,6 +965,20 @@ class RuntimeManager(private val context: Context) {
             // Used by adev-npm-shell to locate libbin_node.so if PATH node is missing.
             "MOBILEIDE_NATIVE_LIB" to nativeLibDir
         )
+
+        // Every node process (npm, npx, CLIs) loads the platform spoof first.
+        val spoof = File(libDir, "adev-platform-spoof.js")
+        if (spoof.exists()) {
+            val requireFlag = "--require ${spoof.absolutePath}"
+            val existing = env["NODE_OPTIONS"]?.trim().orEmpty()
+            env["NODE_OPTIONS"] = if (existing.isEmpty()) {
+                requireFlag
+            } else if (existing.contains("adev-platform-spoof")) {
+                existing
+            } else {
+                "$requireFlag $existing"
+            }
+        }
 
         // npm lifecycle: trampoline that runs JS bins via node (noexec-safe).
         val npmShellLink = File(binDir, "adev-npm-shell")
