@@ -35,6 +35,8 @@ export interface ProcessExitEvent {
 
 export interface ProcessNativeInterface {
   spawn(command: string, args: string[], cwd: string | null): Promise<ProcessInfo>;
+  /** Background shell with ADEV wrappers (npm/tsc/build/servers for agents). */
+  runShell(script: string, cwd: string | null): Promise<ProcessInfo>;
   kill(processId: number): Promise<boolean>;
   getProcesses(): Promise<ProcessDetails[]>;
   getActivePorts(): Promise<ActivePort[]>;

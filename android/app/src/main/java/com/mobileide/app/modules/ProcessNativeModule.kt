@@ -30,7 +30,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Spawn a new process
+     * Spawn a new process (rewrites node/npm/git/ls to exec-safe paths).
      */
     @ReactMethod
     fun spawn(command: String, args: ReadableArray, cwd: String?, promise: Promise) {
@@ -41,7 +41,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
                 for (i in 0 until args.size()) {
                     argList.add(args.getString(i) ?: "")
                 }
-                
+
                 val pidHolder = intArrayOf(-1)
                 val process = manager.spawnProcess(
                     command = command,
@@ -69,7 +69,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
                     }
                 )
                 pidHolder[0] = process.id
-                
+
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("processId", process.id)
@@ -81,6 +81,57 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     promise.reject("PROCESS_ERROR", e.message)
+                }
+            }
+        }
+    }
+
+    /**
+     * Run a shell script line in the background with ADEV wrappers loaded.
+     * Used by agents / UI for: npm run build, tsc, long servers, etc.
+     */
+    @ReactMethod
+    fun runShell(script: String, cwd: String?, promise: Promise) {
+        scope.launch {
+            try {
+                val manager = getProcessManager()
+                val pidHolder = intArrayOf(-1)
+                val process = manager.spawnShell(
+                    script = script,
+                    cwd = cwd,
+                    onOutput = { line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", pidHolder[0])
+                            putString("data", line)
+                            putString("stream", "stdout")
+                        })
+                    },
+                    onError = { line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", pidHolder[0])
+                            putString("data", line)
+                            putString("stream", "stderr")
+                        })
+                    },
+                    onExit = { exitCode ->
+                        sendEvent("onProcessExit", Arguments.createMap().apply {
+                            putInt("processId", pidHolder[0])
+                            putInt("exitCode", exitCode)
+                        })
+                    }
+                )
+                pidHolder[0] = process.id
+                withContext(Dispatchers.Main) {
+                    val result = Arguments.createMap().apply {
+                        putInt("processId", process.id)
+                        putString("command", script)
+                        putString("cwd", process.workingDirectory)
+                    }
+                    promise.resolve(result)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    promise.reject("PROCESS_SHELL_ERROR", e.message)
                 }
             }
         }
