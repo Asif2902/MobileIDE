@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.6.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.7.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -154,6 +154,7 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Creating workspace...", 0.97f)
         createGlobalDirs()
         createDefaultWorkspace()
+        createDevProjectTemplates()
 
         // Mark runtime as installed. The fingerprint is written last so that an
         // interrupted init is not mistaken for a complete one on next launch.
@@ -635,30 +636,35 @@ class RuntimeManager(private val context: Context) {
 
                 This is intentional. Check: `node -p "process.adevPlatformSpoof"`
 
+                ## Frontend / backend (essentials)
+                Env is set for device servers:
+                  HOST=0.0.0.0  CHOKIDAR_USEPOLLING=true  BROWSER=none
+
+                Seed projects (created once under workspaces/):
+                  demo-web   Vite frontend   → npm install && npm run dev  (port 5173)
+                  demo-api   Express API     → npm install && npm start    (port 3000)
+
+                Preview: Output panel → Ports → Open (opens http://127.0.0.1:PORT)
+
+                Shell helpers: adev-help | adev-vite | adev-next | projects
+
                 ## What works
                 - node, npm, npx, corepack (yarn/pnpm via corepack)
                 - git (HTTPS), busybox applets, pure JS packages
-                - Many prebuilt **linux-arm64** optional deps (esbuild, etc.)
+                - Many prebuilt **linux-arm64** optional deps (esbuild via Vite, etc.)
                 - Lifecycle scripts via adev-npm-shell (noexec-safe)
 
                 ## Global CLIs
                 - After `npm i -g …`: `adev-rehash` (mksh) or new terminal
-                - If a tool still looks for android packages, re-open the app so
-                  runtime re-inits and NODE_OPTIONS spoof is active
+                - Platform spoof: node reports linux/arm64 for package selection
 
-                ## CLI agents (OpenCode, Codex, Grok, …)
-                1. Prefer: `npm i -g <tool>` with linux-arm64 spoof active
-                2. If postinstall asks for a platform package, install it explicitly, e.g.
-                     npm i -g @openai/codex
-                   or the package name printed in the error
-                3. If the binary installs but will not run: it may be glibc-linked.
-                   Prefer musl/static builds or Termux/Android builds when published.
-                4. Grok usually has no official CLI — use the API with a small node script
+                ## CLI agents (OpenCode, Codex, …) — later / optional
+                - Prefer linux-arm64 optional packages; binary may still need musl/static
+                - Downloadable tool installs come later (keeps APK small)
 
                 ## What still fails
                 - Packages that must **compile** native code (node-gyp / python / gcc)
                 - glibc-only linux binaries that cannot load on Android bionic
-                - Tools with no linux-arm64 and no android-arm64 artifact at all
                 """.trimIndent() + "\n"
             )
         } catch (e: Exception) {
@@ -745,6 +751,164 @@ class RuntimeManager(private val context: Context) {
         }
     }
 
+    /**
+     * Seed demo-web (Vite) and demo-api (Express) so FE/BE can be run with
+     * two standard commands after npm install. Only created if missing.
+     */
+    private fun createDevProjectTemplates() {
+        try {
+            createDemoWebProject()
+            createDemoApiProject()
+        } catch (e: Exception) {
+            Log.w(TAG, "createDevProjectTemplates failed: ${e.message}")
+        }
+    }
+
+    private fun createDemoWebProject() {
+        val dir = File(workspacesDir, "demo-web")
+        if (dir.exists()) return
+        dir.mkdirs()
+        File(dir, "package.json").writeText(
+            """
+            {
+              "name": "demo-web",
+              "private": true,
+              "version": "1.0.0",
+              "type": "module",
+              "scripts": {
+                "dev": "vite --host 0.0.0.0 --port 5173",
+                "build": "vite build",
+                "preview": "vite preview --host 0.0.0.0 --port 4173"
+              },
+              "devDependencies": {
+                "vite": "^5.4.0"
+              }
+            }
+            """.trimIndent() + "\n"
+        )
+        File(dir, "index.html").writeText(
+            """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>ADEV demo-web</title>
+            </head>
+            <body>
+              <div id="app"></div>
+              <script type="module" src="/main.js"></script>
+            </body>
+            </html>
+            """.trimIndent() + "\n"
+        )
+        File(dir, "main.js").writeText(
+            """
+            const app = document.querySelector('#app');
+            app.innerHTML = `
+              <h1>A Dev Studio — demo-web</h1>
+              <p>Vite is running on this device.</p>
+              <p>Open the URL shown in the terminal (port 5173) from Output → Open.</p>
+            `;
+            console.log('demo-web ready');
+            """.trimIndent() + "\n"
+        )
+        File(dir, "vite.config.js").writeText(
+            """
+            import { defineConfig } from 'vite';
+            export default defineConfig({
+              server: {
+                host: '0.0.0.0',
+                port: 5173,
+                strictPort: false,
+                watch: { usePolling: true, interval: 1000 }
+              },
+              preview: { host: '0.0.0.0', port: 4173 }
+            });
+            """.trimIndent() + "\n"
+        )
+        File(dir, "README.md").writeText(
+            """
+            # demo-web (Vite)
+
+            ```bash
+            cd ~/workspaces/demo-web   # or: projects && cd demo-web
+            npm install
+            npm run dev
+            ```
+
+            Then open `http://127.0.0.1:5173` from the Output panel (Open) or Chrome on the phone.
+            """.trimIndent() + "\n"
+        )
+        Log.i(TAG, "Created demo-web template")
+    }
+
+    private fun createDemoApiProject() {
+        val dir = File(workspacesDir, "demo-api")
+        if (dir.exists()) return
+        dir.mkdirs()
+        File(dir, "package.json").writeText(
+            """
+            {
+              "name": "demo-api",
+              "private": true,
+              "version": "1.0.0",
+              "type": "module",
+              "scripts": {
+                "start": "node server.js",
+                "dev": "node --watch server.js"
+              },
+              "dependencies": {
+                "express": "^4.21.0"
+              }
+            }
+            """.trimIndent() + "\n"
+        )
+        File(dir, "server.js").writeText(
+            """
+            import express from 'express';
+
+            const app = express();
+            const PORT = Number(process.env.PORT) || 3000;
+            const HOST = process.env.HOST || '0.0.0.0';
+
+            app.use(express.json());
+
+            app.get('/', (_req, res) => {
+              res.type('html').send(`<!doctype html>
+            <html><body style="font-family:sans-serif;padding:24px">
+            <h1>A Dev Studio — demo-api</h1>
+            <p>Express is running on this device.</p>
+            <p><a href="/api/health">/api/health</a></p>
+            </body></html>`);
+            });
+
+            app.get('/api/health', (_req, res) => {
+              res.json({ ok: true, platform: process.platform, arch: process.arch, time: Date.now() });
+            });
+
+            app.listen(PORT, HOST, () => {
+              console.log(`demo-api listening on http://${HOST}:${PORT}`);
+              console.log(`Try: http://127.0.0.1:${PORT}/api/health`);
+            });
+            """.trimIndent() + "\n"
+        )
+        File(dir, "README.md").writeText(
+            """
+            # demo-api (Express)
+
+            ```bash
+            cd ~/workspaces/demo-api
+            npm install
+            npm start
+            ```
+
+            Then open `http://127.0.0.1:3000` from Output → Open.
+            """.trimIndent() + "\n"
+        )
+        Log.i(TAG, "Created demo-api template")
+    }
+
     private fun getMkshrcContent(): String = """
         # A Dev Studio - mksh configuration
         export PS1='adev:${'$'}PWD ${'$'} '
@@ -797,13 +961,28 @@ class RuntimeManager(private val context: Context) {
         }
         adev-rehash 2>/dev/null
 
+        # ---- FE/BE dev helpers (host 0.0.0.0 + polling come from env) ----
+        adev-help() {
+          echo "A Dev Studio — essential commands"
+          echo "  projects          cd workspaces"
+          echo "  cd demo-web && npm install && npm run dev"
+          echo "  cd demo-api && npm install && npm start"
+          echo "  adev-vite         npx vite --host 0.0.0.0"
+          echo "  adev-next         npx next dev -H 0.0.0.0"
+          echo "  adev-rehash       refresh global CLI shims after npm i -g"
+          echo "  node -p process.platform  # should be: linux"
+          echo "See ~/ADEV-RUNTIME.md for full notes."
+        }
+        adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
+        adev-next() { npx next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
+
         alias ll='ls -la'
         alias la='ls -a'
         alias ..='cd ..'
         alias cls='clear'
         alias projects='cd ${workspacesDir.absolutePath}'
 
-        echo "Welcome to A Dev Studio Terminal"
+        echo "Welcome to A Dev Studio Terminal — type adev-help"
     """.trimIndent()
 
     private fun getBashrcContent(): String = """
@@ -862,6 +1041,32 @@ class RuntimeManager(private val context: Context) {
             echo "adev: bash hash cleared; globals resolve via command_not_found_handle + termux-exec"
         }
 
+        adev-help() {
+          echo "A Dev Studio — essential commands"
+          echo "  projects          cd workspaces"
+          echo "  cd demo-web && npm install && npm run dev"
+          echo "  cd demo-api && npm install && npm start"
+          echo "  adev-vite [port]  npx vite --host 0.0.0.0"
+          echo "  adev-next [port]  npx next dev -H 0.0.0.0"
+          echo "  adev-rehash       refresh global CLI shims after npm i -g"
+          echo "  node -p process.platform  # should be: linux"
+          echo "See ~/ADEV-RUNTIME.md for full notes."
+        }
+        adev-vite() {
+          local p=5173
+          case "${'$'}1" in
+            [0-9]*) p="${'$'}1"; shift ;;
+          esac
+          npx vite --host 0.0.0.0 --port "${'$'}p" "${'$'}@"
+        }
+        adev-next() {
+          local p=3000
+          case "${'$'}1" in
+            [0-9]*) p="${'$'}1"; shift ;;
+          esac
+          npx next dev -H 0.0.0.0 -p "${'$'}p" "${'$'}@"
+        }
+
         alias ll='ls -la'
         alias la='ls -a'
         alias ..='cd ..'
@@ -871,7 +1076,7 @@ class RuntimeManager(private val context: Context) {
         export HISTSIZE=2000
         export HISTFILE=${homeDir.absolutePath}/.bash_history
 
-        echo "Welcome to A Dev Studio Terminal"
+        echo "Welcome to A Dev Studio Terminal — type adev-help"
     """.trimIndent()
 
     private fun getProfileContent(): String = """
@@ -959,11 +1164,26 @@ class RuntimeManager(private val context: Context) {
             // Prefer HTTP/1.1 for flaky mobile TLS stacks with libcurl.
             "GIT_HTTP_LOW_SPEED_LIMIT" to "1000",
             "GIT_HTTP_LOW_SPEED_TIME" to "30",
-            "HOSTNAME" to "adev",
+            // Do NOT set HOSTNAME=adev — Next/Vite/http servers read HOSTNAME for bind/display.
+            "MOBILEIDE_HOST_LABEL" to "adev",
             "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath,
             // Used by adev-npm-shell to locate libbin_node.so if PATH node is missing.
-            "MOBILEIDE_NATIVE_LIB" to nativeLibDir
+            "MOBILEIDE_NATIVE_LIB" to nativeLibDir,
+            // ---- Dev-server essentials (frontend + backend on device) ----
+            // Bind all interfaces so the in-app browser / phone can hit the server.
+            "HOST" to "0.0.0.0",
+            // Next.js / many CLIs honor this for listen address.
+            "HOSTNAME" to "0.0.0.0",
+            // Don't try to open a desktop browser from the CLI.
+            "BROWSER" to "none",
+            // File watchers on Android/FAT/emulated storage are unreliable; polling is required for HMR.
+            "CHOKIDAR_USEPOLLING" to "true",
+            "CHOKIDAR_INTERVAL" to "1000",
+            "WATCHPACK_POLLING" to "true",
+            "FORCE_COLOR" to "1",
+            // Vite / webpack friendliness
+            "VITE_CJS_IGNORE_WARNING" to "true"
         )
 
         // Every node process (npm, npx, CLIs) loads the platform spoof first.

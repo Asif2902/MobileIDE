@@ -1,5 +1,7 @@
 package com.mobileide.app.modules
 
+import android.content.Intent
+import android.net.Uri
 import com.facebook.react.bridge.*
 import com.mobileide.app.runtime.RuntimeManager
 import kotlinx.coroutines.*
@@ -188,6 +190,29 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
             promise.resolve(info)
         } catch (e: Exception) {
             promise.reject("VERSION_ERROR", e.message)
+        }
+    }
+
+    /**
+     * Open a URL in the system browser (or app that handles http/https).
+     * Used to preview Vite/Express dev servers on the device.
+     */
+    @ReactMethod
+    fun openUrl(url: String, promise: Promise) {
+        try {
+            val uri = Uri.parse(url)
+            val scheme = uri.scheme?.lowercase()
+            if (scheme != "http" && scheme != "https") {
+                promise.reject("URL_ERROR", "Only http/https URLs are allowed")
+                return
+            }
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("URL_ERROR", e.message, e)
         }
     }
 

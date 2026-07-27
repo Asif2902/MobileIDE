@@ -6,9 +6,11 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useEditorStore } from '../../stores';
 import { useProcessStore } from '../../stores/processStore';
+import { MobileIDENativeModule } from '../../native';
 import { Icon } from '../icons';
 
 export const ProblemsView: React.FC = () => {
@@ -139,16 +141,46 @@ export const OutputView: React.FC = () => {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Ports</Text>
+        <Text style={styles.sectionTitle}>Ports (tap Open to preview)</Text>
         {ports.length === 0 ? (
-          <Text style={styles.muted}>No monitored ports open (3000, 5173, 8080, …)</Text>
+          <Text style={styles.muted}>
+            No monitored ports yet (3000, 5173, 8080, …). Run demo-web or demo-api in the terminal.
+          </Text>
         ) : (
           ports.map(port => (
-            <Text key={`${port.port}-${port.processId}`} style={styles.logText}>
-              :{port.port} → process {port.processId}
-            </Text>
+            <View key={`${port.port}-${port.processId}`} style={styles.portRow}>
+              <Text style={styles.logText}>
+                :{port.port} → process {port.processId}
+              </Text>
+              <TouchableOpacity
+                style={styles.openBtn}
+                onPress={() => {
+                  const url = `http://127.0.0.1:${port.port}`;
+                  MobileIDENativeModule.openUrl(url).catch(e =>
+                    Alert.alert('Open failed', e?.message || String(e)),
+                  );
+                }}
+              >
+                <Text style={styles.openBtnText}>Open</Text>
+              </TouchableOpacity>
+            </View>
           ))
         )}
+        <View style={styles.quickOpenRow}>
+          {[5173, 3000, 4173, 8080].map(p => (
+            <TouchableOpacity
+              key={p}
+              style={styles.quickOpenBtn}
+              onPress={() => {
+                MobileIDENativeModule.openUrl(`http://127.0.0.1:${p}`).catch(e =>
+                  Alert.alert('Open failed', e?.message || String(e)),
+                );
+              }}
+            >
+              <Text style={styles.quickOpenText}>:{p}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <View style={[styles.section, { flex: 1 }]}>
@@ -313,6 +345,40 @@ const styles = StyleSheet.create({
     color: '#fecaca',
     fontSize: 11,
     fontWeight: '600',
+  },
+  portRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  openBtn: {
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  openBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  quickOpenRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  quickOpenBtn: {
+    backgroundColor: '#2a2a2a',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  quickOpenText: {
+    color: '#c4b5fd',
+    fontSize: 11,
   },
   logBox: {
     flex: 1,

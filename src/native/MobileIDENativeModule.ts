@@ -43,6 +43,8 @@ export interface MobileIDENativeInterface {
   toVirtualPath(realPath: string): Promise<string>;
   getEnvironment(): Promise<Record<string, string>>;
   getVersionInfo(): Promise<VersionInfo>;
+  /** Open http(s) URL in the system browser (dev-server preview). */
+  openUrl(url: string): Promise<boolean>;
 }
 
 export const MobileIDENativeModule = MobileIDENative as MobileIDENativeInterface;
