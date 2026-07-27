@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.9.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.10.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -139,6 +139,9 @@ class RuntimeManager(private val context: Context) {
         createGitRemoteAliases()
         createBusyboxAliases()
         createNpmShellAlias()
+        // Replace key bin/* symlinks with shebang trampolines so OpenCode / agents
+        // can exec node|npm|git via PATH (termux-exec runs scripts on noexec).
+        createPathTrampolines()
 
         onProgress?.invoke("Protecting runtime...", 0.9f)
         protectBinDirectory()
@@ -386,6 +389,9 @@ class RuntimeManager(private val context: Context) {
         }
         binDir.setWritable(true, false)
         // Remove any previous broken applet symlinks that shadowed toybox.
+        // Remove only pure applet *symlinks* that would shadow toybox with a
+        // noexec path. createPathTrampolines() may re-add a few as shell scripts
+        // for applets agents need when toybox is incomplete.
         listOf(
             "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown",
             "touch", "find", "grep", "sed", "awk", "head", "tail", "wc", "sort", "uniq",
@@ -394,7 +400,7 @@ class RuntimeManager(private val context: Context) {
             "tar", "gzip", "gunzip", "bzip2", "xz", "wget", "vi", "less", "more",
             "ps", "kill", "killall", "pgrep", "pkill", "du", "df", "realpath",
             "dirname", "basename", "env", "printenv", "seq", "yes", "true", "false",
-            "test", "echo", "printf"
+            "test", "echo", "printf", "patch"
         ).forEach { name ->
             val link = File(binDir, name)
             try {
@@ -475,11 +481,14 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine("  pnpm() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" pnpm \"\$@\"; }")
                 sb.appendLine("fi")
                 // Common build/typecheck tools via npx (works for agents + humans)
-                sb.appendLine("tsc() { npx --no-install tsc \"\$@\" 2>/dev/null || npx tsc \"\$@\"; }")
-                sb.appendLine("eslint() { npx --no-install eslint \"\$@\" 2>/dev/null || npx eslint \"\$@\"; }")
-                sb.appendLine("prettier() { npx --no-install prettier \"\$@\" 2>/dev/null || npx prettier \"\$@\"; }")
-                sb.appendLine("vite() { npx --no-install vite \"\$@\" 2>/dev/null || npx vite \"\$@\"; }")
-                sb.appendLine("esbuild() { npx --no-install esbuild \"\$@\" 2>/dev/null || npx esbuild \"\$@\"; }")
+                sb.appendLine("tsc() { npx --no-install tsc \"\$@\" 2>/dev/null || npx --yes tsc \"\$@\"; }")
+                sb.appendLine("eslint() { npx --no-install eslint \"\$@\" 2>/dev/null || npx --yes eslint \"\$@\"; }")
+                sb.appendLine("prettier() { npx --no-install prettier \"\$@\" 2>/dev/null || npx --yes prettier \"\$@\"; }")
+                sb.appendLine("vite() { npx --no-install vite \"\$@\" 2>/dev/null || npx --yes vite \"\$@\"; }")
+                sb.appendLine("esbuild() { npx --no-install esbuild \"\$@\" 2>/dev/null || npx --yes esbuild \"\$@\"; }")
+                sb.appendLine("tsx() { npx --no-install tsx \"\$@\" 2>/dev/null || npx --yes tsx \"\$@\"; }")
+                sb.appendLine("jest() { npx --no-install jest \"\$@\" 2>/dev/null || npx --yes jest \"\$@\"; }")
+                sb.appendLine("vitest() { npx --no-install vitest \"\$@\" 2>/dev/null || npx --yes vitest \"\$@\"; }")
                 sb.appendLine()
             }
             if (hasGit) {
@@ -522,9 +531,10 @@ class RuntimeManager(private val context: Context) {
             }
 
             // Build / typecheck shortcuts for agents & humans
-            sb.appendLine("adev-typecheck() { npm run typecheck 2>/dev/null || npx tsc --noEmit \"\$@\"; }")
+            sb.appendLine("adev-typecheck() { npm run typecheck 2>/dev/null || npm run check 2>/dev/null || npx --yes tsc --noEmit \"\$@\"; }")
             sb.appendLine("adev-build() { npm run build \"\$@\"; }")
             sb.appendLine("adev-test() { npm test \"\$@\"; }")
+            sb.appendLine("adev-lint() { npm run lint 2>/dev/null || npx --yes eslint . \"\$@\"; }")
             sb.appendLine("adev-dev() { npm run dev \"\$@\" 2>/dev/null || npm start \"\$@\"; }")
             sb.appendLine()
 
@@ -538,27 +548,46 @@ class RuntimeManager(private val context: Context) {
             sb.appendLine("  echo -n \"git: \"; git --version 2>&1")
             sb.appendLine("  echo -n \"ls: \"; ls -la /system/bin 2>&1 | head -n 2")
             sb.appendLine("  echo -n \"grep: \"; echo hello | grep hello 2>&1")
+            sb.appendLine("  echo -n \"find: \"; find --help 2>&1 | head -n 1 || echo ok")
             sb.appendLine("  echo -n \"busybox: \"; busybox echo ok 2>&1 || echo missing")
             sb.appendLine("  echo -n \"tar: \"; tar --help 2>&1 | head -n 1")
+            sb.appendLine("  echo -n \"agent-env: \"; [ -f \"\$HOME/.adev-agent-env\" ] && echo ok || echo missing")
             sb.appendLine("  echo \"PATH=\$PATH\"")
-            sb.appendLine("  echo \"For agents: source \$HOME/.adev-wrappers before commands\"")
+            sb.appendLine("  echo \"Agents: BASH_ENV loads .adev-agent-env; ProcessNative.runShell for bg\"")
+            sb.appendLine("  echo \"Helpers: adev-typecheck | adev-build | adev-test | adev-lint | adev-dev\"")
             sb.appendLine("}")
 
             val out = File(homeDir, ".adev-wrappers")
             out.writeText(sb.toString())
 
             // Non-interactive agent bootstrap (OpenCode / background tools).
+            // Also used as BASH_ENV so `bash -c '…'` loads tools without -i/-l.
             val agentEnv = StringBuilder()
-            agentEnv.appendLine("# Source in agent shells:  . \"\$HOME/.adev-agent-env\"")
+            agentEnv.appendLine("# ADEV agent bootstrap — source: . \"\$HOME/.adev-agent-env\"")
+            agentEnv.appendLine("# Auto-loaded for non-interactive bash via BASH_ENV")
             agentEnv.appendLine("export PREFIX=\"${runtimeRoot.absolutePath}\"")
             agentEnv.appendLine("export HOME=\"${homeDir.absolutePath}\"")
             agentEnv.appendLine("export MOBILEIDE_NATIVE_LIB=\"$nativeLibDir\"")
+            if (hasNode) {
+                agentEnv.appendLine("export MOBILEIDE_NODE=\"$node\"")
+            }
+            if (hasGit) {
+                agentEnv.appendLine("export MOBILEIDE_GIT=\"$git\"")
+            }
+            if (File(nativeLibDir, "libbin_bash.so").exists()) {
+                agentEnv.appendLine("export MOBILEIDE_BASH=\"$bash\"")
+            }
+            if (hasBusybox) {
+                agentEnv.appendLine("export MOBILEIDE_BUSYBOX=\"$busybox\"")
+            }
             agentEnv.appendLine("export HOST=0.0.0.0")
+            agentEnv.appendLine("export HOSTNAME=0.0.0.0")
             agentEnv.appendLine("export BROWSER=none")
             agentEnv.appendLine("export CHOKIDAR_USEPOLLING=true")
             agentEnv.appendLine("export WATCHPACK_POLLING=true")
             agentEnv.appendLine("export npm_config_platform=linux")
             agentEnv.appendLine("export npm_config_arch=arm64")
+            agentEnv.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
             agentEnv.appendLine("[ -f \"\$HOME/.adev-wrappers\" ] && . \"\$HOME/.adev-wrappers\"")
             agentEnv.appendLine(
                 "[ -f \"\$PREFIX/lib/adev-platform-spoof.js\" ] && " +
@@ -600,6 +629,88 @@ class RuntimeManager(private val context: Context) {
             }
         }
         Log.i(TAG, "adev-npm-shell linked -> ${target.absolutePath}")
+    }
+
+    /**
+     * Write shebang trampolines in bin/ for tools agents (OpenCode) exec by PATH.
+     * Symlinks to nativeLibraryDir often hit EACCES on Android 10+ noexec when the
+     * *path* is under filesDir. A small `#!/system/bin/sh` script that `exec`s the
+     * absolute ELF works when LD_PRELOAD=termux-exec is set (our getEnvironment).
+     * Interactive shells still use function wrappers from .adev-wrappers.
+     */
+    private fun createPathTrampolines() {
+        try {
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val node = File(nativeLibDir, "libbin_node.so")
+            val git = File(nativeLibDir, "libbin_git.so")
+            val bash = File(nativeLibDir, "libbin_bash.so")
+            val busybox = File(nativeLibDir, "libbin_busybox.so")
+            val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
+            val npxCli = File(libDir, "node_modules/npm/bin/npx-cli.js")
+            val corepackJs = File(libDir, "node_modules/corepack/dist/corepack.js")
+
+            binDir.setWritable(true, false)
+
+            fun writeScript(name: String, body: String) {
+                val f = File(binDir, name)
+                try {
+                    if (f.exists() || isSymlink(f)) f.delete()
+                    f.writeText(body)
+                    try {
+                        Os.chmod(f.absolutePath, 0b111101101) // 0755
+                    } catch (_: Exception) {
+                        f.setExecutable(true, false)
+                        f.setReadable(true, false)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "trampoline $name failed: ${e.message}")
+                }
+            }
+
+            if (node.exists()) {
+                val n = node.absolutePath
+                writeScript("node", "#!/system/bin/sh\nexec \"$n\" \"\$@\"\n")
+                if (npmCli.exists()) {
+                    writeScript(
+                        "npm",
+                        "#!/system/bin/sh\nexec \"$n\" \"${npmCli.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (npxCli.exists()) {
+                    writeScript(
+                        "npx",
+                        "#!/system/bin/sh\nexec \"$n\" \"${npxCli.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (corepackJs.exists()) {
+                    val c = corepackJs.absolutePath
+                    writeScript("corepack", "#!/system/bin/sh\nexec \"$n\" \"$c\" \"\$@\"\n")
+                    writeScript("yarn", "#!/system/bin/sh\nexec \"$n\" \"$c\" yarn \"\$@\"\n")
+                    writeScript("pnpm", "#!/system/bin/sh\nexec \"$n\" \"$c\" pnpm \"\$@\"\n")
+                }
+            }
+            if (git.exists()) {
+                writeScript("git", "#!/system/bin/sh\nexec \"${git.absolutePath}\" \"\$@\"\n")
+            }
+            if (bash.exists()) {
+                writeScript("bash", "#!/system/bin/sh\nexec \"${bash.absolutePath}\" \"\$@\"\n")
+            }
+            if (busybox.exists()) {
+                val bb = busybox.absolutePath
+                writeScript("busybox", "#!/system/bin/sh\nexec \"$bb\" \"\$@\"\n")
+                // High-value applets agents call by name (prefer busybox when present)
+                listOf(
+                    "tar", "gzip", "gunzip", "xz", "wget", "find", "xargs",
+                    "sed", "awk", "diff", "patch", "md5sum", "sha256sum", "base64"
+                ).forEach { ap ->
+                    writeScript(ap, "#!/system/bin/sh\nexec \"$bb\" $ap \"\$@\"\n")
+                }
+            }
+
+            Log.i(TAG, "PATH trampolines written under ${binDir.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "createPathTrampolines failed: ${e.message}")
+        }
     }
 
     private fun parseNativeMap(json: String): Map<String, String> {
@@ -790,6 +901,23 @@ class RuntimeManager(private val context: Context) {
 
                 This is intentional. Check: `node -p "process.adevPlatformSpoof"`
 
+                ## Linux tools (agents + terminal)
+                - /system/bin toybox first (ls, cat, cp, …)
+                - busybox multi-call for richer applets (tar, sed, awk, find, …)
+                - Shell functions in `~/.adev-wrappers` (always sourced by interactive shells)
+                - PATH trampolines under `$PREFIX/bin` for node/npm/npx/git/bash + key applets
+                - Absolute ELFs: `$MOBILEIDE_NODE`, `$MOBILEIDE_GIT`, `$MOBILEIDE_BASH`, `$MOBILEIDE_BUSYBOX`
+
+                Check: `adev-doctor`
+
+                ## npm / typecheck / build
+                    npm install
+                    npm run typecheck   # or: adev-typecheck
+                    npm run build       # or: adev-build
+                    npm test            # or: adev-test
+                    npm run lint        # or: adev-lint
+                    tsc / eslint / vite / esbuild  # via npx wrappers
+
                 ## Frontend / backend (essentials)
                 Env is set for device servers:
                   HOST=0.0.0.0  CHOKIDAR_USEPOLLING=true  BROWSER=none
@@ -802,19 +930,29 @@ class RuntimeManager(private val context: Context) {
 
                 Shell helpers: adev-help | adev-vite | adev-next | projects
 
+                ## Background terminal / processes (for OpenCode)
+                App API (React Native):
+                  ProcessNative.runShell(script, cwd)  — bash + agent env, streams output
+                  ProcessNative.spawn(cmd, args, cwd)  — rewrites node/npm/git/applets
+                  ProcessNative.getProcesses / kill / getActivePorts
+
+                Non-interactive shell (OpenCode binary / any child):
+                  BASH_ENV=$HOME/.adev-agent-env   # auto-loads wrappers + spoof
+                  SHELL=…/libbin_bash.so
+                  . "$HOME/.adev-agent-env"         # if you start a bare sh
+
                 ## What works
                 - node, npm, npx, corepack (yarn/pnpm via corepack)
                 - git (HTTPS), busybox applets, pure JS packages
                 - Many prebuilt **linux-arm64** optional deps (esbuild via Vite, etc.)
                 - Lifecycle scripts via adev-npm-shell (noexec-safe)
+                - Background builds / servers via ProcessNative
 
-                ## Global CLIs
-                - After `npm i -g …`: `adev-rehash` (mksh) or new terminal
-                - Platform spoof: node reports linux/arm64 for package selection
-
-                ## CLI agents (OpenCode, Codex, …) — later / optional
-                - Prefer linux-arm64 optional packages; binary may still need musl/static
-                - Downloadable tool installs come later (keeps APK small)
+                ## CLI agents (OpenCode, Codex, …)
+                - Use full getEnvironment() from the app (LD_PRELOAD, BASH_ENV, NODE_OPTIONS)
+                - Prefer linux-arm64 optional packages; static/musl builds work best
+                - Downloadable binary install is optional (keeps base APK small)
+                - When the agent runs tools, prefer `bash -c` or ProcessNative.runShell
 
                 ## What still fails
                 - Packages that must **compile** native code (node-gyp / python / gcc)
@@ -1102,12 +1240,15 @@ class RuntimeManager(private val context: Context) {
 
         adev-help() {
           echo "A Dev Studio — essential commands"
-          echo "  adev-doctor       check node/npm/git/ls"
+          echo "  adev-doctor       check node/npm/git/linux tools"
+          echo "  adev-typecheck    npm typecheck or tsc --noEmit"
+          echo "  adev-build        npm run build"
+          echo "  adev-test / adev-lint / adev-dev"
           echo "  projects          cd workspaces"
           echo "  cd demo-web && npm install && npm run dev"
           echo "  cd demo-api && npm install && npm start"
           echo "  adev-vite / adev-next"
-          echo "See ~/ADEV-RUNTIME.md"
+          echo "See ~/ADEV-RUNTIME.md (agents + background shell)"
         }
         adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
         adev-next() { npx next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
@@ -1170,12 +1311,15 @@ class RuntimeManager(private val context: Context) {
 
         adev-help() {
           echo "A Dev Studio — essential commands"
-          echo "  adev-doctor       check node/npm/git/ls"
+          echo "  adev-doctor       check node/npm/git/linux tools"
+          echo "  adev-typecheck    npm typecheck or tsc --noEmit"
+          echo "  adev-build        npm run build"
+          echo "  adev-test / adev-lint / adev-dev"
           echo "  projects          cd workspaces"
           echo "  cd demo-web && npm install && npm run dev"
           echo "  cd demo-api && npm install && npm start"
           echo "  adev-vite [port] / adev-next [port]"
-          echo "See ~/ADEV-RUNTIME.md"
+          echo "See ~/ADEV-RUNTIME.md (agents + background shell)"
         }
         adev-vite() {
           local p=5173
@@ -1284,7 +1428,11 @@ class RuntimeManager(private val context: Context) {
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
+            // Interactive mksh/dash load ENV; non-interactive bash loads BASH_ENV.
             "ENV" to "${homeDir.absolutePath}/.mkshrc",
+            "BASH_ENV" to "${homeDir.absolutePath}/.adev-agent-env",
+            "ADEV_AGENT_ENV" to "${homeDir.absolutePath}/.adev-agent-env",
+            "ADEV_WRAPPERS" to "${homeDir.absolutePath}/.adev-wrappers",
             "TERM" to "xterm-256color",
             "COLORTERM" to "truecolor",
             "LANG" to "en_US.UTF-8",
@@ -1298,8 +1446,12 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_HOST_LABEL" to "adev",
             "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath,
-            // Used by adev-npm-shell to locate libbin_node.so if PATH node is missing.
+            // Used by adev-npm-shell / agents to locate ELFs if PATH lookup fails.
             "MOBILEIDE_NATIVE_LIB" to nativeLibDir,
+            "MOBILEIDE_NODE" to File(nativeLibDir, "libbin_node.so").absolutePath,
+            "MOBILEIDE_GIT" to File(nativeLibDir, "libbin_git.so").absolutePath,
+            "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
+            "MOBILEIDE_BUSYBOX" to File(nativeLibDir, "libbin_busybox.so").absolutePath,
             // ---- Dev-server essentials (frontend + backend on device) ----
             // Bind all interfaces so the in-app browser / phone can hit the server.
             "HOST" to "0.0.0.0",

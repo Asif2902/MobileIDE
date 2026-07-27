@@ -117,7 +117,7 @@ export const OutputView: React.FC = () => {
         </Text>
         {processes.length === 0 ? (
           <Text style={styles.muted}>
-            No background processes. Terminal: npm run dev / adev-build. Agents: ProcessNative.runShell.
+            No background processes. Use terminal: npm run dev / adev-typecheck / adev-build. Agents: ProcessNative.runShell.
           </Text>
         ) : (
           processes.map(p => (

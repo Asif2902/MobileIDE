@@ -129,8 +129,10 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     }
 
     /**
-     * Run a full shell line in background with wrappers loaded
-     * (for agents: builds, typecheck, long-running servers).
+     * Run a full shell line in background with the agent environment
+     * (for OpenCode / UI: builds, typecheck, long-running servers).
+     * Does not use `set -e` — agents often chain commands where intermediate
+     * non-zero exits are intentional. Loads BASH_ENV equivalent explicitly.
      */
     fun spawnShell(
         script: String,
@@ -142,9 +144,13 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val native = runtimeManager.getNativeLibDir()
         val bash = File(native, "libbin_bash.so")
         val sh = if (bash.exists()) bash.absolutePath else "/system/bin/sh"
+        val agentEnv = File(runtimeManager.getHomeDir(), ".adev-agent-env").absolutePath
         val wrappers = File(runtimeManager.getHomeDir(), ".adev-wrappers").absolutePath
-        val wrapped = "set -e; [ -f \"$wrappers\" ] && . \"$wrappers\"; $script"
-        return spawnProcess(sh, listOf("-lc", wrapped), cwd, onOutput, onError, onExit)
+        // Prefer agent-env (exports + wrappers + spoof); fall back to wrappers only.
+        val wrapped =
+            "[ -f \"$agentEnv\" ] && . \"$agentEnv\" || { [ -f \"$wrappers\" ] && . \"$wrappers\"; }; $script"
+        // -c only (not -l): env already from getEnvironment(); avoid double-sourcing rc.
+        return spawnProcess(sh, listOf("-c", wrapped), cwd, onOutput, onError, onExit)
     }
 
     /**
@@ -176,9 +182,10 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 val extra = if (base == "corepack") emptyList() else listOf(base)
                 node.absolutePath to listOf(corepack.absolutePath) + extra + args
             } else command to args
-            "tsc", "eslint", "prettier", "vite", "next", "webpack", "rollup", "esbuild" -> {
+            "tsc", "eslint", "prettier", "vite", "next", "webpack", "rollup", "esbuild",
+            "tsx", "nodemon", "jest", "vitest", "turbo", "nx" -> {
                 if (node.exists() && npxCli.exists()) {
-                    node.absolutePath to listOf(npxCli.absolutePath, base) + args
+                    node.absolutePath to listOf(npxCli.absolutePath, "--yes", base) + args
                 } else command to args
             }
             else -> {
