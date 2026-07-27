@@ -83,7 +83,7 @@ export const ProblemsView: React.FC = () => {
  * Dev servers / builds spawned via ProcessNative stream here.
  */
 export const OutputView: React.FC = () => {
-  const { processes, ports, logs, isLoading, error, refresh, kill, clearLogs } =
+  const { processes, ports, logs, isLoading, error, refresh, kill, clearLogs, runShell } =
     useProcessStore();
 
   useEffect(() => {
@@ -94,10 +94,27 @@ export const OutputView: React.FC = () => {
     return () => clearInterval(t);
   }, [refresh]);
 
+  const startDemo = (kind: 'web' | 'api') => {
+    const script =
+      kind === 'web'
+        ? 'adev-run-web'
+        : 'adev-run-api';
+    runShell(script).then(id => {
+      if (id != null) {
+        Alert.alert(
+          kind === 'web' ? 'Vite starting' : 'API starting',
+          kind === 'web'
+            ? 'Installing if needed, then serving on :5173. Tap Open when ready.'
+            : 'Installing if needed, then serving on :3000. Tap Open when ready.',
+        );
+      }
+    });
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
-        <Text style={styles.toolbarTitle}>Processes & output</Text>
+        <Text style={styles.toolbarTitle}>Run & preview</Text>
         <View style={styles.toolbarActions}>
           <TouchableOpacity style={styles.toolBtn} onPress={() => refresh()}>
             <Text style={styles.toolBtnText}>Refresh</Text>
@@ -110,15 +127,31 @@ export const OutputView: React.FC = () => {
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
+      {/* One-tap JS apps — no need to fight the terminal */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Start app (Node / Vite / Express)</Text>
+        <View style={styles.runRow}>
+          <TouchableOpacity style={styles.runBtn} onPress={() => startDemo('web')}>
+            <Text style={styles.runBtnText}>▶ demo-web</Text>
+            <Text style={styles.runBtnSub}>Vite :5173</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.runBtn, styles.runBtnApi]} onPress={() => startDemo('api')}>
+            <Text style={styles.runBtnText}>▶ demo-api</Text>
+            <Text style={styles.runBtnSub}>Express :3000</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.muted}>
+          Or in Terminal: adev-run-web · adev-run-api · cd your-app && npm i && npm run dev
+        </Text>
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>
           Running ({processes.filter(p => p.isRunning).length})
           {isLoading ? ' …' : ''}
         </Text>
         {processes.length === 0 ? (
-          <Text style={styles.muted}>
-            No background processes. Use terminal: npm run dev / adev-typecheck / adev-build. Agents: ProcessNative.runShell.
-          </Text>
+          <Text style={styles.muted}>Nothing running yet. Tap a Start button above.</Text>
         ) : (
           processes.map(p => (
             <View key={p.id} style={styles.procRow}>
@@ -141,11 +174,9 @@ export const OutputView: React.FC = () => {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Ports (tap Open to preview)</Text>
+        <Text style={styles.sectionTitle}>Preview (tap Open)</Text>
         {ports.length === 0 ? (
-          <Text style={styles.muted}>
-            No monitored ports yet (3000, 5173, 8080, …). Run demo-web or demo-api in the terminal.
-          </Text>
+          <Text style={styles.muted}>No open ports yet. Start demo-web or demo-api first.</Text>
         ) : (
           ports.map(port => (
             <View key={`${port.port}-${port.processId}`} style={styles.portRow}>
@@ -310,6 +341,34 @@ const styles = StyleSheet.create({
   toolBtnText: {
     color: '#c4b5fd',
     fontSize: 11,
+  },
+  runRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 6,
+  },
+  runBtn: {
+    flex: 1,
+    backgroundColor: '#1e3a5f',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  runBtnApi: {
+    backgroundColor: '#1a3d2e',
+    borderColor: '#22c55e',
+  },
+  runBtnText: {
+    color: '#f4f4f5',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  runBtnSub: {
+    color: '#a1a1aa',
+    fontSize: 11,
+    marginTop: 2,
   },
   section: {
     paddingHorizontal: 12,

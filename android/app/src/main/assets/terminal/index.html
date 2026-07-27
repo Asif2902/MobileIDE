@@ -6,14 +6,30 @@
   <title>MobileIDE Terminal</title>
   <link rel="stylesheet" href="./xterm.min.css">
   <style>
-    /* Do NOT set word-break / white-space:pre-wrap on .xterm-rows.
-       xterm owns the cell grid; CSS wrapping mangles columns and makes the
-       terminal look "buggy" (paths split mid-word, prompt wrapping wrong). */
+    /* xterm owns the cell grid — do not CSS-wrap rows (breaks columns). */
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; }
-    #terminal { width: 100%; height: 100%; padding: 2px; overflow: hidden; }
-    .xterm { height: 100%; width: 100%; }
-    .xterm-viewport { overflow-y: auto !important; overflow-x: hidden !important; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1e1e1e;
+      /* Safe areas (notch / home indicator) */
+      padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+               env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+    }
+    #terminal {
+      width: 100%;
+      height: 100%;
+      padding: 4px 6px;
+      overflow: hidden;
+    }
+    .xterm { height: 100% !important; width: 100% !important; padding: 0 !important; }
+    .xterm-viewport {
+      overflow-y: auto !important;
+      overflow-x: auto !important; /* long lines scroll horizontally, never clip off-screen forever */
+      -webkit-overflow-scrolling: touch;
+    }
+    .xterm-screen { will-change: transform; }
   </style>
 </head>
 <body>
@@ -22,14 +38,27 @@
   <script src="./xterm.min.js"></script>
   <script src="./addon-fit.min.js"></script>
   <script>
+    // Phone vs tablet: smaller font on narrow widths so more columns fit.
+    function pickFontSize() {
+      const w = Math.min(window.innerWidth || 360, (window.visualViewport && window.visualViewport.width) || 9999);
+      if (w < 360) return 10;
+      if (w < 480) return 11;
+      if (w < 700) return 12;
+      if (w < 1000) return 13;
+      return 14;
+    }
+
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
-      fontSize: 12,
-      fontFamily: 'monospace',
-      lineHeight: 1.2,
-      scrollback: 5000,
+      fontSize: pickFontSize(),
+      fontFamily: 'Menlo, Consolas, "Courier New", monospace',
+      lineHeight: 1.15,
+      letterSpacing: 0,
+      scrollback: 3000,
       convertEol: true,
+      // Draw slightly beyond edges so last column isn't cut by WebView chrome
+      windowsMode: false,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -58,62 +87,74 @@
 
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
-
-    // NOTE: The WebGL renderer is intentionally NOT used. In Android WebView the
-    // GPU context is easily lost (and contexts are limited when several terminal
-    // WebViews are mounted at once); when that happens the WebGL addon disposes
-    // itself and xterm renders a blank screen - the "nothing shows up" bug. The
-    // default DOM renderer is slower but always paints reliably on-device.
-
     term.open(document.getElementById('terminal'));
 
-    // --- Robust fitting --------------------------------------------------------
-    // On phones the terminal must re-fit whenever the usable area changes:
-    // orientation flips, the soft keyboard opening/closing (which shrinks the
-    // WebView because the Activity uses adjustResize), and RN panel resizes.
-    // A single fit() at load is not enough - if the first layout pass reports a
-    // stale/landscape size the columns stay too wide and text is clipped in
-    // portrait. We therefore fit on load, on every resize, and via a
-    // ResizeObserver on the container so any size change is caught.
+    // --- Robust fit for phone + tablet + keyboard ------------------------------
     let fitScheduled = false;
+    let lastCols = 0;
+    let lastRows = 0;
+
     function safeFit() {
       fitScheduled = false;
       try {
-        if (term.element && term.element.clientWidth > 0) {
-          fitAddon.fit();
+        const el = term.element;
+        if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
+
+        // Re-pick font when rotating phone ↔ tablet
+        const fs = pickFontSize();
+        if (term.options.fontSize !== fs) {
+          term.options.fontSize = fs;
+        }
+
+        fitAddon.fit();
+
+        // Never report zero / absurd sizes to the PTY
+        const cols = Math.max(20, Math.min(term.cols || 80, 200));
+        const rows = Math.max(5, Math.min(term.rows || 24, 80));
+        if (cols !== term.cols || rows !== term.rows) {
+          try { term.resize(cols, rows); } catch (e) {}
+        }
+        if (cols !== lastCols || rows !== lastRows) {
+          lastCols = cols;
+          lastRows = rows;
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'resize', cols: cols, rows: rows
+          }));
         }
       } catch (e) { /* ignore transient layout errors */ }
     }
+
     function scheduleFit() {
       if (fitScheduled) return;
       fitScheduled = true;
-      requestAnimationFrame(safeFit);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(safeFit);
+      });
     }
 
-    // Initial fit after layout settles.
     requestAnimationFrame(safeFit);
-    setTimeout(safeFit, 60);
-    setTimeout(safeFit, 300);
+    setTimeout(safeFit, 50);
+    setTimeout(safeFit, 200);
+    setTimeout(safeFit, 500);
 
     window.addEventListener('resize', scheduleFit);
+    window.addEventListener('orientationchange', function () {
+      setTimeout(scheduleFit, 100);
+      setTimeout(scheduleFit, 400);
+    });
     if (window.visualViewport) {
-      // Fires when the soft keyboard changes the visible viewport height.
       window.visualViewport.addEventListener('resize', scheduleFit);
+      window.visualViewport.addEventListener('scroll', scheduleFit);
     }
     try {
-      const ro = new ResizeObserver(scheduleFit);
-      ro.observe(document.getElementById('terminal'));
-    } catch (e) { /* ResizeObserver unavailable - resize/visualViewport cover it */ }
+      new ResizeObserver(scheduleFit).observe(document.getElementById('terminal'));
+    } catch (e) {}
 
-    // --- Input plumbing --------------------------------------------------------
+    // --- Input -----------------------------------------------------------------
     function sendInput(data) {
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'input', data: data }));
     }
 
-    // --- Modifier state (Termux-style Ctrl / Alt) ------------------------------
-    // The extra-keys bar (native side) "arms" Ctrl or Alt; the next character the
-    // user types - whether from the soft keyboard or the bar - is transformed
-    // here and the modifier auto-clears. This mirrors how Termux behaves.
     let ctrlArmed = false;
     let altArmed = false;
     function notifyModifier() {
@@ -127,28 +168,19 @@
       if (ctrlArmed && out.length > 0) {
         const c = out.charCodeAt(0);
         let mapped = null;
-        if (c >= 97 && c <= 122) mapped = c - 96;        // a-z  -> 0x01-0x1a
-        else if (c >= 65 && c <= 90) mapped = c - 64;    // A-Z  -> 0x01-0x1a
-        else if (c === 32) mapped = 0;                   // space-> NUL
-        else if (c >= 91 && c <= 95) mapped = c - 64;    // [ \ ] ^ _
+        if (c >= 97 && c <= 122) mapped = c - 96;
+        else if (c >= 65 && c <= 90) mapped = c - 64;
+        else if (c === 32) mapped = 0;
+        else if (c >= 91 && c <= 95) mapped = c - 64;
         if (mapped !== null) out = String.fromCharCode(mapped) + out.slice(1);
       }
-      if (altArmed && out.length > 0) {
-        out = '\x1b' + out; // ESC prefix = Meta/Alt
-      }
+      if (altArmed && out.length > 0) out = '\x1b' + out;
       ctrlArmed = false;
       altArmed = false;
       notifyModifier();
       return out;
     }
 
-    // --- Android soft-keyboard (IME) hardening ---------------------------------
-    // xterm.js reads keystrokes from a hidden <textarea>. On Android the IME
-    // (Gboard etc.) enables autocomplete/prediction which commits whole "random"
-    // words, and routes Backspace/Delete through composition `input` events
-    // (keyCode 229) that xterm never sees, so deleting appears to do nothing.
-    // We disable prediction and translate the editing `beforeinput` events into
-    // the raw control bytes the PTY expects.
     function hardenAndroidInput() {
       const ta = document.querySelector('.xterm-helper-textarea');
       if (!ta) return;
@@ -167,7 +199,7 @@
           sendInput('\x1b[3~');
         } else if (t === 'deleteWordBackward') {
           e.preventDefault();
-          sendInput('\x17'); // Ctrl-W
+          sendInput('\x17');
         } else if (t === 'insertLineBreak' || t === 'insertParagraph') {
           e.preventDefault();
           sendInput('\r');
@@ -176,17 +208,11 @@
     }
     hardenAndroidInput();
 
-    term.onData((data) => {
-      sendInput(applyModifiers(data));
-    });
+    term.onData((data) => { sendInput(applyModifiers(data)); });
+    term.onResize(function () { /* fit posts resize; avoid double-fire */ });
 
-    term.onResize(({ cols, rows }) => {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'resize', cols: cols, rows: rows }));
-    });
-
-    // --- Clipboard via React Native (Android WebView clipboard is unreliable) ----
     function copyToNative(text) {
-      if (!text) { return; }
+      if (!text) return;
       try { term.focus(); } catch (e) {}
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copyText', text: text }));
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copied', length: text.length }));
@@ -198,7 +224,7 @@
         const lines = [];
         for (let i = 0; i < buf.length; i++) {
           const line = buf.getLine(i);
-          if (line) { lines.push(line.translateToString(true)); }
+          if (line) lines.push(line.translateToString(true));
         }
         return lines.join('\n').replace(/\n+$/, '');
       } catch (e) {
@@ -211,7 +237,6 @@
       if (sel && sel.length > 0) {
         copyToNative(sel);
       } else {
-        // No selection: open RN modal so the user can select & copy with native handles.
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'openSelectionModal',
           bufferText: getBufferText()
@@ -230,13 +255,24 @@
       try {
         const message = JSON.parse(data);
         switch (message.type) {
-          case 'output': term.write(message.data); break;
+          case 'output':
+            term.write(message.data);
+            // Keep cursor in view when lots of npm output scrolls
+            try { term.scrollToBottom(); } catch (e) {}
+            break;
           case 'clear': term.clear(); break;
-          case 'resize': term.resize(message.cols, message.rows); break;
+          case 'resize':
+            if (message.cols && message.rows) {
+              try { term.resize(message.cols, message.rows); } catch (e) {}
+            }
+            break;
           case 'fit': scheduleFit(); break;
           case 'theme': term.options.theme = message.theme; break;
-          case 'fontSize': term.options.fontSize = message.size; scheduleFit(); break;
-          case 'focus': term.focus(); break;
+          case 'fontSize':
+            term.options.fontSize = message.size;
+            scheduleFit();
+            break;
+          case 'focus': term.focus(); scheduleFit(); break;
           case 'blur': term.blur(); break;
           case 'selectAll': term.selectAll(); break;
           case 'openSelectModal':
@@ -245,7 +281,6 @@
               bufferText: getBufferText()
             }));
             break;
-          // Extra-keys bar: a fully-formed byte sequence (arrows, F-keys, etc.).
           case 'key': sendInput(message.data); break;
           case 'armCtrl': ctrlArmed = !ctrlArmed; notifyModifier(); term.focus(); break;
           case 'armAlt': altArmed = !altArmed; notifyModifier(); term.focus(); break;
@@ -253,11 +288,13 @@
           case 'copy': handleCopyCommand(); break;
           case 'requestPasteFromNative': requestPasteFromNative(); break;
           case 'pasteText':
-            if (message.data) { sendInput(message.data); }
+            if (message.data) sendInput(message.data);
             break;
           case 'paste': requestPasteFromNative(); break;
           case 'getSelection':
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', data: term.getSelection() }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'selection', data: term.getSelection()
+            }));
             break;
         }
       } catch (e) { console.error('Error handling message:', e); }
@@ -267,7 +304,10 @@
       type: 'ready', cols: term.cols, rows: term.rows
     }));
 
-    document.getElementById('terminal').addEventListener('touchstart', () => { term.focus(); });
+    document.getElementById('terminal').addEventListener('touchstart', () => {
+      term.focus();
+      scheduleFit();
+    });
   </script>
 </body>
 </html>

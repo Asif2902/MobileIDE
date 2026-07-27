@@ -1,5 +1,14 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { View, StyleSheet, Modal, Text, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Modal,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  useWindowDimensions,
+  LayoutChangeEvent,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { useTerminalStore, getOutputBuffer } from '../../stores';
@@ -21,17 +30,26 @@ interface TerminalViewProps {
   active?: boolean;
 }
 
+function fontForWidth(width: number): number {
+  if (width < 360) return 10;
+  if (width < 480) return 11;
+  if (width < 700) return 12;
+  if (width < 1000) return 13;
+  return 14;
+}
+
 export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = true }) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
   const pendingOutput = useRef<string[]>([]);
+  const { width: windowWidth } = useWindowDimensions();
 
   // Ctrl/Alt "armed" state mirrored from the WebView so the accessory bar can
   // highlight the modifier while it waits for the next key.
   const [ctrlArmed, setCtrlArmed] = useState(false);
   const [altArmed, setAltArmed] = useState(false);
-  const [fontSize, setFontSize] = useState(12);
+  const [fontSize, setFontSize] = useState(() => fontForWidth(windowWidth));
 
   // Selection modal state for finger text selection
   const [isSelectModalVisible, setIsSelectModalVisible] = useState(false);
@@ -112,6 +130,30 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
       `);
     }
   }, [active]);
+
+  // Phone rotate / tablet split: re-fit and adapt font so text stays on-screen.
+  useEffect(() => {
+    const next = fontForWidth(windowWidth);
+    setFontSize(next);
+    if (isReady.current) {
+      postToWeb({ type: 'fontSize', size: next });
+      postToWeb({ type: 'fit' });
+    }
+  }, [windowWidth, postToWeb]);
+
+  // Keyboard bar show/hide changes available height — re-fit.
+  useEffect(() => {
+    if (active && isReady.current) {
+      const t = setTimeout(() => postToWeb({ type: 'fit' }), 80);
+      return () => clearTimeout(t);
+    }
+  }, [isKeyboardBarVisible, active, postToWeb]);
+
+  const onContainerLayout = useCallback((_e: LayoutChangeEvent) => {
+    if (isReady.current) {
+      postToWeb({ type: 'fit' });
+    }
+  }, [postToWeb]);
 
   const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
     try {
@@ -194,7 +236,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   }, [sessionId, writeToSession, resizeSession, postToWeb]);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={onContainerLayout}>
       <WebViewAny
         ref={webViewRef}
         source={{ uri: 'file:///android_asset/terminal/index.html' }}
@@ -214,6 +256,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         allowFileAccessFromFileURLs={true}
         allowUniversalAccessFromFileURLs={true}
         mixedContentMode="always"
+        // Prevent Android from zooming / clipping the xterm cell grid.
+        setBuiltInZoomControls={false}
+        textZoom={100}
+        overScrollMode="never"
       />
       {active && isKeyboardBarVisible && (
         <TerminalAccessoryBar

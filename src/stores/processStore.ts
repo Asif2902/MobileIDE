@@ -25,6 +25,8 @@ interface ProcessState {
   kill: (processId: number) => Promise<void>;
   clearLogs: () => void;
   appendLog: (line: ProcessLogLine) => void;
+  /** Run a shell line in background (Vite/Express demos, builds). */
+  runShell: (script: string, cwd?: string | null) => Promise<number | null>;
 }
 
 const MAX_LOGS = 500;
@@ -74,6 +76,24 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       }
       return { logs };
     });
+  },
+
+  runShell: async (script: string, cwd: string | null = null) => {
+    try {
+      set({ error: null });
+      const info = await ProcessNativeModule.runShell(script, cwd);
+      get().appendLog({
+        processId: info.processId,
+        stream: 'system',
+        data: `[started #${info.processId}] ${script}`,
+        at: Date.now(),
+      });
+      await get().refresh();
+      return info.processId;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
   },
 }));
 

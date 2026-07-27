@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.10.1"
+        private const val CURRENT_RUNTIME_VERSION = "1.10.2"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -514,21 +514,28 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine()
             }
 
-            // Build / typecheck shortcuts
+            // Dev server helpers (bind 0.0.0.0 so phone browser / Output → Open works)
             sb.appendLine("adev-typecheck() { npm run typecheck 2>/dev/null || npm run check 2>/dev/null || npx --yes tsc --noEmit \"\$@\"; }")
             sb.appendLine("adev-build() { npm run build \"\$@\"; }")
             sb.appendLine("adev-test() { npm test \"\$@\"; }")
             sb.appendLine("adev-lint() { npm run lint 2>/dev/null || npx --yes eslint . \"\$@\"; }")
-            sb.appendLine("adev-dev() { npm run dev \"\$@\" 2>/dev/null || npm start \"\$@\"; }")
+            sb.appendLine("adev-dev() { npm run dev -- --host 0.0.0.0 \"\$@\" 2>/dev/null || npm start \"\$@\"; }")
+            sb.appendLine("adev-run-web() {")
+            sb.appendLine("  cd \"\$PREFIX/workspaces/demo-web\" || return 1")
+            sb.appendLine("  [ -d node_modules ] || npm install")
+            sb.appendLine("  npm run dev")
+            sb.appendLine("}")
+            sb.appendLine("adev-run-api() {")
+            sb.appendLine("  cd \"\$PREFIX/workspaces/demo-api\" || return 1")
+            sb.appendLine("  [ -d node_modules ] || npm install")
+            sb.appendLine("  npm start")
+            sb.appendLine("}")
             sb.appendLine()
 
             sb.appendLine("adev-doctor() {")
-            sb.appendLine("  echo \"=== ADEV doctor ===\"")
-            sb.appendLine("  echo -n \"node: \"; node -v 2>&1")
-            sb.appendLine("  echo -n \"npm: \"; npm -v 2>&1")
-            sb.appendLine("  echo -n \"git: \"; git --version 2>&1")
-            sb.appendLine("  echo -n \"busybox: \"; busybox echo ok 2>&1 || echo missing")
-            sb.appendLine("  echo \"ok — adev-typecheck | adev-build | adev-help\"")
+            sb.appendLine("  echo \"node \$(node -v 2>/dev/null)  npm \$(npm -v 2>/dev/null)\"")
+            sb.appendLine("  echo \"git \$(git --version 2>/dev/null | head -c 40)\"")
+            sb.appendLine("  echo \"run: adev-run-web | adev-run-api | adev-dev\"")
             sb.appendLine("}")
 
             val out = File(homeDir, ".adev-wrappers")
@@ -1032,7 +1039,9 @@ class RuntimeManager(private val context: Context) {
 
     private fun createDemoWebProject() {
         val dir = File(workspacesDir, "demo-web")
-        if (dir.exists()) return
+        val marker = File(dir, ".adev-demo-v2")
+        // Recreate seed files when missing or when demo template version changes
+        if (dir.exists() && marker.exists()) return
         dir.mkdirs()
         File(dir, "package.json").writeText(
             """
@@ -1106,12 +1115,14 @@ class RuntimeManager(private val context: Context) {
             Then open `http://127.0.0.1:5173` from the Output panel (Open) or Chrome on the phone.
             """.trimIndent() + "\n"
         )
+        marker.writeText("v2\n")
         Log.i(TAG, "Created demo-web template")
     }
 
     private fun createDemoApiProject() {
         val dir = File(workspacesDir, "demo-api")
-        if (dir.exists()) return
+        val marker = File(dir, ".adev-demo-v2")
+        if (dir.exists() && marker.exists()) return
         dir.mkdirs()
         File(dir, "package.json").writeText(
             """
@@ -1172,15 +1183,16 @@ class RuntimeManager(private val context: Context) {
             Then open `http://127.0.0.1:3000` from Output → Open.
             """.trimIndent() + "\n"
         )
+        marker.writeText("v2\n")
         Log.i(TAG, "Created demo-api template")
     }
 
     private fun getMkshrcContent(): String = """
-        # A Dev Studio - mksh configuration
-        export PS1='adev:${'$'}PWD ${'$'} '
+        # A Dev Studio - mksh (short prompt for phone screens)
+        export PS1='adev:\${'$'}{PWD##*/}${'$'} '
         export EDITOR=vi
+        export PROMPT_DIRTRIM=1
 
-        # Core tools (exec-safe). Source quietly so a bad wrappers file never spams.
         [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers" 2>/dev/null
 
         uname() {
@@ -1197,8 +1209,10 @@ class RuntimeManager(private val context: Context) {
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
         adev-help() {
-          echo "adev-doctor | adev-typecheck | adev-build | projects"
-          echo "demo: cd demo-web && npm i && npm run dev"
+          echo "adev-run-web  Vite demo :5173"
+          echo "adev-run-api  Express   :3000"
+          echo "adev-dev      npm run dev in current folder"
+          echo "adev-doctor | projects"
         }
         adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
         adev-next() { npx next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
@@ -1209,10 +1223,11 @@ class RuntimeManager(private val context: Context) {
     """.trimIndent()
 
     private fun getBashrcContent(): String = """
-        # A Dev Studio - bash configuration
-        export PS1='\[\033[01;32m\]adev\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]${'$'} '
+        # A Dev Studio - bash (short prompt: folder name only — fits phones)
+        export PS1='\[\033[32m\]adev\[\033[0m\]:\[\033[34m\]\W\[\033[0m\]${'$'} '
         export EDITOR=vi
         export LANG=en_US.UTF-8
+        export PROMPT_DIRTRIM=1
 
         [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers" 2>/dev/null
 
@@ -1243,13 +1258,16 @@ class RuntimeManager(private val context: Context) {
                 node "./node_modules/.bin/${'$'}cmd" "${'$'}@"
                 return ${'$'}?
             fi
-            echo "adev: ${'$'}cmd: command not found" >&2
+            echo "adev: ${'$'}cmd: not found" >&2
             return 127
         }
 
         adev-help() {
-          echo "adev-doctor | adev-typecheck | adev-build | projects"
-          echo "demo: cd demo-web && npm i && npm run dev"
+          echo "adev-run-web  Vite demo :5173"
+          echo "adev-run-api  Express   :3000"
+          echo "adev-dev      npm run dev here"
+          echo "adev-next     Next.js  :3000"
+          echo "adev-doctor | projects"
         }
         adev-vite() {
           local p=5173
@@ -1388,9 +1406,16 @@ class RuntimeManager(private val context: Context) {
             "CHOKIDAR_USEPOLLING" to "true",
             "CHOKIDAR_INTERVAL" to "1000",
             "WATCHPACK_POLLING" to "true",
-            "FORCE_COLOR" to "1",
+            // Quieter npm on small terminals (less trash scrolling off-screen)
+            "FORCE_COLOR" to "0",
+            "NO_COLOR" to "1",
+            "NPM_CONFIG_PROGRESS" to "false",
+            "NPM_CONFIG_LOGLEVEL" to "warn",
+            "npm_config_progress" to "false",
+            "npm_config_loglevel" to "warn",
             // Vite / webpack friendliness
-            "VITE_CJS_IGNORE_WARNING" to "true"
+            "VITE_CJS_IGNORE_WARNING" to "true",
+            "CI" to "true"
         )
 
         // Every node process (npm, npx, CLIs) loads the platform spoof first.

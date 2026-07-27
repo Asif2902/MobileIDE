@@ -14,7 +14,8 @@ import { useGitStore } from '../../stores/gitStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useRuntimeStore } from '../../stores/runtimeStore';
 
-type GitTab = 'changes' | 'commit' | 'branches' | 'remote';
+/** Git panel is for easy stage / commit / push — not a full CLI replacement. */
+type MoreSection = 'none' | 'remote' | 'branches';
 
 export const GitPanel: React.FC = () => {
   const {
@@ -55,7 +56,7 @@ export const GitPanel: React.FC = () => {
   const currentWorkspace = useFileStore(state => state.currentWorkspace);
   const currentWorkspaceRealPath = useFileStore(state => state.currentWorkspaceRealPath);
   const { isReady } = useRuntimeStore();
-  const [activeTab, setActiveTab] = useState<GitTab>('changes');
+  const [more, setMore] = useState<MoreSection>('none');
   const [commitMsg, setCommitMsg] = useState('');
   const [authorName, setAuthorName] = useState('Developer');
   const [authorEmail, setAuthorEmail] = useState('dev@adevstudio.local');
@@ -240,10 +241,9 @@ export const GitPanel: React.FC = () => {
     );
   }
 
-  // Main git UI with tabs
+  // Single-screen commit/push UI (Git tab exists so you don't need the terminal)
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Git</Text>
@@ -261,37 +261,95 @@ export const GitPanel: React.FC = () => {
         </View>
       </View>
 
-      {/* Tab bar */}
-      <View style={styles.tabBar}>
-        {(['changes', 'commit', 'branches', 'remote'] as GitTab[]).map(tab => (
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
+        <Text style={styles.hintLine}>Stage → message → Commit → Push. Terminal not required.</Text>
+
+        {renderChanges()}
+
+        <View style={styles.commitForm}>
+          <Text style={styles.sectionTitle}>Commit</Text>
+          <TextInput
+            style={[styles.input, styles.commitInput]}
+            placeholder="Commit message..."
+            placeholderTextColor="#666"
+            value={commitMsg}
+            onChangeText={setCommitMsg}
+            multiline
+            numberOfLines={3}
+          />
+          <View style={styles.authorRow}>
+            <TextInput
+              style={[styles.input, styles.halfInput]}
+              placeholder="Name"
+              placeholderTextColor="#666"
+              value={authorName}
+              onChangeText={setAuthorName}
+            />
+            <TextInput
+              style={[styles.input, styles.halfInput]}
+              placeholder="Email"
+              placeholderTextColor="#666"
+              value={authorEmail}
+              onChangeText={setAuthorEmail}
+              autoCapitalize="none"
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent</Text>
+          {commits.length === 0 ? (
+            <Text style={styles.emptySub}>No commits yet</Text>
+          ) : (
+            commits.slice(0, 8).map((commit, idx) => (
+              <View key={idx} style={styles.commitRow}>
+                <Text style={styles.commitHash}>{commit.shortId}</Text>
+                <View style={styles.commitInfo}>
+                  <Text style={styles.commitMessage} numberOfLines={1}>{commit.message}</Text>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Optional: remotes / branches (collapsed by default) */}
+        <View style={styles.moreRow}>
           <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
+            style={styles.moreChip}
+            onPress={() => setMore(more === 'remote' ? 'none' : 'remote')}
           >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab === 'changes' ? `Changes${status && !status.isClean ? ' •' : ''}` : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            <Text style={styles.moreChipText}>
+              Remote {remotes.length ? `(${remotes.length})` : ''} {more === 'remote' ? '▾' : '▸'}
             </Text>
           </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Content */}
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
-        {activeTab === 'changes' && renderChanges()}
-        {activeTab === 'commit' && renderCommitTab()}
-        {activeTab === 'branches' && renderBranches()}
-        {activeTab === 'remote' && renderRemote()}
+          <TouchableOpacity
+            style={styles.moreChip}
+            onPress={() => setMore(more === 'branches' ? 'none' : 'branches')}
+          >
+            <Text style={styles.moreChipText}>
+              Branches {more === 'branches' ? '▾' : '▸'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {more === 'remote' && renderRemote()}
+        {more === 'branches' && renderBranches()}
       </ScrollView>
 
-      {/* Quick actions bar */}
+      {/* Primary actions — big, thumb-friendly */}
       <View style={styles.actionBar}>
         <TouchableOpacity
           style={[styles.actionBtn, styles.stageBtn]}
           onPress={() => stageAll(repoPath)}
           disabled={isLoading}
         >
-          <Text style={styles.actionBtnText}>Stage All</Text>
+          <Text style={styles.actionBtnText}>Stage</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionBtn, styles.commitBarBtn]}
+          onPress={handleCommit}
+          disabled={isLoading}
+        >
+          <Text style={styles.actionBtnText}>Commit</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, styles.pushBtn]}
@@ -309,7 +367,6 @@ export const GitPanel: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Auth Modal */}
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}
@@ -671,13 +728,22 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#e4e4e7', fontWeight: '600' },
 
   content: { flex: 1 },
-  contentInner: { padding: 12 },
+  contentInner: { padding: 12, paddingBottom: 24 },
+  hintLine: {
+    color: '#71717a', fontSize: 11, marginBottom: 10, lineHeight: 16,
+  },
+  moreRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 4 },
+  moreChip: {
+    backgroundColor: '#2a2a2a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16,
+  },
+  moreChipText: { color: '#a1a1aa', fontSize: 12, fontWeight: '600' },
+  commitBarBtn: { backgroundColor: '#5b21b6' },
 
   actionBar: {
-    flexDirection: 'row', padding: 8, gap: 8,
+    flexDirection: 'row', padding: 8, gap: 6,
     borderTopWidth: 1, borderTopColor: '#333', backgroundColor: '#252526',
   },
-  actionBtn: { flex: 1, paddingVertical: 10, borderRadius: 6, alignItems: 'center' },
+  actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   stageBtn: { backgroundColor: '#2d4a2d' },
   pushBtn: { backgroundColor: '#2d3a5a' },
   pullBtn: { backgroundColor: '#3a2d5a' },
