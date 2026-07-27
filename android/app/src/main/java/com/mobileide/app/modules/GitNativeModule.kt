@@ -87,15 +87,49 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun gitInit(repoPath: String, promise: Promise) {
         try {
+            if (repoPath.isBlank()) {
+                promise.reject("GIT_INIT_ERROR", "No project path selected")
+                return
+            }
             val dir = File(resolveRepoPath(repoPath))
             if (!dir.exists()) dir.mkdirs()
+            // Already a repo → success (idempotent; no crash)
+            val existing = File(dir, ".git")
+            if (existing.exists() && existing.isDirectory) {
+                Log.i(TAG, "git init: already a repository at ${dir.absolutePath}")
+                promise.resolve(true)
+                return
+            }
             Git.init().setDirectory(dir).setInitialBranch("main").call().close()
             Log.i(TAG, "Initialized git repo at: ${dir.absolutePath}")
             promise.resolve(true)
         } catch (e: Exception) {
             Log.e(TAG, "git init failed", e)
-            promise.reject("GIT_INIT_ERROR", e.message)
+            promise.reject("GIT_INIT_ERROR", e.message ?: "git init failed")
         }
+    }
+
+    /** Safe branch name for empty (unborn HEAD) repos — never returns null. */
+    private fun safeBranchName(git: Git): String {
+        return try {
+            val name = git.repository.branch
+            if (!name.isNullOrBlank()) return name
+            val head = git.repository.exactRef("HEAD")
+            val target = head?.target?.name
+            when {
+                target != null && target.startsWith("refs/heads/") ->
+                    target.removePrefix("refs/heads/")
+                else -> "main"
+            }
+        } catch (_: Exception) {
+            "main"
+        }
+    }
+
+    private fun stringArray(items: Collection<String>?): WritableArray {
+        val arr = Arguments.createArray()
+        items?.forEach { arr.pushString(it) }
+        return arr
     }
 
     @ReactMethod
@@ -134,21 +168,40 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             openRepo(repoPath).use { git ->
                 val status = git.status().call()
                 val result = Arguments.createMap().apply {
-                    putArray("added", toArray(status.added))
-                    putArray("changed", toArray(status.changed))
-                    putArray("removed", toArray(status.removed))
-                    putArray("untracked", toArray(status.untracked))
-                    putArray("modified", toArray(status.modified))
-                    putArray("missing", toArray(status.missing))
-                    putArray("conflicting", toArray(status.conflicting))
+                    putArray("added", stringArray(status.added))
+                    putArray("changed", stringArray(status.changed))
+                    putArray("removed", stringArray(status.removed))
+                    putArray("untracked", stringArray(status.untracked))
+                    putArray("modified", stringArray(status.modified))
+                    putArray("missing", stringArray(status.missing))
+                    putArray("conflicting", stringArray(status.conflicting))
                     putBoolean("isClean", status.isClean)
-                    putString("branch", git.repository.branch)
+                    // Empty repos have unborn HEAD — putString(null) crashes RN bridge
+                    putString("branch", safeBranchName(git))
                 }
                 promise.resolve(result)
             }
         } catch (e: Exception) {
             Log.e(TAG, "git status failed", e)
-            promise.reject("GIT_STATUS_ERROR", e.message)
+            // Empty / brand-new repo: return a clean default instead of hard-failing the UI
+            try {
+                openRepo(repoPath).use { git ->
+                    val result = Arguments.createMap().apply {
+                        putArray("added", Arguments.createArray())
+                        putArray("changed", Arguments.createArray())
+                        putArray("removed", Arguments.createArray())
+                        putArray("untracked", Arguments.createArray())
+                        putArray("modified", Arguments.createArray())
+                        putArray("missing", Arguments.createArray())
+                        putArray("conflicting", Arguments.createArray())
+                        putBoolean("isClean", true)
+                        putString("branch", safeBranchName(git))
+                    }
+                    promise.resolve(result)
+                    return
+                }
+            } catch (_: Exception) { }
+            promise.reject("GIT_STATUS_ERROR", e.message ?: "git status failed")
         }
     }
 
@@ -234,6 +287,20 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     fun gitPush(repoPath: String, remote: String, branch: String, promise: Promise) {
         try {
             openRepo(repoPath).use { git ->
+                if (git.remoteList().call().none { it.name == remote }) {
+                    promise.reject(
+                        "GIT_PUSH_ERROR",
+                        "No remote named '$remote'. Add one under Remote (GitHub optional)."
+                    )
+                    return
+                }
+                if (git.repository.resolve("HEAD") == null) {
+                    promise.reject(
+                        "GIT_PUSH_ERROR",
+                        "No commits yet. Make a commit first, then push."
+                    )
+                    return
+                }
                 val pushCommand = git.push()
                     .setRemote(remote)
                     .setRefSpecs(RefSpec("$branch:$branch"))
@@ -247,7 +314,7 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             }
         } catch (e: Exception) {
             Log.e(TAG, "git push failed", e)
-            promise.reject("GIT_PUSH_ERROR", e.message)
+            promise.reject("GIT_PUSH_ERROR", e.message ?: "push failed")
         }
     }
 
@@ -255,6 +322,13 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     fun gitPull(repoPath: String, remote: String, branch: String, promise: Promise) {
         try {
             openRepo(repoPath).use { git ->
+                if (git.remoteList().call().none { it.name == remote }) {
+                    promise.reject(
+                        "GIT_PULL_ERROR",
+                        "No remote named '$remote'. Add one under Remote first."
+                    )
+                    return
+                }
                 val pullCommand = git.pull()
                     .setRemote(remote)
                     .setRemoteBranchName(branch)
@@ -267,7 +341,7 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             }
         } catch (e: Exception) {
             Log.e(TAG, "git pull failed", e)
-            promise.reject("GIT_PULL_ERROR", e.message)
+            promise.reject("GIT_PULL_ERROR", e.message ?: "pull failed")
         }
     }
 
@@ -292,15 +366,20 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     fun gitLog(repoPath: String, maxCount: Int, promise: Promise) {
         try {
             openRepo(repoPath).use { git ->
+                // No commits yet (fresh init) → empty list, not an error
+                if (git.repository.resolve("HEAD") == null) {
+                    promise.resolve(Arguments.createArray())
+                    return
+                }
                 val logCommand = git.log().setMaxCount(maxCount)
                 val commits = Arguments.createArray()
                 logCommand.call().forEach { revCommit ->
                     val commitMap = Arguments.createMap().apply {
                         putString("id", revCommit.name)
                         putString("shortId", revCommit.name.take(7))
-                        putString("message", revCommit.shortMessage)
-                        putString("author", revCommit.authorIdent.name)
-                        putString("email", revCommit.authorIdent.emailAddress)
+                        putString("message", revCommit.shortMessage ?: "")
+                        putString("author", revCommit.authorIdent?.name ?: "")
+                        putString("email", revCommit.authorIdent?.emailAddress ?: "")
                         putDouble("time", revCommit.commitTime.toDouble() * 1000)
                     }
                     commits.pushMap(commitMap)
@@ -308,8 +387,8 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
                 promise.resolve(commits)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "git log failed", e)
-            promise.reject("GIT_LOG_ERROR", e.message)
+            Log.w(TAG, "git log empty or failed: ${e.message}")
+            promise.resolve(Arguments.createArray())
         }
     }
 
@@ -320,20 +399,36 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
         try {
             openRepo(repoPath).use { git ->
                 val branches = Arguments.createArray()
-                val currentBranch = git.repository.branch
-                git.branchList().call().forEach { ref ->
-                    val branchName = ref.name.removePrefix("refs/heads/")
+                val currentBranch = safeBranchName(git)
+                val listed = git.branchList().call()
+                if (listed.isEmpty()) {
+                    // Unborn HEAD after bare init — still show current branch name
                     val branchMap = Arguments.createMap().apply {
-                        putString("name", branchName)
-                        putBoolean("isCurrent", branchName == currentBranch)
+                        putString("name", currentBranch)
+                        putBoolean("isCurrent", true)
                     }
                     branches.pushMap(branchMap)
+                } else {
+                    listed.forEach { ref ->
+                        val branchName = ref.name.removePrefix("refs/heads/")
+                        val branchMap = Arguments.createMap().apply {
+                            putString("name", branchName)
+                            putBoolean("isCurrent", branchName == currentBranch)
+                        }
+                        branches.pushMap(branchMap)
+                    }
                 }
                 promise.resolve(branches)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "git branch list failed", e)
-            promise.reject("GIT_BRANCH_ERROR", e.message)
+            Log.w(TAG, "git branch list failed: ${e.message}")
+            val fallback = Arguments.createArray()
+            val branchMap = Arguments.createMap().apply {
+                putString("name", "main")
+                putBoolean("isCurrent", true)
+            }
+            fallback.pushMap(branchMap)
+            promise.resolve(fallback)
         }
     }
 
@@ -442,8 +537,8 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
                 promise.resolve(diffFiles)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "git diff failed", e)
-            promise.reject("GIT_DIFF_ERROR", e.message)
+            Log.w(TAG, "git diff empty or failed: ${e.message}")
+            promise.resolve(Arguments.createArray())
         }
     }
 

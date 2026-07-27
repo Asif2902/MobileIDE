@@ -57,27 +57,59 @@ export const useGitStore = create<GitState>((set, get) => ({
   username: '',
 
   checkRepo: async (repoPath: string) => {
+    if (!repoPath?.trim()) {
+      set({ isRepo: false, isInitialized: true });
+      return;
+    }
     try {
       const isRepo = await GitNative.isGitRepo(repoPath);
-      set({ isRepo, isInitialized: true });
+      set({ isRepo, isInitialized: true, error: null });
       if (isRepo) {
         await get().refreshStatus(repoPath);
         await get().loadBranches(repoPath);
         await get().loadRemotes(repoPath);
+        await get().loadLog(repoPath);
       }
     } catch (e: any) {
-      set({ isRepo: false, isInitialized: true, error: e.message });
+      set({ isRepo: false, isInitialized: true, error: e?.message || 'Failed to check repository' });
     }
   },
 
   initRepo: async (repoPath: string) => {
+    if (!repoPath?.trim()) {
+      set({ error: 'No project folder open' });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
       await GitNative.init(repoPath);
-      set({ isRepo: true, isLoading: false, successMessage: 'Repository initialized' });
+      // Local-only init is fine — GitHub is optional
+      set({
+        isRepo: true,
+        isLoading: false,
+        successMessage: 'Repository initialized (local). Add a remote anytime to push.',
+        branch: 'main',
+        status: {
+          added: [],
+          changed: [],
+          removed: [],
+          untracked: [],
+          modified: [],
+          missing: [],
+          conflicting: [],
+          isClean: true,
+          branch: 'main',
+        },
+        commits: [],
+        remotes: [],
+        diff: [],
+      });
       await get().refreshStatus(repoPath);
+      await get().loadBranches(repoPath);
+      await get().loadRemotes(repoPath);
+      await get().loadLog(repoPath);
     } catch (e: any) {
-      set({ isLoading: false, error: e.message });
+      set({ isLoading: false, error: e?.message || 'git init failed' });
     }
   },
 
@@ -95,12 +127,48 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   refreshStatus: async (repoPath: string) => {
+    if (!repoPath?.trim()) return;
     try {
       const status = await GitNative.status(repoPath);
-      const diff = await GitNative.diff(repoPath);
-      set({ status, diff, branch: status.branch });
+      let diff: GitDiffEntry[] = [];
+      try {
+        diff = await GitNative.diff(repoPath);
+      } catch {
+        diff = [];
+      }
+      set({
+        status: {
+          ...status,
+          added: status.added || [],
+          changed: status.changed || [],
+          removed: status.removed || [],
+          untracked: status.untracked || [],
+          modified: status.modified || [],
+          missing: status.missing || [],
+          conflicting: status.conflicting || [],
+          branch: status.branch || 'main',
+        },
+        diff: diff || [],
+        branch: status.branch || 'main',
+        error: null,
+      });
     } catch (e: any) {
-      set({ error: e.message });
+      // Keep UI usable after local init even if status hiccups
+      set({
+        status: {
+          added: [],
+          changed: [],
+          removed: [],
+          untracked: [],
+          modified: [],
+          missing: [],
+          conflicting: [],
+          isClean: true,
+          branch: get().branch || 'main',
+        },
+        diff: [],
+        error: e?.message || null,
+      });
     }
   },
 
@@ -148,23 +216,37 @@ export const useGitStore = create<GitState>((set, get) => ({
   pushChanges: async (repoPath: string, remote = 'origin', branch?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const b = branch || get().branch;
+      if ((get().remotes || []).length === 0) {
+        set({
+          isLoading: false,
+          error: 'No remote yet. Open Remote tab → Add Remote (GitHub token optional).',
+        });
+        return;
+      }
+      const b = branch || get().branch || 'main';
       const msg = await GitNative.push(repoPath, remote, b);
       set({ isLoading: false, successMessage: msg || 'Pushed successfully' });
     } catch (e: any) {
-      set({ isLoading: false, error: 'Push failed: ' + e.message });
+      set({ isLoading: false, error: 'Push failed: ' + (e?.message || 'unknown') });
     }
   },
 
   pullChanges: async (repoPath: string, remote = 'origin', branch?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const b = branch || get().branch;
+      if ((get().remotes || []).length === 0) {
+        set({
+          isLoading: false,
+          error: 'No remote yet. Open Remote tab → Add Remote first.',
+        });
+        return;
+      }
+      const b = branch || get().branch || 'main';
       const msg = await GitNative.pull(repoPath, remote, b);
       await get().refreshStatus(repoPath);
       set({ isLoading: false, successMessage: msg || 'Pulled successfully' });
     } catch (e: any) {
-      set({ isLoading: false, error: 'Pull failed: ' + e.message });
+      set({ isLoading: false, error: 'Pull failed: ' + (e?.message || 'unknown') });
     }
   },
 

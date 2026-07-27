@@ -167,10 +167,24 @@ export const GitPanel: React.FC = () => {
         </View>
         <View style={styles.center}>
           <Text style={styles.noRepoText}>No Git Repository</Text>
-          <Text style={styles.noRepoSub}>Initialize a new repo or clone an existing one</Text>
+          <Text style={styles.noRepoSub}>
+            Init works offline. GitHub is only needed later for push/pull.
+          </Text>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => initRepo(repoPath)}>
-            <Text style={styles.primaryBtnText}>Initialize Repository</Text>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => {
+              if (!repoPath) {
+                Alert.alert('Error', 'Open a project folder first');
+                return;
+              }
+              initRepo(repoPath);
+            }}
+            disabled={isLoading || !repoPath}
+          >
+            <Text style={styles.primaryBtnText}>
+              {isLoading ? 'Initializing…' : 'Initialize Repository'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setShowClone(true)}>
@@ -179,7 +193,7 @@ export const GitPanel: React.FC = () => {
 
           <TouchableOpacity style={styles.linkBtn} onPress={() => setShowAuth(true)}>
             <Text style={styles.linkBtnText}>
-              {isAuthenticated ? `GitHub: ${username}` : 'Connect GitHub Account'}
+              {isAuthenticated ? `GitHub: ${username}` : 'Connect GitHub (optional)'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -370,10 +384,10 @@ export const GitPanel: React.FC = () => {
         ))}
 
         {/* Staged files */}
-        {status.added.length > 0 && (
+        {(status.added?.length ?? 0) > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Staged ({status.added.length})</Text>
-            {status.added.map((file, idx) => (
+            {(status.added || []).map((file, idx) => (
               <View key={idx} style={styles.fileRow}>
                 <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
                 <TouchableOpacity onPress={() => unstageFile(repoPath, file)}>
