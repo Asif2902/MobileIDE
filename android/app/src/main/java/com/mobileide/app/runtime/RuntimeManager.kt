@@ -905,8 +905,8 @@ class RuntimeManager(private val context: Context) {
                 - /system/bin toybox first (ls, cat, cp, …)
                 - busybox multi-call for richer applets (tar, sed, awk, find, …)
                 - Shell functions in `~/.adev-wrappers` (always sourced by interactive shells)
-                - PATH trampolines under `$PREFIX/bin` for node/npm/npx/git/bash + key applets
-                - Absolute ELFs: `$MOBILEIDE_NODE`, `$MOBILEIDE_GIT`, `$MOBILEIDE_BASH`, `$MOBILEIDE_BUSYBOX`
+                - PATH trampolines under `${'$'}PREFIX/bin` for node/npm/npx/git/bash + key applets
+                - Absolute ELFs: `${'$'}MOBILEIDE_NODE`, `${'$'}MOBILEIDE_GIT`, `${'$'}MOBILEIDE_BASH`, `${'$'}MOBILEIDE_BUSYBOX`
 
                 Check: `adev-doctor`
 
@@ -937,9 +937,9 @@ class RuntimeManager(private val context: Context) {
                   ProcessNative.getProcesses / kill / getActivePorts
 
                 Non-interactive shell (OpenCode binary / any child):
-                  BASH_ENV=$HOME/.adev-agent-env   # auto-loads wrappers + spoof
+                  BASH_ENV=${'$'}HOME/.adev-agent-env   # auto-loads wrappers + spoof
                   SHELL=…/libbin_bash.so
-                  . "$HOME/.adev-agent-env"         # if you start a bare sh
+                  . "${'$'}HOME/.adev-agent-env"         # if you start a bare sh
 
                 ## What works
                 - node, npm, npx, corepack (yarn/pnpm via corepack)
@@ -1180,8 +1180,8 @@ class RuntimeManager(private val context: Context) {
             });
 
             app.listen(PORT, HOST, () => {
-              console.log(`demo-api listening on http://${HOST}:${PORT}`);
-              console.log(`Try: http://127.0.0.1:${PORT}/api/health`);
+              console.log(`demo-api listening on http://${'$'}{HOST}:${'$'}{PORT}`);
+              console.log(`Try: http://127.0.0.1:${'$'}{PORT}/api/health`);
             });
             """.trimIndent() + "\n"
         )
