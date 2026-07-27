@@ -43,7 +43,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.7.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.8.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
 
@@ -146,6 +146,7 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
         setupPlatformSpoof()
+        setupShellWrappers()
         setupNpmrc()
 
         onProgress?.invoke("Preparing certificates...", 0.95f)
@@ -370,52 +371,142 @@ class RuntimeManager(private val context: Context) {
     }
 
     /**
-     * Busybox is a multi-call binary: argv[0] selects the applet (ls, cat, …).
-     * When embedded as libbin_busybox.so, create symlinks for the most useful
-     * applets so a minimal userland is available without relying only on toybox.
+     * Busybox multi-call: only link the `busybox` entry itself into bin/.
+     * Per-applet symlinks under filesDir are dangerous on Android 10+ noexec
+     * (they shadow working /system/bin/toybox tools when the symlink exec fails).
+     * Applets are provided as shell functions in setupShellWrappers() that invoke
+     * the ELF in nativeLibraryDir with the applet name as argv0/arg.
      */
     private fun createBusyboxAliases() {
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
         val busyboxLib = File(nativeLibDir, "libbin_busybox.so")
         if (!busyboxLib.exists()) {
-            Log.d(TAG, "busybox not embedded; relying on /system/bin toybox")
+            Log.d(TAG, "busybox not embedded; relying on /system/bin toybox + shell wrappers")
             return
         }
         binDir.setWritable(true, false)
-        // Keep names that do not clobber our own node/git/bash ELFs.
-        val applets = listOf(
+        // Remove any previous broken applet symlinks that shadowed toybox.
+        listOf(
             "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown",
             "touch", "find", "grep", "sed", "awk", "head", "tail", "wc", "sort", "uniq",
-            "tr", "cut", "xargs", "tee", "diff", "which", "uname", "whoami", "id",
-            "pwd", "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
+            "tr", "cut", "xargs", "tee", "diff", "which", "whoami", "id",
+            "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
             "tar", "gzip", "gunzip", "bzip2", "xz", "wget", "vi", "less", "more",
             "ps", "kill", "killall", "pgrep", "pkill", "du", "df", "realpath",
             "dirname", "basename", "env", "printenv", "seq", "yes", "true", "false",
             "test", "echo", "printf"
-        )
-        var n = 0
-        applets.forEach { name ->
+        ).forEach { name ->
             val link = File(binDir, name)
-            // Never replace real primary tools we ship as dedicated ELFs.
-            if (name == "bash" || name == "node" || name == "git") return@forEach
             try {
                 if (link.exists() || isSymlink(link)) link.delete()
-                Os.symlink(busyboxLib.absolutePath, link.absolutePath)
-                n++
-            } catch (e: Exception) {
-                Log.e(TAG, "busybox alias $name failed", e)
-            }
+            } catch (_: Exception) { }
         }
-        // Also expose the multi-call binary itself as `busybox`.
         try {
             val link = File(binDir, "busybox")
             if (link.exists() || isSymlink(link)) link.delete()
             Os.symlink(busyboxLib.absolutePath, link.absolutePath)
-            n++
+            Log.i(TAG, "busybox binary linked (applets via shell wrappers)")
         } catch (e: Exception) {
             Log.e(TAG, "busybox self-link failed", e)
         }
-        Log.i(TAG, "busybox applets linked: $n")
+    }
+
+    /**
+     * Write shell functions that exec real ELFs under nativeLibraryDir.
+     * Android 10+ noexec blocks execve of paths under filesDir (even symlinks),
+     * so `node`/`ls` must not rely on $PREFIX/bin/node alone — call the .so path.
+     */
+    private fun setupShellWrappers() {
+        try {
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val node = File(nativeLibDir, "libbin_node.so").absolutePath
+            val git = File(nativeLibDir, "libbin_git.so").absolutePath
+            val bash = File(nativeLibDir, "libbin_bash.so").absolutePath
+            val busybox = File(nativeLibDir, "libbin_busybox.so").absolutePath
+            val npmShell = File(nativeLibDir, "libbin_adev_npm_shell.so").absolutePath
+            val hasBusybox = File(nativeLibDir, "libbin_busybox.so").exists()
+            val hasNode = File(nativeLibDir, "libbin_node.so").exists()
+            val hasGit = File(nativeLibDir, "libbin_git.so").exists()
+
+            val applets = listOf(
+                "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod",
+                "touch", "find", "grep", "sed", "awk", "head", "tail", "wc", "sort", "uniq",
+                "tr", "cut", "xargs", "tee", "diff", "which", "whoami", "id",
+                "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
+                "tar", "gzip", "gunzip", "wget", "vi", "less", "more",
+                "ps", "kill", "du", "df", "realpath", "dirname", "basename",
+                "seq", "yes"
+            )
+
+            val sb = StringBuilder()
+            sb.appendLine("# Generated by RuntimeManager — do not edit by hand")
+            sb.appendLine("# Exec ELFs from nativeLibraryDir (exec-safe). filesDir is noexec.")
+            sb.appendLine("export MOBILEIDE_NATIVE_LIB=\"$nativeLibDir\"")
+            sb.appendLine()
+
+            if (hasNode) {
+                sb.appendLine("node() { \"$node\" \"\$@\"; }")
+                sb.appendLine("npm() { \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npm-cli.js\" \"\$@\"; }")
+                sb.appendLine("npx() { \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" \"\$@\"; }")
+                sb.appendLine("if [ -f \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" ]; then")
+                sb.appendLine("  corepack() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" \"\$@\"; }")
+                sb.appendLine("  yarn() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" yarn \"\$@\"; }")
+                sb.appendLine("  pnpm() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" pnpm \"\$@\"; }")
+                sb.appendLine("fi")
+                sb.appendLine()
+            }
+            if (hasGit) {
+                sb.appendLine("git() { \"$git\" \"\$@\"; }")
+                sb.appendLine()
+            }
+            if (File(nativeLibDir, "libbin_bash.so").exists()) {
+                sb.appendLine("bash() { \"$bash\" \"\$@\"; }")
+                sb.appendLine()
+            }
+            if (File(nativeLibDir, "libbin_adev_npm_shell.so").exists()) {
+                sb.appendLine("adev-npm-shell() { \"$npmShell\" \"\$@\"; }")
+                sb.appendLine()
+            }
+
+            if (hasBusybox) {
+                sb.appendLine("busybox() { \"$busybox\" \"\$@\"; }")
+                // Multi-call: busybox <applet> args — works even when argv0 tricks fail.
+                applets.forEach { ap ->
+                    // Prefer busybox; fall back to toybox/system so basics never die.
+                    sb.appendLine(
+                        "$ap() { \"$busybox\" $ap \"\$@\" 2>/dev/null || /system/bin/$ap \"\$@\" 2>/dev/null || /system/xbin/$ap \"\$@\"; }"
+                    )
+                }
+                sb.appendLine()
+            } else {
+                // No busybox: still provide thin wrappers that prefer /system/bin
+                applets.forEach { ap ->
+                    sb.appendLine(
+                        "$ap() { /system/bin/$ap \"\$@\" 2>/dev/null || /system/xbin/$ap \"\$@\" || command $ap \"\$@\"; }"
+                    )
+                }
+                sb.appendLine()
+            }
+
+            sb.appendLine("adev-doctor() {")
+            sb.appendLine("  echo \"=== ADEV doctor ===\"")
+            sb.appendLine("  echo \"NATIVE=\$MOBILEIDE_NATIVE_LIB\"")
+            sb.appendLine("  echo \"PREFIX=\$PREFIX\"")
+            sb.appendLine("  echo -n \"node: \"; node -v 2>&1")
+            sb.appendLine("  echo -n \"platform: \"; node -p \"process.platform+' '+process.arch\" 2>&1")
+            sb.appendLine("  echo -n \"npm: \"; npm -v 2>&1")
+            sb.appendLine("  echo -n \"git: \"; git --version 2>&1")
+            sb.appendLine("  echo -n \"ls: \"; ls -d / 2>&1")
+            sb.appendLine("  echo -n \"busybox: \"; busybox echo ok 2>&1 || echo missing")
+            sb.appendLine("  echo \"PATH=\$PATH\"")
+            sb.appendLine("}")
+
+            val out = File(homeDir, ".adev-wrappers")
+            out.writeText(sb.toString())
+            Log.i(TAG, "Wrote shell wrappers: ${out.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "setupShellWrappers failed: ${e.message}")
+        }
     }
 
     /**
@@ -914,14 +1005,8 @@ class RuntimeManager(private val context: Context) {
         export PS1='adev:${'$'}PWD ${'$'} '
         export EDITOR=vi
 
-        # Always run package managers through node (assets live under noexec).
-        npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
-        npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
-        if [ -f "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" ]; then
-          corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
-          yarn() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" yarn "${'$'}@"; }
-          pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
-        fi
+        # Core tools: exec nativeLibraryDir ELFs (filesDir is noexec on Android 10+).
+        [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers"
 
         # Report Linux/arm64 to shell tools that call uname (install scripts).
         uname() {
@@ -938,22 +1023,13 @@ class RuntimeManager(private val context: Context) {
 
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
-        # Run a JS CLI file via node (shebang-safe on noexec).
-        adev-node-bin() {
-            local f="${'$'}1"; shift
-            [ -f "${'$'}f" ] || return 127
-            # Strip shebang and run with node if it looks like JS; else try node anyway.
-            node "${'$'}f" "${'$'}@"
-        }
-
-        # mksh: function shims for global + common local bins. Re-run after npm i -g.
         adev-rehash() {
             shimf="${'$'}HOME/.adev-shims"
             : > "${'$'}shimf"
             for f in "${'$'}HOME/.npm-global/bin"/* "${'$'}HOME/.local/bin"/*; do
                 [ -f "${'$'}f" ] || continue
                 n=${'$'}{f##*/}
-                case "${'$'}n" in npm|npx|node|corepack) continue ;; esac
+                case "${'$'}n" in npm|npx|node|corepack|git|ls|cat) continue ;; esac
                 printf '%s() { node "%s" "${'$'}@"; }\n' "${'$'}n" "${'$'}f" >> "${'$'}shimf"
             done
             . "${'$'}shimf" 2>/dev/null
@@ -961,17 +1037,14 @@ class RuntimeManager(private val context: Context) {
         }
         adev-rehash 2>/dev/null
 
-        # ---- FE/BE dev helpers (host 0.0.0.0 + polling come from env) ----
         adev-help() {
           echo "A Dev Studio — essential commands"
+          echo "  adev-doctor       check node/npm/git/ls"
           echo "  projects          cd workspaces"
           echo "  cd demo-web && npm install && npm run dev"
           echo "  cd demo-api && npm install && npm start"
-          echo "  adev-vite         npx vite --host 0.0.0.0"
-          echo "  adev-next         npx next dev -H 0.0.0.0"
-          echo "  adev-rehash       refresh global CLI shims after npm i -g"
-          echo "  node -p process.platform  # should be: linux"
-          echo "See ~/ADEV-RUNTIME.md for full notes."
+          echo "  adev-vite / adev-next"
+          echo "See ~/ADEV-RUNTIME.md"
         }
         adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
         adev-next() { npx next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
@@ -982,7 +1055,7 @@ class RuntimeManager(private val context: Context) {
         alias cls='clear'
         alias projects='cd ${workspacesDir.absolutePath}'
 
-        echo "Welcome to A Dev Studio Terminal — type adev-help"
+        echo "Welcome to A Dev Studio — type adev-help or adev-doctor"
     """.trimIndent()
 
     private fun getBashrcContent(): String = """
@@ -991,13 +1064,8 @@ class RuntimeManager(private val context: Context) {
         export EDITOR=vi
         export LANG=en_US.UTF-8
 
-        npm() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npm-cli.js" "${'$'}@"; }
-        npx() { node "${'$'}PREFIX/lib/node_modules/npm/bin/npx-cli.js" "${'$'}@"; }
-        if [ -f "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" ]; then
-          corepack() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" "${'$'}@"; }
-          yarn() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" yarn "${'$'}@"; }
-          pnpm() { node "${'$'}PREFIX/lib/node_modules/corepack/dist/corepack.js" pnpm "${'$'}@"; }
-        fi
+        # Core tools: exec nativeLibraryDir ELFs (filesDir is noexec on Android 10+).
+        [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers"
 
         # Report Linux/arm64 to shell tools that call uname (install scripts).
         uname() {
@@ -1014,8 +1082,6 @@ class RuntimeManager(private val context: Context) {
 
         command -v dbclient >/dev/null 2>&1 && ssh() { dbclient "${'$'}@"; }
 
-        # Prefer node for any JS bin under global/local prefixes when the command
-        # is not found as a real executable (PATH does not list noexec dirs first).
         command_not_found_handle() {
             local cmd="${'$'}1"; shift
             local base f
@@ -1026,7 +1092,6 @@ class RuntimeManager(private val context: Context) {
                     return ${'$'}?
                 fi
             done
-            # Project-local node_modules/.bin (common after npm install)
             if [ -f "./node_modules/.bin/${'$'}cmd" ]; then
                 node "./node_modules/.bin/${'$'}cmd" "${'$'}@"
                 return ${'$'}?
@@ -1035,22 +1100,19 @@ class RuntimeManager(private val context: Context) {
             return 127
         }
 
-        # Same rehash helper as mksh (optional explicit shims for builtins shadowing).
         adev-rehash() {
             hash -r 2>/dev/null
-            echo "adev: bash hash cleared; globals resolve via command_not_found_handle + termux-exec"
+            echo "adev: bash hash cleared"
         }
 
         adev-help() {
           echo "A Dev Studio — essential commands"
+          echo "  adev-doctor       check node/npm/git/ls"
           echo "  projects          cd workspaces"
           echo "  cd demo-web && npm install && npm run dev"
           echo "  cd demo-api && npm install && npm start"
-          echo "  adev-vite [port]  npx vite --host 0.0.0.0"
-          echo "  adev-next [port]  npx next dev -H 0.0.0.0"
-          echo "  adev-rehash       refresh global CLI shims after npm i -g"
-          echo "  node -p process.platform  # should be: linux"
-          echo "See ~/ADEV-RUNTIME.md for full notes."
+          echo "  adev-vite [port] / adev-next [port]"
+          echo "See ~/ADEV-RUNTIME.md"
         }
         adev-vite() {
           local p=5173
@@ -1076,7 +1138,7 @@ class RuntimeManager(private val context: Context) {
         export HISTSIZE=2000
         export HISTFILE=${homeDir.absolutePath}/.bash_history
 
-        echo "Welcome to A Dev Studio Terminal — type adev-help"
+        echo "Welcome to A Dev Studio — type adev-help or adev-doctor"
     """.trimIndent()
 
     private fun getProfileContent(): String = """
@@ -1104,23 +1166,28 @@ class RuntimeManager(private val context: Context) {
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
         val globalBin = File(npmGlobalDir, "bin").absolutePath
         val localBin = localBinDir.absolutePath
-        // Prefer the bundled bash (via its symlink) so command_not_found_handle works.
-        val shell = File(binDir, "bash").let { if (it.exists()) it.absolutePath else "/system/bin/sh" }
+        // Prefer absolute path to bash ELF in nativeLibraryDir (exec-safe).
+        val bashNative = File(nativeLibDir, "libbin_bash.so")
+        val shell = when {
+            bashNative.exists() -> bashNative.absolutePath
+            File(binDir, "bash").exists() -> File(binDir, "bash").absolutePath
+            else -> "/system/bin/sh"
+        }
 
-        // PATH order is deliberate:
-        // 1) bin/ — our exec-safe symlinks (node, git, bash, busybox applets)
-        // 2) git-core helpers
-        // 3) system tools
-        // 4) npm global/local bins LAST — with termux-exec LD_PRELOAD they can
-        //    run; if preload fails, shell shims / command_not_found still help.
-        // Putting globals first caused Permission denied before shims could run.
+        // PATH order (Android 10+ noexec on filesDir):
+        // 1) /system/bin first — working toybox ls/cat/… (do NOT shadow with broken
+        //    filesDir busybox symlinks)
+        // 2) nativeLibraryDir — real ELFs (libbin_node.so etc.); shell wrappers
+        //    call these by absolute path anyway
+        // 3) bin/ — remaining symlinks (git-core helpers, dropbear) + termux-exec
+        // 4) npm global bins last
         val env = mutableMapOf(
             "PATH" to listOf(
-                binDir.absolutePath,
-                "${binDir.absolutePath}/git-core",
-                nativeLibDir,
                 "/system/bin",
                 "/system/xbin",
+                nativeLibDir,
+                binDir.absolutePath,
+                "${binDir.absolutePath}/git-core",
                 globalBin,
                 localBin
             ).joinToString(":"),
@@ -1200,17 +1267,11 @@ class RuntimeManager(private val context: Context) {
             }
         }
 
-        // npm lifecycle: trampoline that runs JS bins via node (noexec-safe).
-        val npmShellLink = File(binDir, "adev-npm-shell")
+        // npm lifecycle: always use the nativeLibraryDir ELF (not filesDir symlink).
         val npmShellNative = File(nativeLibDir, "libbin_adev_npm_shell.so")
-        val npmShellPath = when {
-            npmShellLink.exists() -> npmShellLink.absolutePath
-            npmShellNative.exists() -> npmShellNative.absolutePath
-            else -> null
-        }
-        if (npmShellPath != null) {
-            env["NPM_CONFIG_SCRIPT_SHELL"] = npmShellPath
-            env["npm_config_script_shell"] = npmShellPath
+        if (npmShellNative.exists()) {
+            env["NPM_CONFIG_SCRIPT_SHELL"] = npmShellNative.absolutePath
+            env["npm_config_script_shell"] = npmShellNative.absolutePath
         }
 
         // termux-exec: LD_PRELOAD hooks execve so shebang scripts under the

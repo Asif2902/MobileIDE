@@ -36,31 +36,32 @@ static int file_exists(const char *p) {
     return p && p[0] && stat(p, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/** Resolve node: $PREFIX/bin/node, PATH search, or sibling of this binary. */
+/** Resolve node: prefer nativeLibraryDir ELF (exec-safe on Android 10+). */
 static void resolve_node() {
     g_node_path[0] = '\0';
-    const char *prefix = getenv("PREFIX");
-    if (prefix && prefix[0]) {
-        snprintf(g_node_path, sizeof(g_node_path), "%s/bin/node", prefix);
-        if (file_exists(g_node_path)) return;
-    }
-    const char *path = getenv("PATH");
-    if (path) {
-        char buf[PATH_MAX * 2];
-        strncpy(buf, path, sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
-        for (char *tok = strtok(buf, ":"); tok; tok = strtok(nullptr, ":")) {
-            snprintf(g_node_path, sizeof(g_node_path), "%s/node", tok);
-            if (file_exists(g_node_path)) return;
-        }
-    }
-    // Fallback: same directory as nativeLibraryDir often has libbin_node.so
+    // 1) Explicit native lib dir (always exec-permitted)
     const char *nlib = getenv("MOBILEIDE_NATIVE_LIB");
     if (nlib && nlib[0]) {
         snprintf(g_node_path, sizeof(g_node_path), "%s/libbin_node.so", nlib);
         if (file_exists(g_node_path)) return;
     }
-    // Last resort name on PATH
+    // 2) LD_LIBRARY_PATH entries (often includes nativeLibraryDir)
+    const char *ld = getenv("LD_LIBRARY_PATH");
+    if (ld) {
+        char buf[PATH_MAX * 2];
+        strncpy(buf, ld, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        for (char *tok = strtok(buf, ":"); tok; tok = strtok(nullptr, ":")) {
+            snprintf(g_node_path, sizeof(g_node_path), "%s/libbin_node.so", tok);
+            if (file_exists(g_node_path)) return;
+        }
+    }
+    // 3) PREFIX/bin/node symlink (may be noexec — last resort for non-Android)
+    const char *prefix = getenv("PREFIX");
+    if (prefix && prefix[0]) {
+        snprintf(g_node_path, sizeof(g_node_path), "%s/bin/node", prefix);
+        if (file_exists(g_node_path)) return;
+    }
     strncpy(g_node_path, "node", sizeof(g_node_path) - 1);
 }
 

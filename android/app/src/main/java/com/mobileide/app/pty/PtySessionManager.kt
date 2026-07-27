@@ -87,23 +87,23 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
 
     /**
      * Resolve a usable shell binary.
-     * Prefers the bundled bash (a symlink into nativeLibraryDir) so shell
-     * functions like command_not_found_handle and the npm/npx shims work.
-     * If bash cannot actually run (missing shared libs on this device) we
-     * automatically degrade to /system/bin/sh (mksh), which always works.
+     * Prefer the real bash ELF under nativeLibraryDir (exec-permitted). The
+     * filesDir symlink can hit Android 10+ noexec even when the target is fine.
      */
     private fun resolveShell(): String {
-        val bash = "${runtimeManager.getBinDir()}/bash"
-        if (isBashUsable(bash)) return bash
+        val native = "${runtimeManager.getNativeLibDir()}/libbin_bash.so"
+        if (isBashUsable(native)) return native
+        val linked = "${runtimeManager.getBinDir()}/bash"
+        if (isBashUsable(linked)) return linked
         return "/system/bin/sh"
     }
 
     /** One-time (cached) probe that the bundled bash can execute on this device. */
     private fun isBashUsable(bashPath: String): Boolean {
+        // Cache per-path result only for the first successful/failed probe of native.
         bashUsable?.let { return it }
         val f = File(bashPath)
         if (!f.exists()) {
-            bashUsable = false
             return false
         }
         val ok = try {
@@ -113,10 +113,12 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
             p.waitFor()
             p.exitValue() == 0
         } catch (e: Exception) {
-            Log.w(TAG, "Bundled bash not usable, falling back to /system/bin/sh: ${e.message}")
+            Log.w(TAG, "Bash not usable at $bashPath: ${e.message}")
             false
         }
-        bashUsable = ok
+        // Only cache terminal result after we may try multiple candidates;
+        // cache true immediately; cache false only for final fallback path.
+        if (ok) bashUsable = true
         return ok
     }
 
