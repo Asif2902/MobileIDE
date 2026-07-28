@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useEditorStore } from '../../stores';
-import { EditorView } from './EditorView';
+import { EditorView, EditorViewHandle } from './EditorView';
 import { EditorTabs } from './EditorTabs';
 import { Icon } from '../icons';
 
@@ -31,6 +31,7 @@ export const EditorPanel: React.FC = () => {
   const isLandscape = width > height;
   const isCompact = width < 420 || isLandscape;
   const [saving, setSaving] = useState(false);
+  const editorRef = useRef<EditorViewHandle>(null);
 
   const activeFile = openFiles.find(f => f.path === activeFilePath);
   const diag = activeFile ? diagnostics[activeFile.path] : undefined;
@@ -115,6 +116,15 @@ export const EditorPanel: React.FC = () => {
             <Text style={[styles.iconBtnText, wordWrap && styles.iconBtnActive]}>Wrap</Text>
           </TouchableOpacity>
 
+          {/* Explicit keyboard affordance when WebView IME is sticky */}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => editorRef.current?.focusEditor()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.iconBtnText}>⌨</Text>
+          </TouchableOpacity>
+
           {activeFile.isDirty && (
             <Text style={styles.dirtyBadge} numberOfLines={1}>
               Unsaved
@@ -126,6 +136,7 @@ export const EditorPanel: React.FC = () => {
       <View style={styles.editorContainer}>
         {activeFile ? (
           <EditorView
+            ref={editorRef}
             filePath={activeFile.path}
             content={activeFile.content}
             language={activeFile.language}

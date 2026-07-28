@@ -1,4 +1,11 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import {
   View,
   Text,
@@ -17,6 +24,11 @@ const WebViewAny = WebView as any;
 
 const MONACO_URI = 'file:///android_asset/editor/index.html';
 
+export interface EditorViewHandle {
+  /** Ask the WebView + Monaco to take focus and show the soft keyboard. */
+  focusEditor: () => void;
+}
+
 interface EditorViewProps {
   filePath: string;
   content: string;
@@ -24,12 +36,10 @@ interface EditorViewProps {
   onRequestFocus?: () => void;
 }
 
-export const EditorView: React.FC<EditorViewProps> = ({
-  filePath,
-  content,
-  language,
-  onRequestFocus,
-}) => {
+export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function EditorView(
+  { filePath, content, language, onRequestFocus },
+  ref,
+) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
@@ -77,6 +87,18 @@ export const EditorView: React.FC<EditorViewProps> = ({
     },
     [inject],
   );
+
+  const focusEditor = useCallback(() => {
+    try {
+      // Native WebView must own focus before Android will open the IME.
+      webViewRef.current?.requestFocus?.();
+    } catch (_e) {}
+    post({ type: 'focus' });
+    // Retry once after layout settles
+    setTimeout(() => post({ type: 'focus' }), 80);
+  }, [post]);
+
+  useImperativeHandle(ref, () => ({ focusEditor }), [focusEditor]);
 
   const pushFileToMonaco = useCallback(
     (path: string, fileContent: string | null, lang: string) => {
@@ -226,14 +248,18 @@ export const EditorView: React.FC<EditorViewProps> = ({
         }}
         javaScriptEnabled
         domStorageEnabled
+        // Critical: allow programmatic focus to open the soft keyboard.
         keyboardDisplayRequiresUserAction={false}
         hideKeyboardAccessoryView={false}
         {...(Platform.OS === 'android'
           ? {
               nestedScrollEnabled: true,
               overScrollMode: 'never',
-              androidLayerType: 'hardware',
+              // Hardware layer has broken IME focus on some Android WebViews.
+              androidLayerType: 'software',
               focusable: true,
+              // Keep the WebView eligible for keyboard input.
+              importantForAutofill: 'no',
             }
           : {})}
         allowsInlineMediaPlayback
@@ -245,9 +271,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
         mixedContentMode="always"
         setSupportMultipleWindows={false}
         androidHardwareAccelerationDisabled={false}
-        onTouchEnd={() => {
-          post({ type: 'focus' });
-          onRequestFocus?.();
+        setBuiltInZoomControls={false}
+        textZoom={100}
+        // Do NOT inject focus from RN onTouchEnd — that runs after the user
+        // gesture ends and Android refuses to open the keyboard. Focus is
+        // handled inside the WebView touch handlers (editor/index.html).
+        onTouchStart={() => {
+          try {
+            webViewRef.current?.requestFocus?.();
+          } catch (_e) {}
         }}
       />
       {loadState === 'loading' && (
@@ -267,7 +299,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
       )}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e1e1e' },

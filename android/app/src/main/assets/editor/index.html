@@ -20,14 +20,31 @@
       display: flex; align-items: center; justify-content: center;
       height: 100%; color: #888; font-family: sans-serif;
     }
-    /* Monaco input textarea must accept touches for the soft keyboard */
-    .monaco-editor .inputarea {
-      position: absolute !important;
-      opacity: 0.01 !important;
-      z-index: 10 !important;
-      /* Keep a non-zero hit target on Android WebView */
-      min-width: 1px !important;
-      min-height: 1px !important;
+    /*
+     * Android soft keyboard: WebView ignores focus on 1×1 / fully-invisible
+     * textareas. Give Monaco's .inputarea a real hit target + 16px font
+     * (Android skips the keyboard for <16px inputs to "prevent zoom").
+     */
+    .monaco-editor .inputarea,
+    .monaco-editor textarea.inputarea {
+      opacity: 0.02 !important;
+      z-index: 50 !important;
+      min-width: 2px !important;
+      min-height: 22px !important;
+      font-size: 16px !important;
+      line-height: 22px !important;
+      -webkit-user-select: text !important;
+      user-select: text !important;
+      pointer-events: auto !important;
+      caret-color: #d4d4d4 !important;
+      color: transparent !important;
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+    }
+    .monaco-editor, .monaco-editor .overflow-guard, .monaco-editor .monaco-scrollable-element {
+      -webkit-user-select: text;
+      user-select: text;
     }
   </style>
 </head>
@@ -136,41 +153,56 @@
       });
     }
 
-    /** Force soft keyboard: focus Monaco + its hidden textarea. */
+    /** Force soft keyboard: focus Monaco + its hidden textarea (sync when possible). */
     function forceKeyboardFocus() {
       if (!editor) return;
       try {
         editor.focus();
-        var ta = document.querySelector('.monaco-editor .inputarea');
+        var ta =
+          document.querySelector('textarea.inputarea') ||
+          document.querySelector('.monaco-editor textarea') ||
+          document.querySelector('.monaco-editor .inputarea');
         if (ta) {
+          ta.removeAttribute('readonly');
+          ta.removeAttribute('disabled');
           ta.setAttribute('inputmode', 'text');
           ta.setAttribute('enterkeyhint', 'enter');
           ta.setAttribute('autocapitalize', 'off');
           ta.setAttribute('autocomplete', 'off');
           ta.setAttribute('autocorrect', 'off');
           ta.setAttribute('spellcheck', 'false');
-          // Android WebView often needs a real user-gesture focus on the textarea
-          ta.focus();
+          ta.style.fontSize = '16px';
+          ta.style.minHeight = '22px';
+          ta.style.opacity = '0.02';
+          // Must run inside the user gesture when possible (touchstart).
+          ta.focus({ preventScroll: true });
+          try { ta.click(); } catch (e2) {}
           try {
             var len = (ta.value && ta.value.length) || 0;
-            ta.setSelectionRange(len, len);
-          } catch (e) {}
+            if (len > 0) ta.setSelectionRange(len, len);
+          } catch (e3) {}
         }
       } catch (e) {}
     }
 
     function wireMobileFocus(host) {
-      // Capture-phase touch so we beat Monaco's default handling when WebView is sticky
-      var openKb = function (ev) {
-        // Don't preventDefault — Monaco needs the event for caret placement
-        setTimeout(forceKeyboardFocus, 0);
-        setTimeout(forceKeyboardFocus, 50);
+      // Sync focus on touchstart so Android still treats it as a user gesture.
+      var openKb = function () {
+        forceKeyboardFocus();
+        setTimeout(forceKeyboardFocus, 30);
+        setTimeout(forceKeyboardFocus, 120);
       };
-      host.addEventListener('touchend', openKb, { passive: true });
-      host.addEventListener('click', openKb, { passive: true });
-      document.addEventListener('touchend', function (e) {
-        if (host.contains(e.target)) openKb(e);
-      }, { passive: true });
+      host.addEventListener('touchstart', openKb, { passive: true, capture: true });
+      host.addEventListener('touchend', openKb, { passive: true, capture: true });
+      host.addEventListener('pointerdown', openKb, { passive: true, capture: true });
+      host.addEventListener('click', openKb, { passive: true, capture: true });
+      document.addEventListener(
+        'touchstart',
+        function (e) {
+          if (host.contains(e.target)) openKb();
+        },
+        { passive: true, capture: true }
+      );
     }
 
     require(['vs/editor/editor.main'], function () {

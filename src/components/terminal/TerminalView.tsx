@@ -5,12 +5,14 @@ import {
   Modal,
   Text,
   TouchableOpacity,
-  ScrollView,
+  TextInput,
   useWindowDimensions,
   LayoutChangeEvent,
+  Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTerminalStore, getOutputBuffer } from '../../stores';
 import {
   PtyEventEmitter,
@@ -54,9 +56,29 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   // Selection modal state for finger text selection
   const [isSelectModalVisible, setIsSelectModalVisible] = useState(false);
   const [selectModalText, setSelectModalText] = useState('');
+  const selectInputRef = useRef<TextInput>(null);
+  const insets = useSafeAreaInsets();
 
   const { writeToSession, resizeSession } = useTerminalStore();
   const isKeyboardBarVisible = useTerminalStore(state => state.isKeyboardBarVisible);
+
+  // When the select/copy sheet opens, jump to the bottom so the latest output is visible.
+  useEffect(() => {
+    if (!isSelectModalVisible) return;
+    const t = setTimeout(() => {
+      try {
+        selectInputRef.current?.focus();
+        // scrollToEnd exists on TextInput for multiline on Android/iOS
+        (selectInputRef.current as any)?.scrollToEnd?.({ animated: false });
+        // Place caret at end so long-press selection can start from the bottom
+        const len = selectModalText.length;
+        selectInputRef.current?.setNativeProps?.({
+          selection: { start: len, end: len },
+        });
+      } catch (_e) {}
+    }, 120);
+    return () => clearTimeout(t);
+  }, [isSelectModalVisible, selectModalText]);
 
   // Post a message into the terminal WebView's handleMessage() dispatcher.
   const postToWeb = useCallback((msg: object) => {
@@ -276,15 +298,24 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         />
       )}
 
-      {/* Modal for touch selection — header/footer fixed; body scrolls fully. */}
+      {/* Select & copy — TextInput scrolls to the bottom (Text+ScrollView does not on Android). */}
       <Modal
         visible={isSelectModalVisible}
         animationType="slide"
         onRequestClose={() => setIsSelectModalVisible(false)}
+        presentationStyle="fullScreen"
       >
-        <View style={styles.modalContainer}>
+        <View
+          style={[
+            styles.modalContainer,
+            {
+              paddingTop: Math.max(insets.top, 12) + 8,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select & Copy Terminal Text</Text>
+            <Text style={styles.modalTitle}>Select & copy</Text>
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setIsSelectModalVisible(false)}
@@ -293,19 +324,53 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             </TouchableOpacity>
           </View>
           <Text style={styles.modalHint}>
-            Scroll the log, then long-press to select. Use Copy all for the full buffer.
+            Scroll freely · long-press to select · or Copy all for the full buffer
           </Text>
-          <ScrollView
-            style={styles.modalTextContainer}
-            contentContainerStyle={styles.modalTextContent}
-            nestedScrollEnabled
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator
-          >
-            <Text selectable style={styles.selectableInput}>
-              {selectModalText}
-            </Text>
-          </ScrollView>
+          <View style={styles.modalJumpRow}>
+            <TouchableOpacity
+              style={styles.jumpBtn}
+              onPress={() => {
+                selectInputRef.current?.setNativeProps?.({
+                  selection: { start: 0, end: 0 },
+                });
+              }}
+            >
+              <Text style={styles.jumpBtnText}>↑ Top</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.jumpBtn}
+              onPress={() => {
+                const len = selectModalText.length;
+                (selectInputRef.current as any)?.scrollToEnd?.({ animated: true });
+                selectInputRef.current?.setNativeProps?.({
+                  selection: { start: len, end: len },
+                });
+              }}
+            >
+              <Text style={styles.jumpBtnText}>↓ Bottom</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            ref={selectInputRef}
+            style={styles.selectableInput}
+            value={selectModalText}
+            multiline
+            // editable + no soft keyboard: Android can scroll + select reliably
+            editable
+            showSoftInputOnFocus={false}
+            caretHidden={false}
+            scrollEnabled
+            textAlignVertical="top"
+            autoCorrect={false}
+            autoCapitalize="none"
+            spellCheck={false}
+            // Keep buffer read-only for the user without killing selection
+            onChangeText={() => {
+              /* ignore edits — buffer is a snapshot */
+            }}
+            contextMenuHidden={false}
+            selectTextOnFocus={false}
+          />
           <View style={styles.modalFooter}>
             <TouchableOpacity
               style={styles.copyAllButton}
@@ -341,15 +406,13 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: '#1e1e1e',
-    paddingTop: 48,
     paddingHorizontal: 16,
-    paddingBottom: 16,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#333333',
     flexShrink: 0,
@@ -366,28 +429,39 @@ const styles = StyleSheet.create({
   modalHint: {
     color: '#8a8a92',
     fontSize: 12,
-    marginVertical: 8,
+    marginTop: 8,
+    marginBottom: 6,
     flexShrink: 0,
   },
-  modalTextContainer: {
-    flex: 1,
-    minHeight: 120,
-    backgroundColor: '#141414',
-    borderRadius: 6,
-    borderColor: '#2a2a2a',
-    borderWidth: 1,
+  modalJumpRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+    flexShrink: 0,
   },
-  modalTextContent: {
-    padding: 12,
-    paddingBottom: 32,
-    flexGrow: 1,
+  jumpBtn: {
+    backgroundColor: '#2a2a2a',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  jumpBtnText: {
+    color: '#c4b5fd',
+    fontSize: 13,
+    fontWeight: '600',
   },
   selectableInput: {
+    flex: 1,
+    minHeight: 160,
+    backgroundColor: '#141414',
+    borderRadius: 8,
+    borderColor: '#2a2a2a',
+    borderWidth: 1,
+    padding: 12,
     color: '#d4d4d4',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
     fontSize: 12,
     lineHeight: 18,
-    // Do not use flex:1 on Text inside ScrollView — it blocks tall content scroll.
   },
   modalFooter: {
     flexShrink: 0,
