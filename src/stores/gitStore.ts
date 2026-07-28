@@ -58,20 +58,43 @@ export const useGitStore = create<GitState>((set, get) => ({
 
   checkRepo: async (repoPath: string) => {
     if (!repoPath?.trim()) {
-      set({ isRepo: false, isInitialized: true });
+      set({ isRepo: false, isInitialized: true, status: null, error: null });
       return;
     }
     try {
+      // isGitRepo now validates the repo is openable (not just .git folder exists)
       const isRepo = await GitNative.isGitRepo(repoPath);
-      set({ isRepo, isInitialized: true, error: null });
-      if (isRepo) {
-        await get().refreshStatus(repoPath);
-        await get().loadBranches(repoPath);
-        await get().loadRemotes(repoPath);
-        await get().loadLog(repoPath);
+      if (!isRepo) {
+        set({
+          isRepo: false,
+          isInitialized: true,
+          error: null,
+          status: null,
+          commits: [],
+          branches: [],
+          remotes: [],
+          diff: [],
+        });
+        return;
       }
+      set({ isRepo: true, isInitialized: true, error: null });
+      // Load sequentially; each method is crash-safe on native side
+      await get().refreshStatus(repoPath);
+      await get().loadBranches(repoPath);
+      await get().loadRemotes(repoPath);
+      await get().loadLog(repoPath);
     } catch (e: any) {
-      set({ isRepo: false, isInitialized: true, error: e?.message || 'Failed to check repository' });
+      // Never leave the tab in a crashing state
+      set({
+        isRepo: false,
+        isInitialized: true,
+        error: e?.message || 'Failed to open repository',
+        status: null,
+        commits: [],
+        branches: [],
+        remotes: [],
+        diff: [],
+      });
     }
   },
 
@@ -83,11 +106,11 @@ export const useGitStore = create<GitState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await GitNative.init(repoPath);
-      // Local-only init is fine — GitHub is optional
+      // Optimistic UI first so the tab never hangs if status is slow
       set({
         isRepo: true,
         isLoading: false,
-        successMessage: 'Repository initialized (local). Add a remote anytime to push.',
+        successMessage: 'Repository ready (local). GitHub not required to start.',
         branch: 'main',
         status: {
           added: [],
@@ -102,14 +125,23 @@ export const useGitStore = create<GitState>((set, get) => ({
         },
         commits: [],
         remotes: [],
+        branches: [{ name: 'main', isCurrent: true }],
         diff: [],
       });
-      await get().refreshStatus(repoPath);
-      await get().loadBranches(repoPath);
-      await get().loadRemotes(repoPath);
-      await get().loadLog(repoPath);
+      try {
+        await get().refreshStatus(repoPath);
+        await get().loadBranches(repoPath);
+        await get().loadRemotes(repoPath);
+        await get().loadLog(repoPath);
+      } catch {
+        // Keep optimistic state — tab stays usable
+      }
     } catch (e: any) {
-      set({ isLoading: false, error: e?.message || 'git init failed' });
+      set({
+        isLoading: false,
+        isRepo: false,
+        error: e?.message || 'git init failed',
+      });
     }
   },
 
@@ -263,27 +295,31 @@ export const useGitStore = create<GitState>((set, get) => ({
   loadLog: async (repoPath: string) => {
     try {
       const commits = await GitNative.log(repoPath, 30);
-      set({ commits });
-    } catch (e: any) {
-      // Silently fail for log
+      set({ commits: Array.isArray(commits) ? commits : [] });
+    } catch {
+      set({ commits: [] });
     }
   },
 
   loadBranches: async (repoPath: string) => {
     try {
       const branches = await GitNative.branches(repoPath);
-      set({ branches });
-    } catch (e: any) {
-      // Silently fail
+      set({
+        branches: Array.isArray(branches) && branches.length
+          ? branches
+          : [{ name: get().branch || 'main', isCurrent: true }],
+      });
+    } catch {
+      set({ branches: [{ name: get().branch || 'main', isCurrent: true }] });
     }
   },
 
   loadRemotes: async (repoPath: string) => {
     try {
       const remotes = await GitNative.remotes(repoPath);
-      set({ remotes });
-    } catch (e: any) {
-      // Silently fail
+      set({ remotes: Array.isArray(remotes) ? remotes : [] });
+    } catch {
+      set({ remotes: [] });
     }
   },
 

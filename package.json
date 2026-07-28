@@ -1,9 +1,9 @@
 {
   "name": "mobileide",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "description": "MobileIDE - A desktop-class JavaScript development environment for Android",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/mobileide/mobileide.git"

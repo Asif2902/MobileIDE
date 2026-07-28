@@ -76,8 +76,20 @@ export const GitPanel: React.FC = () => {
   // Re-check whenever the workspace path changes (JGit needs the real FS path).
   useEffect(() => {
     if (!isReady || !repoPath) return;
+    let cancelled = false;
     hasChecked.current = true;
-    checkRepo(repoPath);
+    (async () => {
+      try {
+        await checkRepo(repoPath);
+      } catch (e) {
+        // Absolute last resort — never let the Git tab unmount with a throw
+        console.warn('checkRepo failed', e);
+      }
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isReady, repoPath, checkRepo]);
 
   useEffect(() => {
@@ -174,12 +186,16 @@ export const GitPanel: React.FC = () => {
 
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={() => {
+            onPress={async () => {
               if (!repoPath) {
                 Alert.alert('Error', 'Open a project folder first');
                 return;
               }
-              initRepo(repoPath);
+              try {
+                await initRepo(repoPath);
+              } catch (e: any) {
+                Alert.alert('Init failed', e?.message || 'Could not create git repository');
+              }
             }}
             disabled={isLoading || !repoPath}
           >
