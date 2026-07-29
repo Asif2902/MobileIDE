@@ -20,7 +20,8 @@ import java.security.cert.X509Certificate
 /**
  * RuntimeManager handles extraction and management of the bundled developer runtime.
  * The runtime includes Node.js, Bash, Git, curl, and native build utilities for
- * ARM64 Android.
+ * Android. The base developer runtime is ARM64; x86_64 uses the signed runtime
+ * feature capability recorded in runtime-lock.json.
  *
  * Execution model
  * ---------------
@@ -28,7 +29,7 @@ import java.security.cert.X509Certificate
  * in the writable app data dir (filesDir/runtime/bin). The only app-owned,
  * exec-permitted location is nativeLibraryDir. The Gradle task
  * `prepareRuntimeNativeLibs` therefore relocates every ELF binary into
- * jniLibs/arm64-v8a/lib<mangled>.so and writes assets/runtime/native-map.json
+ * the ABI-specific jniLibs directory and writes assets/runtime/native-map.json
  * (originalRelPath -> libName). At init we rebuild a *symlink farm* inside the
  * runtime tree: each original path (bin/node, bin/git, bin/git-core/...) becomes
  * a symlink to nativeLibraryDir/lib<mangled>.so. Non-ELF support files (JS,
@@ -51,7 +52,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.14.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.15.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.

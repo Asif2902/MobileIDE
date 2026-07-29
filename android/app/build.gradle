@@ -85,7 +85,7 @@ android {
         versionCode 10
         versionName "1.3.4"
         ndk {
-            abiFilters "arm64-v8a"
+            abiFilters "arm64-v8a", "x86_64"
         }
         externalNativeBuild {
             cmake {
@@ -133,6 +133,7 @@ android {
         // Our runtime executables (node, git, bash, ...) are shipped AS lib*.so.
         // They are real ARM64 ELF binaries and MUST NOT be stripped/altered by AGP.
         doNotStrip "*/arm64-v8a/lib*.so"
+        doNotStrip "*/x86_64/lib*.so"
     }
     // The runtime binaries are relocated into jniLibs by prepareRuntimeNativeLibs.
     sourceSets {
@@ -295,41 +296,47 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
     def syncTask = tasks.register("sync${capitalized}AdevNpmShell") {
         dependsOn tasks.matching { it.name == "buildCMake${cmakeVariant}" }
         doLast {
-            def abi = "arm64-v8a"
+            def abis = ["arm64-v8a", "x86_64"]
             def helperNames = [
                 "libbin_adev_npm_shell.so",
                 "libbin_adev_git_credential.so"
             ]
-            def candidates = [:].withDefault { [] }
+            def candidates = [:].withDefault { [:].withDefault { [] } }
             [
                 file("${buildDir}/intermediates/cxx/${cmakeVariant}"),
                 file("${projectDir}/.cxx/${cmakeVariant}")
             ].each { root ->
                 if (root.exists()) {
                     root.eachFileRecurse { f ->
-                        if (f.isFile() && helperNames.contains(f.name) &&
-                                f.absolutePath.replace('\\', '/').contains("/obj/${abi}/")) {
-                            candidates[f.name] << f
+                        if (f.isFile() && helperNames.contains(f.name)) {
+                            def normalized = f.absolutePath.replace('\\', '/')
+                            abis.each { abi ->
+                                if (normalized.contains("/obj/${abi}/")) {
+                                    candidates[abi][f.name] << f
+                                }
+                            }
                         }
                     }
                 }
             }
-            def destDir = file("src/main/jniLibs/${abi}")
-            destDir.mkdirs()
-            helperNames.each { helperName ->
-                def found = candidates[helperName]
-                    .sort { a, b -> b.lastModified() <=> a.lastModified() }
-                    .find()
-                if (found == null) {
-                    throw new GradleException(
-                        "Fresh ${helperName} not found for ${variantName}/${abi}"
+            abis.each { abi ->
+                def destDir = file("src/main/jniLibs/${abi}")
+                destDir.mkdirs()
+                helperNames.each { helperName ->
+                    def found = candidates[abi][helperName]
+                        .sort { a, b -> b.lastModified() <=> a.lastModified() }
+                        .find()
+                    if (found == null) {
+                        throw new GradleException(
+                            "Fresh ${helperName} not found for ${variantName}/${abi}"
+                        )
+                    }
+                    def dest = new File(destDir, helperName)
+                    dest.bytes = found.bytes
+                    logger.lifecycle(
+                        "[runtime] synced ${variantName}/${abi} ${helperName} -> ${dest} (${dest.length()} bytes)"
                     )
                 }
-                def dest = new File(destDir, helperName)
-                dest.bytes = found.bytes
-                logger.lifecycle(
-                    "[runtime] synced ${variantName} ${helperName} -> ${dest} (${dest.length()} bytes)"
-                )
             }
         }
     }

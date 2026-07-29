@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-29
 Application: A Dev Studio / `com.mobileide.app` 1.3.4
-Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
+Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
 
@@ -11,8 +11,8 @@ Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
 | 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 was authorized separately. |
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. Run `adev-phase2-test --network` from Terminal and repeat the Run/Preview matrix on API 29/API 36; Phase 3 waits for explicit approval. |
 | 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | `93b3527` | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, the Bun capability boundary, and signed tool-pack lifecycle pass host/build/APK checks. Run `adev-phase3-test --network` on API 29/API 36; ABI tool-pack delivery remains an explicit Phase 4 feature gate. |
-| 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for explicit approval after the Phase 3 report. |
-| 5. Automation, security, production release, and final audit | NOT STARTED | — | Wait for Phase 4. |
+| 4. Android 16, ABI, filesystem, and runtime distribution | **IMPLEMENTED — DEVICE / FEATURE / HOST RELEASE GATES** | PENDING | React Native 0.86.2, API 36, NDK r29, Gradle 9.3.1, dual-ABI app/native helpers, signed runtime locking, guided private imports, and packaged 16 KiB checks pass. Connected APIs 29/34/35/36, the full x86_64 developer-runtime feature, and a host allowed to execute Hermes remain explicit gates. |
+| 5. Automation, security, production release, and final audit | NOT STARTED | — | Start only after explicit approval. |
 
 ## Executive result
 
@@ -34,8 +34,7 @@ The platform-wide fix is now implemented:
   app data.
 - Compiler and linker settings are supplied automatically to every spawned
   process. Addons target Android API 29 and use 16 KiB-compatible ELF
-  alignment. The app's remaining React Native/Hermes 16 KiB gap is listed
-  separately as a release blocker below.
+  alignment.
 - The runtime version was bumped, so existing installations re-extract the
   corrected runtime automatically.
 - The global Linux platform spoof was removed. The capability policy now keeps
@@ -57,9 +56,13 @@ This is not an individual-package workaround. It applies to packages using
 No post-install `chmod`, `npm rebuild`, or package-specific command is intended
 to be necessary.
 
-The release APK builds successfully and contains the new toolchain. A physical
-Android device or emulator was not connected to this audit host, so the final
-on-device execution matrix remains a release gate.
+The Phase 1–3 release APK built successfully and contains the new toolchain.
+After the Phase 4 React Native upgrade, a dual-ABI debug APK builds and passes
+content, API, signature, ZIP, and ELF checks. This Windows host blocks the
+Hermes compiler executable through Device Guard (exit 4551), so the Phase 4
+release bundle must be reproduced on the Phase 5 CI host. No physical Android
+device or emulator was connected, so the on-device matrix remains a release
+gate.
 
 Phase 2 now adds the server/framework layer without changing the working
 Phase 1 native-build path:
@@ -109,6 +112,28 @@ execution boundary:
   content, which is an explicit Phase 4 distribution boundary.
 - Runtime 1.14.0 re-extracts the package-manager, Git/SSH, diagnostics, Bun,
   tool-pack, and Phase 3 device-test assets on upgrade.
+
+Phase 4 upgrades the Android platform boundary while retaining the earlier
+runtime behavior:
+
+- React Native 0.86.2/React 19.2.3, the matching CLI 20.1.0 stack, API 36,
+  NDK 29.0.14206865, Kotlin 2.1.20, Gradle 9.3.1, Hermes, the new architecture,
+  and edge-to-edge behavior are configured together.
+- The app and its native shell/Git helper build for `arm64-v8a` and `x86_64`.
+  The ARM64 developer runtime stays in the base APK; the x86_64 developer
+  runtime is an explicit signed feature-pack capability instead of an
+  incorrectly advertised or glibc-backed runtime.
+- An Ed25519-signed runtime lock inventories 200 ARM64 runtime/app-native
+  payloads and the two packaged x86_64 helpers by hash, size, runtime path, and
+  owner. Runtime 1.15.0 forces upgrade re-extraction and `adev-doctor` verifies
+  and reports the lock.
+- Shared/FUSE workspaces are assessed before native work. A guided import stages
+  them under app-private storage, rejects symlinks and containment escapes, and
+  finalizes atomically so failed imports do not leave partial projects.
+- The produced APK targets API 36, contains only ARM64/x86_64, passes Android's
+  16 KiB ZIP check, and has 220 loadable ELF files with a minimum `PT_LOAD`
+  alignment of `0x4000`; six packaged compiler relocatable objects have no load
+  segments and are checked separately.
 
 ## Root cause of `spawn node-gyp EACCES`
 
@@ -235,7 +260,7 @@ Status meanings:
 | Python | ⚠️ Integrated; device gate | Python 3.14.6, its standard library, native modules, `PYTHONHOME`, `PYTHONPATH`, `PYTHON`, `NODE_GYP_FORCE_PYTHON`, and `npm_config_python` are packaged/configured. Relocation must be smoke-tested on-device. |
 | Clang / Make / build tools | ⚠️ Integrated; device gate | Clang/LLVM 21.1.8, Make 4.4.1, LLD, `llvm-ar`, `pkg-config`, compiler resources, development headers, CRT objects, and libraries are present. A real addon compile/link/load is the acceptance test. |
 | Build target | ✅ Fully integrated | Generated native addons target `aarch64-linux-android29`, matching `minSdk`, rather than the SDK level of the phone doing the build. |
-| 16 KiB pages | ❌ Incomplete | APK ZIP alignment passes. The developer runtime, app-built PTY/lifecycle shell, and future generated addons are aligned, but 10 packaged React Native/Hermes/image-pipeline libraries still have 4 KiB ELF segments. |
+| 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. `test:phase4-apk` checks the final APK with `zipalign -P 16` and scans every packaged ELF: all 220 loadable files have `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
 | PATH resolution | ⚠️ Integrated; device gate | System tools are first; executable APK libraries and app trampolines follow. Java spawns resolve Node/npm/npx/node-gyp, Python, Make, Clang, LLVM, Git, curl, Bash, and BusyBox to executable APK paths. Generic npm `.bin` and shebang resolution uses the corrected `termux-exec` contract and needs the device matrix. |
 | Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. |
 | Child process: Java spawn | ⚠️ Integrated; device gate | `ProcessManager` clears inherited host state, installs the runtime environment, resolves core/runtime/build commands, launches each task under `setsid`, obtains the PID from the child instead of reflection, streams output, and terminates the process group with a `/proc` descendant fallback. Device process-tree tests remain. |
@@ -243,8 +268,8 @@ Status meanings:
 | Shell execution | ⚠️ Partially integrated | Native Bash is preferred; `/system/bin/sh` is the fallback. `BASH_ENV` loads noninteractive wrappers, and compound lifecycle commands use bundled Bash. Device tests are still required for nested scripts and unusual shebangs. |
 | npm lifecycle scripts | ⚠️ Fixed; device gate | `NPM_CONFIG_SCRIPT_SHELL` points to the APK-installed `adev-npm-shell`; direct JS and `node-gyp` scripts bypass app-data execution. Complex commands fall back to Bash plus `termux-exec`. |
 | Optional dependencies | ⚠️ Policy integrated; device gate | Optional dependencies stay enabled while npm sees Android/ARM64. The global Linux spoof is gone. `adev-resolve-package` permits only Android/Bionic, exact hash-approved static/musl, source-build, or an explicit unsupported decision; the verified static/musl list is intentionally empty until artifacts are tested and locked. |
-| Native addons | ⚠️ Integrated; device/feature gate | Standard C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. The signed capability index now reports Rust, CMake/Ninja, NASM, Java, Autotools, and extra-library packs; production ABI payload delivery is a Phase 4 feature gate. |
-| `.node` loading | ⚠️ Device gate | Build output will be Android ARM64 and Node-version-matched. A target-34 device test must prove `dlopen()` plus transitive library lookup from a project directory. |
+| Native addons | ⚠️ Integrated; device/feature gate | Standard ARM64 C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. Optional tool packs and the full x86_64 developer runtime have signed capability boundaries but still require production feature payloads. |
+| `.node` loading | ⚠️ Device gate | ARM64 build output is Android/Bionic and Node-version-matched. API 29/34/35/36 device tests must prove `dlopen()` plus transitive library lookup from private projects; x86_64 addon builds wait for the signed x86_64 developer-runtime feature. |
 | Development task registry | ⚠️ Integrated; device gate | Background tasks and PTY sessions share typed task/status/log/port records. PIDs, process groups, descendants, sources, persistence, exit/failure state, and bounded logs are exposed through task APIs. Stop signals the group and waits for verified ports to close; device orphan/process-tree tests remain. |
 | Node / Express / Vite servers | ⚠️ Integrated; device gate | Structured Node listen/close/error events and `/proc` socket ownership discover arbitrary ports. Run/Preview has first-class Node, Express, Vite, Next, build, test, shell, and generic task types. The bundled device harness covers plain Node, Express, and Vite nested edits; it still needs a connected device. |
 | Next.js | ⚠️ Integrated; device gate | `adev-next` resolves the project version, caches exact matching `@next/swc-wasm-nodejs` outside the project, forces `--webpack` for dev/build even when a script requests Turbopack, and routes direct commands plus npm lifecycle scripts without project mutation. Exact packages 15.5.22 and 16.2.12 exist; the App/Pages dev/HMR/build/start device matrix is bundled but not yet executed. |
@@ -259,25 +284,26 @@ Status meanings:
 | pnpm | ⚠️ Integrated; device gate | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures from an empty network cache on the host; Android execution remains in the Phase 3 device gate. |
 | Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
 | Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
-| Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production native payloads must be delivered as ABI-specific APK features in Phase 4 because app-data storage is noexec. |
+| Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production ABI feature payloads are not yet present, so the resolver returns an actionable unavailable capability instead of installing into noexec app data. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
-| Symlinks | ⚠️ Partially integrated | Runtime symlinks are rebuilt automatically on private app storage. Android shared/external storage does not reliably support symlinks, case sensitivity, modes, or execution; projects using those features must stay in private workspaces. |
+| Symlinks | ⚠️ Integrated with Android boundary | Runtime symlinks are rebuilt automatically on private app storage. Shared/FUSE paths are reported as incapable of reliable symlinks, case sensitivity, modes, or execution; the guided private import refuses to follow symlinks or containment escapes. Preserving a project that intentionally contains symlinks requires an archive/private-source import path in Phase 5. |
 | Environment variables | ⚠️ Integrated; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Working-directory watch mode, structured server preload, and Next launcher/cache paths are inherited by Java, PTY, shell, and npm lifecycle children. Locale and interactive shared-storage transitions still need device checks. |
 | TTY / terminal | ⚠️ Fixed; device gate | Native `forkpty`, resize, process-group signals, and job-control plumbing exist. Close is idempotent, signals TERM/KILL before changing state, always closes the master FD, and starts a child reaper. Repeated-close/job-control behavior remains in the device matrix. |
 | Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. |
-| Android shared filesystem | ⚠️ Manual / restricted | The app has an all-files settings flow, but Android requires the user to grant this special access. Shared storage remains noexec and lacks reliable symlinks/permissions; `Android/data` restrictions still apply. |
-| Filesystem path sandbox | ✅ Fully integrated | Canonical `Path` containment is segment-aware. Traversal and sibling-prefix escapes are rejected, `/data/data`, `/data/user`, and broad `/mnt` access are removed, runtime bin/lib writes are protected, system/APEX paths are read-only, and explicit user-visible storage roots are bounded. Host unit coverage passes; symlink/device storage cases continue in Phase 4. |
+| Android shared filesystem | ⚠️ Restricted by Android; guided import integrated | The app reports shared-storage capability limits and can atomically copy a project into the private execution workspace without shell commands. Android still requires the user to grant all-files access; shared storage remains noexec and `Android/data` restrictions still apply. |
+| Filesystem path sandbox | ✅ Fully integrated | Canonical `Path` containment is segment-aware. Traversal and sibling-prefix escapes are rejected, `/data/data`, `/data/user`, and broad `/mnt` access are removed, runtime bin/lib writes are protected, system/APEX paths are read-only, and explicit user-visible storage roots are bounded. Private imports also reject source symlinks/escapes and clean failed staging directories. |
 | SELinux / execution restrictions | ⚠️ Correct design; device gate | APK-native placement handles direct executables; `termux-exec` receives actual app/rootfs/SDK/SELinux variables for generated scripts. Validate without AVC denials on API 29, 34, 35, and 36 devices. |
-| Secondary users / work profiles / adoptable storage | ⚠️ Partially integrated | `ApplicationInfo.dataDir` is used for the real path, but hosted Termux packages were compiled for `com.termux` and primary-user paths. Environment overrides cover the exec layer, not every possible compiled-in package path. |
-| CPU architectures | ❌ Missing beyond ARM64 | Gradle and the runtime are restricted to `arm64-v8a`. No `x86_64` emulator/Chromebook build or 32-bit ABI is available. |
-| Android 16 / Play targeting | ❌ Incomplete | The project compiles with API 35 and targets API 34. Starting 2026-08-31, normal phone/tablet app updates must target API 36 for Google Play. Android 15/16 behavior-change testing has not been done. |
+| Secondary users / work profiles / adoptable storage | ⚠️ Partially integrated; device gate | Runtime/workspace roots come from `ApplicationInfo.dataDir`/`filesDir`, and shared/adoptable projects have a guided private import. Hosted ARM64 packages were still built for the Termux prefix, so secondary-user/work-profile relocation must pass the device matrix before this can be complete. |
+| CPU architectures | ⚠️ App integrated; x86_64 runtime feature boundary | Gradle, React Native, Hermes, PTY, npm lifecycle shell, and Git credential helper build/package for `arm64-v8a` and `x86_64`; obsolete 32-bit ABIs are intentionally excluded. The full developer runtime/compiler sysroot remains ARM64, and x86_64 reports the required signed runtime feature rather than pretending native builds work. |
+| Android 16 / Play targeting | ⚠️ Integrated; device/release gate | The project compiles and targets API 36 with RN 0.86.2, Gradle 9.3.1, NDK r29, new architecture, Hermes, and edge-to-edge enabled. The APK manifest confirms compile/target 36; Android 15/16 behavior and Play release validation remain device/Phase 5 gates. |
 | Release signing | ❌ Broken for production | The release build uses the debug signing configuration. It is buildable but is not a production release/signing integration. |
-| Runtime supply-chain reproducibility | ⚠️ Partially integrated | Corepack/pnpm/Yarn payload versions, sources, and SHA-256 hashes are locked, and the optional tool-pack catalog is Ed25519-signed. Termux runtime versions still follow the live package index, two LLVM files require `git lfs pull`, and the complete ABI runtime lock remains Phase 4. |
+| Runtime supply-chain reproducibility | ⚠️ Partially integrated | The Ed25519-signed runtime 1.15 lock records ABI delivery, API/page policy, every generated ARM64 JNI payload plus x86_64 helpers, SHA-256, byte size, runtime paths, ownership, and package-manager/tool-pack hashes. Termux fetch inputs still lack complete pinned URL/license/SONAME provenance, two LLVM files require `git lfs pull`, and production signing must use an external lock key. |
 | Runtime update cleanup | ⚠️ Partially integrated | Fingerprinting forces device reinitialization when the map changes. The build map and generated JNI source directory merge historical entries, so removed runtime files are not automatically pruned from source control. |
-| APK/install footprint | ⚠️ Partially integrated | Shipping Clang/LLVM and Python removes first-run setup, but the audited release APK is about 200 MB versus the prior 79 MB artifact, and extracted native libraries increase installed size further. |
-| Host Android build toolchain | ⚠️ Partially integrated | Gradle 8.10.2 builds successfully with JDK 17, while the same wrapper fails when it inherits JDK 25.0.3. The supported JDK is not pinned or checked, so success currently depends on the caller's `JAVA_HOME`/PATH. |
-| Test automation | ⚠️ Partially integrated | Phase 1 covers runtime policy/native addons; Phase 2 covers servers/Next/watchers; Phase 3 adds host credential-policy, offline manager, signed tool-pack/tamper, Bun-boundary tests plus a Git/package-manager device harness. Connected API/ABI orchestration, Jest/lint isolation, and production release gates remain Phase 5. |
+| APK/install footprint | ⚠️ Partially integrated | Shipping Clang/LLVM and Python removes first-run setup, but the dual-ABI debug APK is 256,405,243 bytes and extracted native libraries increase installed size further. The compiler stack has not yet moved to an install-time feature, so Phase 5 must enforce a size budget or finish that delivery path. |
+| Host Android build toolchain | ⚠️ Integrated stack; host-policy gate | Gradle 9.3.1, AGP 8.12.0 from RN, JDK 17, Kotlin 2.1.20, build tools/API 36, and NDK 29.0.14206865 build debug/tests successfully. This Windows host's Device Guard blocks `hermesc.exe` (exit 4551) during release bundling; JDK discovery and an allowed reproducible CI host remain Phase 5 gates. |
+| Dependency security | ⚠️ Phase 5 gate | The RN migration's npm audit reports 36 transitive findings (7 moderate, 29 high). No unsafe automatic `audit fix` was applied. Phase 5 must triage each result and update, suppress with evidence, or block the release. |
+| Test automation | ⚠️ Partially integrated | Phase 4 adds signed-lock policy checks and a reusable final-APK gate for API levels, exact ABIs, required payloads, lock signature, 16 KiB ZIP alignment, and every ELF load segment. Connected API/ABI/storage orchestration, Jest/lint isolation, release Hermes execution, and production signing remain Phase 5. |
 
 ## Prioritized integration plan
 
@@ -306,7 +332,7 @@ upgrade that replaces runtime 1.10.x/1.11.x with current runtime 1.13.0.
 
 #### P0.2 Finish whole-APK 16 KiB page support
 
-Root cause/risk: React Native 0.76.9, Hermes, fbjni, the C++ runtime, screens,
+Root cause/risk before Phase 4: React Native 0.76.9, Hermes, fbjni, the C++ runtime, screens,
 and image-pipeline prebuilts include 4 KiB-aligned ELF segments. ZIP alignment
 alone does not make those libraries loadable on strict 16 KiB-page devices.
 
@@ -324,12 +350,18 @@ Proper integration:
 Acceptance: all 209 (or replacement) APK native libraries have `PT_LOAD`
 alignment of at least `0x4000`.
 
+Phase 4 result: implemented for the packaged artifact. React Native 0.86.2 and
+NDK r29 replace the 4 KiB-aligned dependencies. `test:phase4-apk` inspected 226
+packaged ELF files: all 220 loadable files have a minimum alignment of
+`0x4000`; the other six are compiler `ET_REL` inputs with no load segments.
+Execution on a strict 16 KiB device remains the acceptance gate.
+
 Reference:
 [Android 16 KiB page-size support](https://developer.android.com/guide/practices/page-sizes).
 
 #### P0.3 Migrate compile/target SDK to Android 16
 
-Root cause/risk: `targetSdk 34` is outside the 2026 Google Play update
+Root cause/risk before Phase 4: `targetSdk 34` is outside the 2026 Google Play update
 requirement for normal mobile apps.
 
 Proper integration:
@@ -341,6 +373,11 @@ Proper integration:
   all Android 15/16 compatibility changes.
 - Re-run the complete execution/SELinux/native-addon matrix after the target
   bump.
+
+Phase 4 result: compile and target API 36, RN 0.86.2, Gradle 9.3.1, AGP 8.12,
+NDK r29, Hermes/new architecture, and edge-to-edge are integrated. The
+generated manifest confirms API 36. Connected API 29/34/35/36 behavior testing
+and the production Play artifact remain Phase 5 gates.
 
 Reference:
 [Google Play target API requirements](https://developer.android.com/google/play/requirements/target-sdk).
@@ -400,6 +437,12 @@ Proper integration:
 Acceptance: a scan finds no unexpected `/data/data/com.termux` dependency in
 runtime behavior, and device tests pass outside user 0.
 
+Phase 4 result: private workspace/runtime paths derive from the current app
+context, and shared/adoptable projects can be staged and atomically imported
+without following symlinks. The upstream Termux-derived ARM64 binaries were not
+rebuilt for every secondary-user prefix, so this row remains a documented
+device/repository gate rather than a false complete result.
+
 #### P1.3 Make the runtime bundle reproducible and size-controlled
 
 Root causes:
@@ -426,6 +469,13 @@ Proper integration:
 
 Acceptance: identical inputs produce identical runtime files; stale files
 disappear; CI reports size deltas and license inventory.
+
+Phase 4 result: the deterministic generator and Ed25519-signed runtime lock now
+inventory ABI delivery, API/page policy, hashes, sizes, runtime paths, and
+owners, and the APK gate verifies the bundled signature. Complete pinned
+Termux URL/license/SONAME provenance, stale generator-owned pruning, external
+production lock signing, and the compiler feature-pack/size decision remain
+Phase 5 release gates.
 
 #### P1.4 Complete native-addon coverage
 
@@ -566,9 +616,13 @@ assigned to Phase 4.
 
 #### P2.6 Additional ABI support
 
-Add `x86_64` if emulator/Chromebook support is a product requirement. Every
-runtime executable, dependency closure, compiler sysroot, native map, and test
-must be ABI-specific. Do not advertise unsupported 32-bit ABIs.
+Phase 4 result: the application, React Native/Hermes libraries, PTY, npm
+lifecycle shell, and Git credential helper now build and package for ARM64 and
+x86_64, while obsolete 32-bit ABIs remain excluded. The signed runtime lock
+marks the ARM64 developer runtime as bundled and the x86_64 developer runtime
+as a required signed feature. Until that payload/sysroot is produced, x86_64
+native builds are an actionable capability boundary rather than advertised as
+working.
 
 #### P2.7 Pin the host Android build JDK
 
@@ -603,8 +657,8 @@ The native fixture must then be loaded with Node and its result asserted.
 
 Host evidence on 2026-07-29:
 
-- Implementation commit: `93b3527`
-  (`phase-3: complete Git and package-manager integrations`).
+- Implementation commit: `8c20d06`
+  (`phase-1: complete Android execution and native-build baseline`).
 - `npm run test:runtime-policy`: pass.
 - `:app:testReleaseUnitTest`: pass.
 - `:app:assembleRelease`: pass.
@@ -702,9 +756,66 @@ Bun platform basis: Bun's official installation documentation lists supported
 macOS, Linux, and Windows targets but no Android target:
 [Bun installation](https://bun.sh/docs/installation).
 
-Next phase after explicit approval: Phase 4 — Android 16, ARM64/x86_64,
-filesystem policy, deterministic runtime locks, and ABI feature-pack
-distribution. Phase 4 has not started.
+## Phase 4 acceptance record
+
+Host evidence on 2026-07-29:
+
+- Implementation commit: PENDING
+  (`phase-4: complete Android 16 and multi-ABI platform support`).
+- React Native 0.86.2/React 19.2.3/CLI 20.1.0, Gradle 9.3.1,
+  AGP 8.12.0, Kotlin 2.1.20, API/build tools 36, NDK 29.0.14206865, JDK 17,
+  Hermes, and new architecture: configured.
+- `npm run test:runtime-policy`, `test:phase2-host`, `test:phase3-host`, and
+  `test:phase4-host`: pass.
+- `node_modules/.bin/tsc --noEmit` and JavaScript syntax checks: pass.
+- `:app:testDebugUnitTest` and `:app:assembleDebug`: pass with JDK 17.
+- `aapt2 dump badging`: `minSdk 29`, compile/target API 36, version 1.3.4.
+- `test:phase4-apk`: pass for exact ARM64/x86_64 ABI content, required native
+  helpers/runtime-lock/device harness, valid Ed25519 lock signature, 16 KiB ZIP
+  alignment, and all packaged ELF files.
+- Final debug APK: 256,405,243 bytes, SHA-256
+  `28B5DE290CCDFD75D90C3312B962242D4556A236029C4FCDF6F6E1996F5480ED`. It verifies
+  with APK Signature Scheme v2 and the expected debug certificate; it is test
+  evidence, not the Phase 5 production release artifact.
+- The signed runtime lock inventories 200 ARM64 developer/app-native payloads
+  and two x86_64 app-native helpers. The private workspace import rejects
+  symlinks/escapes, stages safely, and atomically finalizes.
+- No APK, private signing key, cache, generated release artifact, or existing
+  `ADevStudio-v1.3.3-arm64.apk` is included in the Phase 4 commit.
+
+Blocked device, feature, and host-release evidence:
+
+- `adb devices -l` reports no connected emulator or physical device. Run the
+  fresh-install/upgrade/runtime/storage matrix on ARM64 and x86_64 APIs
+  29/34/35/36, including a strict 16 KiB image, secondary user, work profile,
+  private/shared/adoptable storage, traversal, and symlink cases.
+- This Windows host's Device Guard blocks the RN 0.86 Hermes compiler at
+  `hermesc.exe` with exit 4551 during release bundling. Debug compilation and
+  APK gates pass; Phase 5 CI must run release bundling on a host where the
+  checked-in Hermes compiler is permitted.
+- The complete x86_64 developer runtime/sysroot and large optional tool-pack
+  payloads are not bundled. Their signed capability records prevent unsafe
+  glibc/noexec fallbacks, but production feature delivery and device lifecycle
+  tests remain required.
+- Current Termux-derived ARM64 payload provenance/relocation is not yet complete
+  for secondary users: pinned URL/license/SONAME ownership, safe stale-file
+  pruning, and non-user-0 device proof remain.
+- Production signing, AAB/APK release generation, reproducibility, size budgets,
+  connected matrices, and the final all-row audit belong to Phase 5.
+- The RN dependency migration's npm audit reports 36 transitive findings
+  (7 moderate, 29 high). They were not changed with an unsafe automatic
+  `audit fix`; Phase 5 must triage, update, suppress with evidence, or block the
+  release for each finding.
+
+Platform basis: React Native 0.86 includes current Android compatibility work;
+React Native 0.81 introduced Android 16/API 36 and 16 KiB support; AGP 8.11+
+documents API 36/JDK 17 requirements:
+[React Native 0.86](https://reactnative.dev/blog/2026/06/11/react-native-0.86),
+[React Native 0.81](https://reactnative.dev/blog/2025/08/12/react-native-0.81),
+and [AGP 8.11 release notes](https://developer.android.com/build/releases/agp-8-11-0-release-notes).
+
+Next phase after explicit approval: Phase 5 — automation, security, production
+release, and final audit. Phase 5 has not started.
 
 ## Definition of done for Android-native npm installs
 

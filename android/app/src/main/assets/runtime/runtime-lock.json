@@ -1,0 +1,1893 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "1.15.0",
+  "platform": "android-bionic",
+  "minApi": 29,
+  "compileApi": 36,
+  "targetApi": 36,
+  "pageAlignment": 16384,
+  "abis": {
+    "arm64-v8a": {
+      "delivery": "base-apk",
+      "developerRuntime": "bundled",
+      "nativeFiles": [
+        {
+          "packagedName": "libbin_adev_git_credential.so",
+          "sha256": "572a09547e8f3e510c64eb8d2a47b8f9a6199bda0c3804fde5c25c185d392f74",
+          "bytes": 315184,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_npm_shell.so",
+          "sha256": "c27f41aeb7065642a81ed3e72bef1b7f8eacb5c509aa9f68ca25c769ea4b1384",
+          "bytes": 34920,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_bash.so",
+          "sha256": "567b06da60239e326420c31a9fd19e0ee3ef5267f45b6a7c860df711e43e4037",
+          "bytes": 880240,
+          "runtimePaths": [
+            "bin/bash"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_busybox.so",
+          "sha256": "141adb1b625a6f44c4b114f76b4387b4ea4f7ab802b88eb40e0d2f6adcccb1c3",
+          "bytes": 1148524,
+          "runtimePaths": [
+            "bin/busybox"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_clang_21.so",
+          "sha256": "3599a121ecc11b433d23bc43545bc0441f9a8ffcc587ea18e312d88188fcf282",
+          "bytes": 121040,
+          "runtimePaths": [
+            "bin/clang-21"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_curl.so",
+          "sha256": "e9cd08920d448bb6aa448c87c5b84dc62e55b5ed654664684d79348a1b06de61",
+          "bytes": 308272,
+          "runtimePaths": [
+            "bin/curl"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_dropbearmulti.so",
+          "sha256": "773d0892666cb049ad6ce23bdb46288464cb5e38fb1ba9998aff61657015ab21",
+          "bytes": 337432,
+          "runtimePaths": [
+            "bin/dropbearmulti"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git.so",
+          "sha256": "aba46d67c0c5752c27129d97136055bd8d7f3b3c4378edbf5c7c5a6f8dead5db",
+          "bytes": 3562128,
+          "runtimePaths": [
+            "bin/git"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git_core_git_daemon.so",
+          "sha256": "1f5cb568ff0d2f2b713dc7077d18eddcb2510349ead197405b78f993b09ee82c",
+          "bytes": 1950560,
+          "runtimePaths": [
+            "bin/git-core/git-daemon"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git_core_git_http_fetch.so",
+          "sha256": "038c82b33e3e5eb705c13bdc2a8706af519eb13da87ed16cec726b7e13323cb9",
+          "bytes": 1995968,
+          "runtimePaths": [
+            "bin/git-core/git-http-fetch"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git_core_git_http_push.so",
+          "sha256": "ac4113ddd85507ec6f78328bd6a6d604a1d84d70de0bd6e4bac7507c30e1b3a5",
+          "bytes": 2006880,
+          "runtimePaths": [
+            "bin/git-core/git-http-push"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git_core_git_remote_http.so",
+          "sha256": "909e5616f9cb422bc6a90517e34ac40c2a8ec0475949908a3596b006dd96db61",
+          "bytes": 2010824,
+          "runtimePaths": [
+            "bin/git-core/git-remote-http"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_git_shell.so",
+          "sha256": "c897124ca1ab594a4da7d90feeaf47551a3be0341fcb1be2d709ea6b624fa090",
+          "bytes": 1937872,
+          "runtimePaths": [
+            "bin/git-shell"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_lld.so",
+          "sha256": "7a0e3dad3eaeaf7ec0e85337ab1047470141e95aae11e4b51eb12c749c1a561a",
+          "bytes": 5871888,
+          "runtimePaths": [
+            "bin/lld"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_llvm_ar.so",
+          "sha256": "a43266eaab0bbd4eabf2127f796015c46897044748bcc50976421fc116f37798",
+          "bytes": 71440,
+          "runtimePaths": [
+            "bin/llvm-ar"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_llvm_nm.so",
+          "sha256": "57e63606b82383d37d05b9038ec39dbd24f34093b251ff69b04f62551bd968eb",
+          "bytes": 133016,
+          "runtimePaths": [
+            "bin/llvm-nm"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_llvm_objcopy.so",
+          "sha256": "b1196f21e347a912662b0bea76ad97c60f758e68c612b58006d505182a679392",
+          "bytes": 209368,
+          "runtimePaths": [
+            "bin/llvm-objcopy"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_llvm_objdump.so",
+          "sha256": "e9c6aac1b64e9743e6a062d4ee0c92a9a98373da9f04f447d0b679327d47b48f",
+          "bytes": 826816,
+          "runtimePaths": [
+            "bin/llvm-objdump"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_llvm_readobj.so",
+          "sha256": "f409f88b053ede038c37d2cc844a6c065a9d623cdebdf3f63d544beb8b55630e",
+          "bytes": 1734360,
+          "runtimePaths": [
+            "bin/llvm-readobj"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_make.so",
+          "sha256": "203d62134f78aa8c9e8a4fd0bc87b9b5e114ea0f686a1cd27c5cdefbcc743de7",
+          "bytes": 236152,
+          "runtimePaths": [
+            "bin/make"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_node.so",
+          "sha256": "d682000d9f5d887ec66de1ed68d9616c7a9d064bca9ae9d8c46725a00912cbc6",
+          "bytes": 49715528,
+          "runtimePaths": [
+            "bin/node"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_pkg_config.so",
+          "sha256": "f3cbc64e66c18415c67fea4f3d4b25f1ce8b5407565553ae0f59a12679b61d9f",
+          "bytes": 45744,
+          "runtimePaths": [
+            "bin/pkg-config"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_python3_14.so",
+          "sha256": "4f8d78ede7fc26e96e99342dd83ce42d32c9b4d0806bc9a99ff7151396269b25",
+          "bytes": 4448,
+          "runtimePaths": [
+            "bin/python3.14"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_clang_21_lib_linux_libclang_rt_asan_aarch64_android_so.so",
+          "sha256": "ca8d35b0cc340e10911c0a000f81915384d5ed1c2bab3e6306188b3e3640ee7c",
+          "bytes": 1121264,
+          "runtimePaths": [
+            "lib/clang/21/lib/linux/libclang_rt.asan-aarch64-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_clang_21_lib_linux_libclang_rt_hwasan_aarch64_android_so.so",
+          "sha256": "f47628d32d1f43bb7534643ad92d9e22f479bce7469cae7d1440f13db2d21c41",
+          "bytes": 510648,
+          "runtimePaths": [
+            "lib/clang/21/lib/linux/libclang_rt.hwasan-aarch64-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_clang_21_lib_linux_libclang_rt_tsan_aarch64_android_so.so",
+          "sha256": "658b11b075993b9eba4a7367841265360e7b6242f3762dc0845cb8625e2e93e0",
+          "bytes": 1115648,
+          "runtimePaths": [
+            "lib/clang/21/lib/linux/libclang_rt.tsan-aarch64-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_clang_21_lib_linux_libclang_rt_ubsan_minimal_aarch64_android_so.so",
+          "sha256": "57541e59110e55b70b49dd7522f1fc2c95254595bd49835140c0e5c44c6d77f5",
+          "bytes": 15864,
+          "runtimePaths": [
+            "lib/clang/21/lib/linux/libclang_rt.ubsan_minimal-aarch64-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_clang_21_lib_linux_libclang_rt_ubsan_standalone_aarch64_android_so.so",
+          "sha256": "48b38187bb5f770b3efbca8142486c7b48c90fea30f3d637128d104e07c22e26",
+          "bytes": 313792,
+          "runtimePaths": [
+            "lib/clang/21/lib/linux/libclang_rt.ubsan_standalone-aarch64-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_crt_pad_segment_o.so",
+          "sha256": "e5b2e0970f88aeca363bd16f045d74e6552e84272dc25fb358a02a3470e4a613",
+          "bytes": 920,
+          "runtimePaths": [
+            "lib/crt_pad_segment.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_crtbegin_dynamic_o.so",
+          "sha256": "b419c8e86bbae63ffe8eeffa3e277080132dfafda420a2197237091ab2952672",
+          "bytes": 3776,
+          "runtimePaths": [
+            "lib/crtbegin_dynamic.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_crtbegin_so_o.so",
+          "sha256": "ec9420da65e61ada3d42c9da9bbe136e5cf9d9df8f09194dc1e34eeaa3e3f395",
+          "bytes": 3632,
+          "runtimePaths": [
+            "lib/crtbegin_so.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_crtbegin_static_o.so",
+          "sha256": "a4d86c6625be57010d09802de17beb85caa17b1deef874afe817008f3106dbdc",
+          "bytes": 3544,
+          "runtimePaths": [
+            "lib/crtbegin_static.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_crtend_android_o.so",
+          "sha256": "4a73856c6b87bfaa7b6fc5963796f21941f85f9bb3de36f688f70b5c5ceca44b",
+          "bytes": 832,
+          "runtimePaths": [
+            "lib/crtend_android.o",
+            "lib/crtend_so.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libLLVM_so.so",
+          "sha256": "ae20f8a19dcd84740bb3b3c7cc5845ec44f5143cbf7dab44a64160a4b7f21fa0",
+          "bytes": 133597776,
+          "runtimePaths": [
+            "lib/libLLVM.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libLTO_so.so",
+          "sha256": "cac1b2884b62821c6045e153233c17178a9fba5735c70ddf0cbd91d675603efd",
+          "bytes": 64952,
+          "runtimePaths": [
+            "lib/libLTO.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libRemarks_so.so",
+          "sha256": "b1dde25028b522b57e354b635a981b589f9140e22c7cae6765d8e9605328dccf",
+          "bytes": 3848,
+          "runtimePaths": [
+            "lib/libRemarks.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libacl_so.so",
+          "sha256": "650b7bea7c8e663e01afad0d0f1681dc5b925185e6934b7edd2dc50a7daa1563",
+          "bytes": 35360,
+          "runtimePaths": [
+            "lib/libacl.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libandroid_glob_so.so",
+          "sha256": "e47405b23e40aea9bd5aad4c3cbf518065cba8ef1c4e24c8aae7fd77e10fe850",
+          "bytes": 10536,
+          "runtimePaths": [
+            "lib/libandroid-glob.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libandroid_posix_semaphore_so.so",
+          "sha256": "bee8c749ff4a87c06c4f6316a380f179f607de7d904418a20d879eea74be345e",
+          "bytes": 7016,
+          "runtimePaths": [
+            "lib/libandroid-posix-semaphore.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libandroid_selinux_so.so",
+          "sha256": "d769bc3757df751e4c302cdb55062a33cda2041ba0483d953d93100cd321a810",
+          "bytes": 179056,
+          "runtimePaths": [
+            "lib/libandroid-selinux.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libandroid_support_so.so",
+          "sha256": "739cf829511d71dafd6c67fdbb70f3f0c6048642ea2e1967790ee961fde14430",
+          "bytes": 20736,
+          "runtimePaths": [
+            "lib/libandroid-support.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libarcher_so.so",
+          "sha256": "355f7b909f428e31731732458afa8cd5366c71fca4190aac161d93fbb78586d7",
+          "bytes": 68296,
+          "runtimePaths": [
+            "lib/libarcher.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libattr_so.so",
+          "sha256": "6b818779c86deebef523f272551bb4cdec3861fb1830d349ed5bbe384aa02044",
+          "bytes": 17600,
+          "runtimePaths": [
+            "lib/libattr.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libbusybox_so_1_38_0.so",
+          "sha256": "b8153ac191754afcd6dd1896f961c7ecf3965cafd727a2690f648fdd9ba57cc1",
+          "bytes": 876576,
+          "runtimePaths": [
+            "lib/libbusybox.so.1.38.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libbz2_so_1_0.so",
+          "sha256": "667055cac259f6a9404a24a6e927f410e2f41141709d27d5cce0071cbf525407",
+          "bytes": 50328,
+          "runtimePaths": [
+            "lib/libbz2.so.1.0",
+            "lib/libbz2.so.1.0.8"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libc_shared_so.so",
+          "sha256": "e09c2f45cf4cf8ae574f94b6c2650d99ead0d332d5396f6613f062a2d2d73540",
+          "bytes": 1374336,
+          "runtimePaths": [
+            "lib/libc++_shared.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcap_ng_so.so",
+          "sha256": "f808fbbadc18a8cfd1cd4f6ba71e170e6bf69e753f7e8089ca2a213cc35e4d37",
+          "bytes": 24480,
+          "runtimePaths": [
+            "lib/libcap-ng.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcares_so.so",
+          "sha256": "68733ce8d4bb1bdc87d8ec550c58c70f3dcdb0f8c48d86b83235f536cb736e83",
+          "bytes": 256776,
+          "runtimePaths": [
+            "lib/libcares.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcharset_so.so",
+          "sha256": "b124fbadb2fa1009b49c72ce6c8bf51948aca0ed9731f03d0f8be9c16c00f48c",
+          "bytes": 3944,
+          "runtimePaths": [
+            "lib/libcharset.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libclang_cpp_so.so",
+          "sha256": "1f2f35ec08f3e24ff23bfa6c0e1a8f2cd2c818fa2c772268b26aff123aacd4d4",
+          "bytes": 62972824,
+          "runtimePaths": [
+            "lib/libclang-cpp.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libclang_so.so",
+          "sha256": "a7f1f41fc93097f0d9aa12fc0ef096cb02fc6fa769377db55f357729133e30f7",
+          "bytes": 35296128,
+          "runtimePaths": [
+            "lib/libclang.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcom_err_so_3.so",
+          "sha256": "7f3e39dc2594a45e497fa04f4b8183412d5354c093179e135b0a716b08dae9c2",
+          "bytes": 9848,
+          "runtimePaths": [
+            "lib/libcom_err.so.3",
+            "lib/libcom_err.so.3.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcrypt_so.so",
+          "sha256": "bf078ced08880508974c8ab9d68d12d320842e422fb6ec496f5b892e5d701262",
+          "bytes": 17104,
+          "runtimePaths": [
+            "lib/libcrypt.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcrypto_so_3.so",
+          "sha256": "4122f5c95088f11a43c14e49e257cc1ce700960e855840cf9b9f39a8acbcd7e8",
+          "bytes": 5205472,
+          "runtimePaths": [
+            "lib/libcrypto.so.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libcurl_so.so",
+          "sha256": "79c192dc5c9692770871efbbceedfaa96823f0447a67bc2970f448ace1661c80",
+          "bytes": 949832,
+          "runtimePaths": [
+            "lib/libcurl.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libdb_18_1_so.so",
+          "sha256": "6fefdbc2900cc51f49e1404e15abb1352c13547cd720616a0dd25fcc1bfed811",
+          "bytes": 966216,
+          "runtimePaths": [
+            "lib/libdb-18.1.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libdb_cxx_18_1_so.so",
+          "sha256": "4bfee728f7bd0ef6a4edca47325f067e1037fa1f470b971d51da86bee2efa517",
+          "bytes": 1141152,
+          "runtimePaths": [
+            "lib/libdb_cxx-18.1.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libdrop_ambient_so.so",
+          "sha256": "2f185936958102a4ac614b17f8524c084a198304099c1384f60660e6f3bfce85",
+          "bytes": 4064,
+          "runtimePaths": [
+            "lib/libdrop_ambient.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libedit_so.so",
+          "sha256": "3776bfd46996ad42a736ec478583e7d65506b0aae0d32b1829baefe85ff63f35",
+          "bytes": 197096,
+          "runtimePaths": [
+            "lib/libedit.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libexpat_so_1.so",
+          "sha256": "d5cb9654e8d10e2fd47d9dfc143b17f37f26cb334cfadebb521afc09d5cd8980",
+          "bytes": 141712,
+          "runtimePaths": [
+            "lib/libexpat.so.1",
+            "lib/libexpat.so.1.12.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libffi_so.so",
+          "sha256": "fcb356f322c54d7b406e61db0dd96424f6a0ee2d9daaa7318cb9a6ef3bddbdc0",
+          "bytes": 86040,
+          "runtimePaths": [
+            "lib/libffi.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libformw_so_6.so",
+          "sha256": "e89b744d0a5446be8e7a41a749a5fbbace218c17a8428b516754cd36966bf9c4",
+          "bytes": 64088,
+          "runtimePaths": [
+            "lib/libformw.so.6",
+            "lib/libformw.so.6.5"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgdbm_compat_so.so",
+          "sha256": "f6c80e0bb1dcdf470d64a89f114fc21a7e018a520232fd635c261843f0573b18",
+          "bytes": 10056,
+          "runtimePaths": [
+            "lib/libgdbm_compat.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgdbm_so.so",
+          "sha256": "38a4de2bf30accf30a5c304e334cfc8711418fa49237d38664336493e5b3ba67",
+          "bytes": 64280,
+          "runtimePaths": [
+            "lib/libgdbm.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgio_2_0_so_0.so",
+          "sha256": "ef6a984f196815f347105fafe7b72a9f2fe8d729b3251b11fceaada359fcf64e",
+          "bytes": 1847408,
+          "runtimePaths": [
+            "lib/libgio-2.0.so.0",
+            "lib/libgio-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgirepository_2_0_so_0.so",
+          "sha256": "5fbb5725a2cc13c468fee965a8fadabd2b28ef7340c416dfd4521e7c4988db50",
+          "bytes": 218544,
+          "runtimePaths": [
+            "lib/libgirepository-2.0.so.0",
+            "lib/libgirepository-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libglib_2_0_so_0.so",
+          "sha256": "d743bd58002cff8b728590f8228d848dd3e82eb1bde40b6f4142395b187c01d4",
+          "bytes": 1264760,
+          "runtimePaths": [
+            "lib/libglib-2.0.so.0",
+            "lib/libglib-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgmodule_2_0_so_0.so",
+          "sha256": "4684a737046a9dcacd534b70fbd8aeee24f24977573d58672e25a4f4eaa525fd",
+          "bytes": 12680,
+          "runtimePaths": [
+            "lib/libgmodule-2.0.so.0",
+            "lib/libgmodule-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgmp_so.so",
+          "sha256": "d3a7002e8fb504301bc12278260e36eae34c81d15cf8afe72cf4a769832b6f92",
+          "bytes": 402272,
+          "runtimePaths": [
+            "lib/libgmp.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgmpxx_so.so",
+          "sha256": "da1a4c6a9a7e5ddd7f006b80d8394aaa563f905ed3330720f0b817e42579f085",
+          "bytes": 48592,
+          "runtimePaths": [
+            "lib/libgmpxx.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgobject_2_0_so_0.so",
+          "sha256": "a3cf2cd1cf8fa3951609e7c2ec6ad474cd88eb1c376ea6ad5e8fd96a5f0a7398",
+          "bytes": 352352,
+          "runtimePaths": [
+            "lib/libgobject-2.0.so.0",
+            "lib/libgobject-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgssapi_krb5_so_2.so",
+          "sha256": "a58f3bc0ffdd43e22d6fd6c32d37a1c424b168e4eeec4885b1878c876bf012f0",
+          "bytes": 279560,
+          "runtimePaths": [
+            "lib/libgssapi_krb5.so.2",
+            "lib/libgssapi_krb5.so.2.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgssrpc_so_4.so",
+          "sha256": "9c7be3d7bd4abaf626cd1b67742474c3fca98e6c6f99352936318693af65a05d",
+          "bytes": 105960,
+          "runtimePaths": [
+            "lib/libgssrpc.so.4",
+            "lib/libgssrpc.so.4.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libgthread_2_0_so_0.so",
+          "sha256": "3f554781925a34865590e95c37f650b7fb0e87be922706e4883cdb49c3e6ab52",
+          "bytes": 4200,
+          "runtimePaths": [
+            "lib/libgthread-2.0.so.0",
+            "lib/libgthread-2.0.so.0.8800.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libhistory_so_8.so",
+          "sha256": "0ea447b1a5f23879ea2d814523b1d897f7a87a4fe03a2244c79d55de18437409",
+          "bytes": 38368,
+          "runtimePaths": [
+            "lib/libhistory.so.8",
+            "lib/libhistory.so.8.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libiconv_so.so",
+          "sha256": "53349c7a84ad06da53c3976754c742d6a79f3297562f0fbe61b7ee620f783667",
+          "bytes": 1082512,
+          "runtimePaths": [
+            "lib/libiconv.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicudata_so_78.so",
+          "sha256": "71a7479056941b610589f82698cdfb220c169dce9bc7c78ef6a6e74d07b1e8fd",
+          "bytes": 33108832,
+          "runtimePaths": [
+            "lib/libicudata.so.78",
+            "lib/libicudata.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicui18n_so_78.so",
+          "sha256": "3140b2b28d16a6486a65663f1c47a94a4bb0d9def51612f8e941414bd50c7a0e",
+          "bytes": 3358568,
+          "runtimePaths": [
+            "lib/libicui18n.so.78",
+            "lib/libicui18n.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicuio_so_78.so",
+          "sha256": "7d7aa87a56f1919450f9539257b78dc71959083482a30ce9e56d5ff9d024202e",
+          "bytes": 80136,
+          "runtimePaths": [
+            "lib/libicuio.so.78",
+            "lib/libicuio.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicutest_so_78.so",
+          "sha256": "b7038a3a1696e8e2fde4fc3fc924d0fa8a753aa939cfeb83cb51ffb0ce7ded58",
+          "bytes": 97008,
+          "runtimePaths": [
+            "lib/libicutest.so.78",
+            "lib/libicutest.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicutu_so_78.so",
+          "sha256": "132e6d528338976c0305351360daf3ef53f71a85eb4380ade175750b9680ee55",
+          "bytes": 228896,
+          "runtimePaths": [
+            "lib/libicutu.so.78",
+            "lib/libicutu.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libicuuc_so_78.so",
+          "sha256": "91bcef1faba58b755d4870aaea95814d1753961fd72365c4701cfd4461e3584c",
+          "bytes": 2029568,
+          "runtimePaths": [
+            "lib/libicuuc.so.78",
+            "lib/libicuuc.so.78.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libk5crypto_so_3.so",
+          "sha256": "3d2bf17840d890ea3846df8f7a20cb3c249b0301261d7fe1029fcd85939d29ea",
+          "bytes": 153360,
+          "runtimePaths": [
+            "lib/libk5crypto.so.3",
+            "lib/libk5crypto.so.3.1"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkadm5clnt_mit_so_12.so",
+          "sha256": "8ecdbf4444d585e11b79a1a22c462efc3b12128020ea5309fcb7c24a4d00fe6f",
+          "bytes": 75976,
+          "runtimePaths": [
+            "lib/libkadm5clnt_mit.so.12",
+            "lib/libkadm5clnt_mit.so.12.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkadm5srv_mit_so_12.so",
+          "sha256": "7d72ca0a5dff7c21d873a378fa0631cd5056fe35c339742739447f2bc8518be7",
+          "bytes": 98040,
+          "runtimePaths": [
+            "lib/libkadm5srv_mit.so.12",
+            "lib/libkadm5srv_mit.so.12.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkdb5_so_10.so",
+          "sha256": "110fadcf4383c0f5d1486c1d9388af8b6d717efbaaa87934bf8e10d7491e96cc",
+          "bytes": 69304,
+          "runtimePaths": [
+            "lib/libkdb5.so.10",
+            "lib/libkdb5.so.10.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkrad_so_0.so",
+          "sha256": "a54cc4ed51b7ff189135ef99beac00b08be0e61d36775e414397d748bda8905c",
+          "bytes": 36280,
+          "runtimePaths": [
+            "lib/libkrad.so.0",
+            "lib/libkrad.so.0.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkrb5_so_3.so",
+          "sha256": "b75f43d21512a1f5d62372443a44c63915ff4fff38be23d6f6d809a72be0c43b",
+          "bytes": 772496,
+          "runtimePaths": [
+            "lib/libkrb5.so.3",
+            "lib/libkrb5.so.3.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libkrb5support_so_0.so",
+          "sha256": "aa323c4dd632cf88da3a0b7b380a752965e8989de158a52579c72a87a7e4ce7b",
+          "bytes": 42744,
+          "runtimePaths": [
+            "lib/libkrb5support.so.0",
+            "lib/libkrb5support.so.0.1"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libldns_so.so",
+          "sha256": "4187831a8985860bca23d9d3710d9e07d78cefe2f2f930a77bc0c345438c5682",
+          "bytes": 380848,
+          "runtimePaths": [
+            "lib/libldns.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_liblzma_so_5.so",
+          "sha256": "daa0cf43130e6aa1aa8239c4f0ec4d2fc34ccebc69e6f518b67556b6ab0d588b",
+          "bytes": 159496,
+          "runtimePaths": [
+            "lib/liblzma.so.5",
+            "lib/liblzma.so.5.8.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libmenuw_so_6.so",
+          "sha256": "63039650e71d74cf8ffcf9222b43efe1afd81cbbc054a377beea7a58c86c5541",
+          "bytes": 27200,
+          "runtimePaths": [
+            "lib/libmenuw.so.6",
+            "lib/libmenuw.so.6.5"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libmpfr_so.so",
+          "sha256": "6b3f3676018f10cd6b3dd5996d24a72e3ec02138633fc608d05877ac8c45a45e",
+          "bytes": 426552,
+          "runtimePaths": [
+            "lib/libmpfr.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libncursesw_so_6.so",
+          "sha256": "795f855f5a988d9e89116847b2c9aa03720cedbc02026259ca735be25398c4c5",
+          "bytes": 384496,
+          "runtimePaths": [
+            "lib/libncursesw.so.6",
+            "lib/libncursesw.so.6.5"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libnghttp2_so.so",
+          "sha256": "291b16cf422d4379d02593c2584ad96508682b730566004a675dea27616f629e",
+          "bytes": 159896,
+          "runtimePaths": [
+            "lib/libnghttp2.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libnghttp3_so.so",
+          "sha256": "e8db2a6c16b1ef4ba0138f05d61a9e591a380728298697f511c522020051b020",
+          "bytes": 155544,
+          "runtimePaths": [
+            "lib/libnghttp3.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libngtcp2_crypto_ossl_so.so",
+          "sha256": "844ce91538696526c08128b680bba2b94db8b7ecdb0cf69ffce1512d2676ea01",
+          "bytes": 44264,
+          "runtimePaths": [
+            "lib/libngtcp2_crypto_ossl.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libngtcp2_so.so",
+          "sha256": "c21394371208f6d76ea645f9f319b6cf9e5e27c575364278594f9bb2c3ac86be",
+          "bytes": 341944,
+          "runtimePaths": [
+            "lib/libngtcp2.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpanelw_so_6.so",
+          "sha256": "61bdf61c435c443eddf2014f5d345685fedccdea71b6a0f91afe08357a23db56",
+          "bytes": 11040,
+          "runtimePaths": [
+            "lib/libpanelw.so.6",
+            "lib/libpanelw.so.6.5"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpcre2_16_so.so",
+          "sha256": "b9bdc916a866c3c2b4636309e5ec422772a8f30e691aa37704b4c9711ea5bf27",
+          "bytes": 460856,
+          "runtimePaths": [
+            "lib/libpcre2-16.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpcre2_32_so.so",
+          "sha256": "a63d39d680c08ac2649dc4900f48a75780dbfa9021ccb659147be9faf52ea648",
+          "bytes": 444192,
+          "runtimePaths": [
+            "lib/libpcre2-32.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpcre2_8_so.so",
+          "sha256": "a6bbeb410e269e50aee795b4fd1b11cbddb8b54959d1cfcd927b55b04dc19f5c",
+          "bytes": 489384,
+          "runtimePaths": [
+            "lib/libpcre2-8.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpcre2_posix_so.so",
+          "sha256": "c0352362f655fc119a78b1f96b9660562d715a764962ca42a67f9a8e0b14d905",
+          "bytes": 7000,
+          "runtimePaths": [
+            "lib/libpcre2-posix.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libprocps_so.so",
+          "sha256": "637fe7d786d6b3c5a3912920a8774f7353c8753e0bfce621caf1ff556ccf14ff",
+          "bytes": 63720,
+          "runtimePaths": [
+            "lib/libprocps.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpython3_14_so.so",
+          "sha256": "ca65f712012251e4ae5abf4a96d9d83ed5d125d56cb025b6fc6fa373055b6e1c",
+          "bytes": 5842848,
+          "runtimePaths": [
+            "lib/libpython3.14.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libpython3_so.so",
+          "sha256": "acedc2bbf5904ed6c7f5ff161416d7a38ec043fb73eec2ee54f5806ac58e2159",
+          "bytes": 4160,
+          "runtimePaths": [
+            "lib/libpython3.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libreadline_so_8.so",
+          "sha256": "aab81ed5d196100e7b2c2a7606b2cba2cffef2395c3ef3e602dca804f9c6acba",
+          "bytes": 321896,
+          "runtimePaths": [
+            "lib/libreadline.so.8",
+            "lib/libreadline.so.8.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libresolv_wrapper_so.so",
+          "sha256": "a5c52bd545cece663335d1c458d7336a96f257b41e51337f6d9105b845c89872",
+          "bytes": 21408,
+          "runtimePaths": [
+            "lib/libresolv_wrapper.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libsmartcols_so.so",
+          "sha256": "967cdfdf8b04d4fbff760a782f643951c1f97a6f5a707134ac26c53421284198",
+          "bytes": 269880,
+          "runtimePaths": [
+            "lib/libsmartcols.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libsqlite3_53_3_so.so",
+          "sha256": "e3390bdfee62b4f859f0db58488606821ab264a82533e38a3e61e881a8d19bae",
+          "bytes": 1278384,
+          "runtimePaths": [
+            "lib/libsqlite3.53.3.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libsqlite3_53_4_so.so",
+          "sha256": "5973b314d794aab0dbc9424d5748f80e4873561f7584707461f55d03877bcd05",
+          "bytes": 1278752,
+          "runtimePaths": [
+            "lib/libsqlite3.53.4.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libsqlite3_so.so",
+          "sha256": "2305d0c8f90757fef4be25314f69a7ad412a970a1ca4fba7ba85bbbf4a37708a",
+          "bytes": 1211232,
+          "runtimePaths": [
+            "lib/libsqlite3.so",
+            "lib/libsqlite3.so.3.53.3",
+            "lib/libsqlite3.so.3.53.4"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libssh2_so.so",
+          "sha256": "82e42fa48c77efd4b4296d3b09e44e68f192b220714da81ef60b1edc36211bea",
+          "bytes": 248232,
+          "runtimePaths": [
+            "lib/libssh2.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libssl_so_3.so",
+          "sha256": "9bf626fadf689237cf641bf1108057f0cc87c587c17fbdeaa16bd4a12807d7ce",
+          "bytes": 875304,
+          "runtimePaths": [
+            "lib/libssl.so.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_auth_so.so",
+          "sha256": "9c38cd00defda504b68df3b91e9e2242950a519e2fbb7feb07f3d5a6fcd047ca",
+          "bytes": 6744,
+          "runtimePaths": [
+            "lib/libtermux-auth.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_core_nos_c_tre_so.so",
+          "sha256": "01041da8fe22d49c0454c42d60a06eddcc010a4de26c64ee18abdf1cfad0ba27",
+          "bytes": 52128,
+          "runtimePaths": [
+            "lib/libtermux-core_nos_c_tre.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_core_nos_cxx_tre_so.so",
+          "sha256": "959b199d36926d12046bfa3d8951e05afff7aaa1f4c3b56344f7559aeb624140",
+          "bytes": 4008,
+          "runtimePaths": [
+            "lib/libtermux-core_nos_cxx_tre.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_exec_direct_ld_preload_so.so",
+          "sha256": "9083378713c901b3311cf77ee4208f700ebff7e4ad007d2f01d1b73e20edfdd8",
+          "bytes": 53800,
+          "runtimePaths": [
+            "lib/libtermux-exec-direct-ld-preload.so",
+            "lib/libtermux-exec-ld-preload.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_exec_linker_ld_preload_so.so",
+          "sha256": "696cf5345a1a538cce50a8c9f599f18cd07375ef3b08e1b8d857ba798b42225f",
+          "bytes": 53800,
+          "runtimePaths": [
+            "lib/libtermux-exec-linker-ld-preload.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libtermux_exec_nos_c_tre_so.so",
+          "sha256": "3146184fd77fba7b04762cb595765980adca9e21eae58f40745c4aa2e14034ad",
+          "bytes": 54136,
+          "runtimePaths": [
+            "lib/libtermux-exec_nos_c_tre.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libverto_so_0.so",
+          "sha256": "a16892e49f8224b063df31b1b26e6e69bc9f1e332f86ad57d951beb96fc41435",
+          "bytes": 29384,
+          "runtimePaths": [
+            "lib/libverto.so.0",
+            "lib/libverto.so.0.0"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libxml2_so_16.so",
+          "sha256": "c069f52d190352ca77be774177147ff8314016a584e6207394712b4eea1e8fe8",
+          "bytes": 1092840,
+          "runtimePaths": [
+            "lib/libxml2.so.16",
+            "lib/libxml2.so.16.1.3"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libz_so_1.so",
+          "sha256": "c47748ed4b6ca6a2ecd664bab04795f3493956ab1f5cddc4ba0efa737ef3b711",
+          "bytes": 72880,
+          "runtimePaths": [
+            "lib/libz.so.1",
+            "lib/libz.so.1.3.2"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_libzstd_so_1.so",
+          "sha256": "1677d5e828c1839f111f0261697c08f99a5e4e80434659ab88e5ff859a1374f7",
+          "bytes": 820840,
+          "runtimePaths": [
+            "lib/libzstd.so.1",
+            "lib/libzstd.so.1.5.7"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_config_3_14_aarch64_linux_android_python_o.so",
+          "sha256": "adf115e0c1cfcd01b0f31466928c3e3e9457ff4c252537a063a3ae3dac3ca9af",
+          "bytes": 2944,
+          "runtimePaths": [
+            "lib/python3.14/config-3.14-aarch64-linux-android/python.o"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_array_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "52f6c44f724edd9d4b710ef1936f4af475c543daa8d6e0ae568eaa9a2a9bd838",
+          "bytes": 60328,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/array.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_asyncio_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "d8fba4d1b42873775b9b91d37ad25877636b387d21faaa7d829ca7c8aa285bc0",
+          "bytes": 74312,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_asyncio.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_binascii_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "94b6bbe65b2e04120e905d4cf326fa6c662d389f62347b2d976aab4e07eebdd5",
+          "bytes": 24728,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/binascii.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_bisect_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "aa7706e11f2eb81001b958488e4c0aca39660af6ac4240c2d22a0035df791961",
+          "bytes": 15856,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_bisect.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_blake2_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "a94868ae6a9b37ff8908f1d21c39696207d109b8588cf9f09cb134a7ea57e39d",
+          "bytes": 46168,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_blake2.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_bz2_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "a2f26b2013bfbdc12f4c60012bae618edf1d4bee136b2ce0d5d2d1ed3c380e80",
+          "bytes": 19688,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_bz2.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_cmath_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "bf0a7e7565ebe2f3126f2e991afb54e27b9419794298c721e055eaf4b1d58a58",
+          "bytes": 37648,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/cmath.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_cn_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "6a9008c382307e9ad0841b678994716a7e56549e57ddd7094540e4831ed9cf1f",
+          "bytes": 146848,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_cn.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_hk_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "ad45f7195fb8672f975e102aa70cbaf5e3235ee1cdc189eb00bc46c754c59812",
+          "bytes": 155752,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_hk.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_iso2022_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "4c7c5a2bbfd200b090dd5b39e6f0cd0e99af1ceac403bf9dca6b1a6b3af991c7",
+          "bytes": 22064,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_iso2022.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_jp_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "53a60d919c09552d54c679fb74541bea9cb45d923cf2171f5300c2b94ad79014",
+          "bytes": 262088,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_jp.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_kr_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "34f4126c5abbfc558d01d916d7ad72aee338ff7e37f71cf5eaec09cd4a5d3303",
+          "bytes": 133904,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_kr.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_codecs_tw_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "25438408fea25d2e615b68e8f3bd984d09cd0edce0416da73cf778258178408f",
+          "bytes": 109312,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_codecs_tw.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_csv_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "0650968274af97bf4a21be5babc971328b98f2ead060cb27ee92b2a3609daf9d",
+          "bytes": 34560,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_csv.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_ctypes_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "a76ae396679a73a027c4b9a00e47e230b9a1ad9a8a1e9dd33cdcd51dd8008e55",
+          "bytes": 141352,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_ctypes.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_ctypes_test_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "03204e6f8cd399a549da5053e3d7081d6271e92c1b71eb9b6f0d0b25e3b7039d",
+          "bytes": 88504,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_ctypes_test.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_curses_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "25413244fcf0c7c0a7ee8a2f26238bee5a15c95580204c679b58bf5ac3387f98",
+          "bytes": 138168,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_curses.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_curses_panel_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "313ded8218e069204ab3e7033851f19df14129a57736a3fa6d721f4e78d21d6b",
+          "bytes": 19384,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_curses_panel.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_dbm_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "e6e871f0def81c457c6a832b03a6496dea675fbdccfdce25653c285c3a3d0f50",
+          "bytes": 16384,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_dbm.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_decimal_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "90d5de08e047aeb41afd8b393709efeb5654fb989d86a3ca3f2eba62eaa2391e",
+          "bytes": 356712,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_decimal.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_elementtree_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "2d98ea5ea27737b285196ec735bd46ccb661c96a16ebf687befa51c207a8b201",
+          "bytes": 73936,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_elementtree.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_fcntl_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "c515e7021f4a39a6f7f0ff5188eec9f35474d214ea22483c5e5a8cc55eff46fa",
+          "bytes": 18456,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/fcntl.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_gdbm_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "e692dac26ec95af3f0e0bd0525c3dc3f40e738c2a0d939d430c5b76c23ccfc69",
+          "bytes": 22824,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_gdbm.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_grp_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "8c75865004da678534bb86e6a132cc40cd84336e426cf58991229c15f7f8bdb8",
+          "bytes": 14200,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/grp.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_hashlib_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "a5d35eb2c7fde826026a4a4ef9ef650fa7abb24c9e322b8f3d558a6957afd29f",
+          "bytes": 58024,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_hashlib.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_heapq_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "7ccecb5a975d1759bd674806d1bfa660424b61e68674994de71f3ce9af1b7e4f",
+          "bytes": 20208,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_heapq.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_hmac_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "3b6c2952a949ff65c9e5179f14ca6862e902f2977a44a9099d312fbf46c755b2",
+          "bytes": 132952,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_hmac.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_interpchannels_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "824ff6cfdcb622b66797adf98bfac237ada04f18828188562f155024d751aa2b",
+          "bytes": 43520,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_interpchannels.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_interpqueues_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "91b0a8379344a5c98ae4aed25e810a00966b2c7389b5f0559ff8cda7ee75c49d",
+          "bytes": 27616,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_interpqueues.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_interpreters_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "67f4cd3fce470ef2c8777289feae73f87232ed6ccdebce2f3b8d5fcabfcd872e",
+          "bytes": 34272,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_interpreters.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_json_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "8b2c265bb0aa0f81ea56da62b2b0083c3cd668937aeaaf844318b67296c15e03",
+          "bytes": 39816,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_json.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_lsprof_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "4f735560c433956d3520f630e0dc65e33b62cf2e4d1d8d7cd3155e61f6bb8ee1",
+          "bytes": 27440,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_lsprof.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_lzma_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "4c66b98275ce9d05d3cd7d3f4f02f3061b8dc13886afcaa943d56c7ab9c3087a",
+          "bytes": 34136,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_lzma.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_math_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "b63ae8690fd6723890885cd4a39c706afb861297bb2ee344c4f18c9064ab5046",
+          "bytes": 63552,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/math.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_md5_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "afa00bb2565e38e4d422b81eeafe489a4304a382bbbf189e11b57e3a85622a1e",
+          "bytes": 20872,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_md5.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_mmap_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "4ca2fcc86e77650b68012305bfa0d17846cff0a5315d49d1120bba0fc8268e1b",
+          "bytes": 31104,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/mmap.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_multibytecodec_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "8c6528fa330da0c0e370d7507fdde22774d64ddb1a60b618627983e6fb97a59e",
+          "bytes": 40304,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_multibytecodec.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_multiprocessing_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "84173207f9995663075d07cc1948e8a2c8d850cc3a77dd01f1c3b0ddc168c741",
+          "bytes": 17752,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_multiprocessing.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_pickle_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "3e801fe1489b6f1e5cb1931abb231b6be0f014ec1477ed1340e405f49424c166",
+          "bytes": 120232,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_pickle.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_posixshmem_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "35f4a5780c1e68c2dae4355666a01d7b6cdfaf00c6433fe0134b731eee514ac4",
+          "bytes": 8880,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_posixshmem.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_posixsubprocess_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "638c49c607560b403f9f2a2590a91c310faa59a12b382071db0087f069c043f4",
+          "bytes": 19624,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_posixsubprocess.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_pyexpat_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "2db0f46ff6fa3bd67b8b5ef52228a79c330416150c7cd8ccb6637efb8f53e2ea",
+          "bytes": 75592,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/pyexpat.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_queue_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "054100859cbf25d5e19c444a9bcbfa0c753d89a42e008cd5c8a3f1f375103262",
+          "bytes": 15640,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_queue.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_random_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "6743baa21630606a342a61230130c8b8236997ec3a2d76a5ba3a9792557b2e9a",
+          "bytes": 14192,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_random.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_readline_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "27856c481e2903bb1e0c5c7e111dd76cddbf69d3cd1aa30c5c5a4401aecce37d",
+          "bytes": 32456,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/readline.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_remote_debugging_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "b14974bf8a0f6f3ca001dde4b39ddad799a49213cf15bb80dc08c77857d80847",
+          "bytes": 62512,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_remote_debugging.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_resource_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "236869545ca5069c0248c553fa74474725d6a65ddca3f99174c0db49bb24b69e",
+          "bytes": 15776,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/resource.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_select_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "93a78c90fc81810810bb221983e8fb77446f16e62c65b4bb56722b4d05603a30",
+          "bytes": 29296,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/select.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_sha1_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "a250967eeff18d9453473201de0439c4457f458ace8acd323a8edc6a599fb284",
+          "bytes": 18008,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_sha1.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_sha2_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "af899579fb9c2f5c7a982d3ccb9ab7c6c1ee892b836246d641c4584ace152049",
+          "bytes": 49456,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_sha2.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_sha3_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "6b0d30009a8ba69bd1cfd5c301e861d16b4a5675b86a2155b14d24f35a915e51",
+          "bytes": 41280,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_sha3.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_socket_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "c76571b11cf24cbdd275ea57d9fac43c98cb4892794f872a31a567663123f495",
+          "bytes": 102496,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_socket.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_sqlite3_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "52779a2e7c169364762ae418cd523d58c21f695d362915765b121d2ee495c9e0",
+          "bytes": 127136,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_sqlite3.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_ssl_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "60c1cc02c7f26650aa4ad329e3ff70c84de7d61c6513a5565670054d649ba1d1",
+          "bytes": 233424,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_ssl.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_statistics_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "3ac0c5037c6a952aacd5a99240b887336bd6094f798fd041a4960a2010ef0a90",
+          "bytes": 6952,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_statistics.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_struct_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "289c6eb099c4678cafb738e0f4ad4d4b96886d71b5e277fee88574eccdf7861a",
+          "bytes": 52304,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_struct.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_syslog_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "32e7f37e83b2e2742e6e2705612d8cea3c374dacbd8005a390076823aa2decb9",
+          "bytes": 13056,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/syslog.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_termios_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "188fde34b58c86b1c01887c517c42bc4017a91a9a0863286eeb2e550cf33633f",
+          "bytes": 28408,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/termios.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testbuffer_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "b93d2d874923dc6b7bf602a53fb34684e87c9b1cc1df88c8eae5a7a5b6b062ea",
+          "bytes": 41696,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testbuffer.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testcapi_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "4507babee06ef9165126002c55dedd8c9c86ea6f32be4cae5e550ded25652e6f",
+          "bytes": 366144,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testcapi.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testclinic_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "aa7702242ec62c58ec334e63a97ba8a4e085e735e2f3067550b206324ec21fbb",
+          "bytes": 114360,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testclinic.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testclinic_limited_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "21c87ce16024ba57e4d65e161595bbe055673c135b30da09eaafcebdb7febb02",
+          "bytes": 7568,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testclinic_limited.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testimportmultiple_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "dc28d3f44007b0fcacbc257dd8eb5d6cc6ca67e87a48157aa829d9d9972b9b5d",
+          "bytes": 5136,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testimportmultiple.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testinternalcapi_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "3409fb3e514f03562ed2e75152c4e6a3932afc2612c2bed368a8805fd5e2b0ff",
+          "bytes": 95512,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testinternalcapi.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testlimitedcapi_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "cf2d9ac987a903c3589d5d7ca2b3fba61b7cbacd90acb6c94125e1787adc135b",
+          "bytes": 196144,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testlimitedcapi.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testmultiphase_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "d435845ffcb50324e112d86bbf8ca513203b16dc8392975b71f96b5716c87d4d",
+          "bytes": 26688,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testmultiphase.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_testsinglephase_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "5c12df32d473d4c1b9b7866ff94b2d820961e9714f186cc958c2a5e68da6c712",
+          "bytes": 14872,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_testsinglephase.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_unicodedata_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "70358ef7f4611fa2396710bb306371918d110980101c8a16444bd34af22b0aa6",
+          "bytes": 744520,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/unicodedata.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_xxlimited_35_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "40931a480ba34e534a714c0b08b70c08cf1c8d82d1ad8f2e266bcac943a9d558",
+          "bytes": 10288,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/xxlimited_35.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_xxlimited_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "e7bd979632f013a07285ff5b35eb59e769fe219ab0a473e626ad5e280540c9c3",
+          "bytes": 11280,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/xxlimited.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_xxsubtype_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "c87ffee993d052546a819d7175cd0769fd14d090ca019282c23d504af49bfe83",
+          "bytes": 10112,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/xxsubtype.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_xxtestfuzz_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "0153f3c4a45abe14d08952f95b0a271ec5d178940457fc341d6782b7eada4aa3",
+          "bytes": 14304,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_xxtestfuzz.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_zlib_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "9c80e40d31953cdafa942b465d18138186b37b3c56530bb68043e2e1aeeb9225",
+          "bytes": 44584,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/zlib.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_zoneinfo_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "8399d48b837aff547c877d763c550656dc48145a6a628730d36a141f413dc158",
+          "bytes": 35272,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_zoneinfo.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_python3_14_lib_dynload_zstd_cpython_314_aarch64_linux_android_so.so",
+          "sha256": "b8f5a4a435d3dd53a7461fd56b82e1c6004d7c94223293171d59c3da30de692a",
+          "bytes": 52112,
+          "runtimePaths": [
+            "lib/python3.14/lib-dynload/_zstd.cpython-314-aarch64-linux-android.so"
+          ],
+          "owner": "developer-runtime"
+        }
+      ]
+    },
+    "x86_64": {
+      "delivery": "base-apk-plus-signed-runtime-feature-pack",
+      "developerRuntime": "signed-android-feature-pack",
+      "capability": "IDE native helpers are packaged; the developer runtime requires the signed x86_64 runtime feature.",
+      "nativeFiles": [
+        {
+          "packagedName": "libbin_adev_git_credential.so",
+          "sha256": "19a0ebf433dfc261bb25d286606b084bf25aa18ca038d4772f5c4f8adf08cd85",
+          "bytes": 301248,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_npm_shell.so",
+          "sha256": "adab52e5f36da50af3347c3a8b14e6f53a2f251b707d177acec3d704f2e2b9b6",
+          "bytes": 33864,
+          "runtimePaths": [],
+          "owner": "app-native"
+        }
+      ]
+    }
+  },
+  "packageManagers": {
+    "sha256": "d0b89d50bfd8fde42d82fe8ff8fb71288589a1bbb3db25ee7184fa6069973d00",
+    "versions": {
+      "corepack": "0.35.0",
+      "pnpm": "11.18.0",
+      "yarn": "4.18.0"
+    }
+  },
+  "toolPacks": {
+    "sha256": "e28d7463325a8bcc76c245e84108ae678e0bf47c28d6e474d62f87b16d28ea4f",
+    "ids": [
+      "autotools-libtool",
+      "cmake-ninja",
+      "development-libraries",
+      "git-lfs",
+      "java",
+      "nasm",
+      "rust-cargo"
+    ]
+  }
+}

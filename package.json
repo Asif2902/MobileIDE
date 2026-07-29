@@ -19,7 +19,9 @@
     "prepare:runtime": "bash runtime/scripts/prepare-runtime.sh",
     "test:runtime-policy": "node scripts/test-runtime-policy.mjs",
     "test:phase2-host": "node scripts/test-phase2-host.mjs",
-    "test:phase3-host": "node scripts/test-phase3-host.mjs"
+    "test:phase3-host": "node scripts/test-phase3-host.mjs",
+    "test:phase4-host": "node scripts/test-phase4-host.mjs",
+    "test:phase4-apk": "node scripts/verify-phase4-apk.mjs"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",
@@ -27,37 +29,38 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "react": "18.3.1",
-    "react-native": "0.76.9",
-    "react-native-gesture-handler": "^2.20.2",
-    "react-native-safe-area-context": "^5.1.0",
-    "react-native-screens": "^4.4.0",
-    "react-native-svg": "15.8.0",
-    "react-native-webview": "^13.12.5",
+    "react": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-gesture-handler": "3.1.0",
+    "react-native-safe-area-context": "5.8.0",
+    "react-native-screens": "4.26.2",
+    "react-native-svg": "15.15.5",
+    "react-native-webview": "14.0.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "15.0.1",
-    "@react-native-community/cli-platform-android": "15.0.1",
-    "@react-native-community/cli-platform-ios": "15.0.1",
-    "@react-native/babel-preset": "0.76.9",
-    "@react-native/eslint-config": "0.76.9",
-    "@react-native/metro-config": "0.76.9",
-    "@react-native/typescript-config": "0.76.9",
-    "@types/react": "^18.2.6",
-    "@types/react-test-renderer": "^18.0.0",
+    "@react-native-community/cli": "20.1.0",
+    "@react-native-community/cli-platform-android": "20.1.0",
+    "@react-native-community/cli-platform-ios": "20.1.0",
+    "@react-native/babel-preset": "0.86.2",
+    "@react-native/eslint-config": "0.86.2",
+    "@react-native/jest-preset": "0.86.2",
+    "@react-native/metro-config": "0.86.2",
+    "@react-native/typescript-config": "0.86.2",
+    "@types/react": "19.2.0",
+    "@types/react-test-renderer": "19.1.0",
     "babel-jest": "^29.6.3",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
     "monaco-editor": "^0.52.2",
     "prettier": "2.8.8",
-    "react-test-renderer": "18.3.1",
-    "typescript": "5.0.4"
+    "react-test-renderer": "19.2.3",
+    "typescript": "5.8.3"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13.0"
   }
 }

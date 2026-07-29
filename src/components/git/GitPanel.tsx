@@ -844,7 +844,7 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 12, color: '#666', marginTop: 4 },
 
   loadingText: { color: '#888', marginTop: 12, fontSize: 14 },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  loadingOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
 
   errorBanner: {
     position: 'absolute', bottom: 60, left: 12, right: 12,

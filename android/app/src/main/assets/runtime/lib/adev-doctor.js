@@ -2,6 +2,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -276,9 +277,46 @@ const requiredReady = [
 ].every(item => item.ready);
 const executionReady = Object.values(executionTests).every(item => item.ready);
 
+const runtimeLockPath = path.join(prefix, 'runtime-lock.json');
+const runtimeLockPublicKey = path.join(prefix, 'runtime-lock.pub.pem');
+const runtimeLockSignature = path.join(prefix, 'runtime-lock.sig');
+let runtimeDistribution = {
+  lockReady: false,
+  signatureVerified: false,
+  error: 'runtime lock missing',
+};
+try {
+  const lockBytes = fs.readFileSync(runtimeLockPath);
+  const lock = JSON.parse(lockBytes);
+  runtimeDistribution = {
+    lockReady: true,
+    signatureVerified: crypto.verify(
+      null,
+      lockBytes,
+      fs.readFileSync(runtimeLockPublicKey),
+      fs.readFileSync(runtimeLockSignature)
+    ),
+    runtimeVersion: lock.runtimeVersion,
+    minApi: lock.minApi,
+    targetApi: lock.targetApi,
+    pageAlignment: lock.pageAlignment,
+    abis: lock.abis,
+  };
+} catch (error) {
+  runtimeDistribution = {
+    lockReady: fs.existsSync(runtimeLockPath),
+    signatureVerified: false,
+    error: error.message,
+  };
+}
+
 const report = {
-  schemaVersion: 3,
-  healthy: requiredReady && executionReady && missingLinuxCommands.length === 0,
+  schemaVersion: 4,
+  healthy:
+    requiredReady &&
+    executionReady &&
+    missingLinuxCommands.length === 0 &&
+    runtimeDistribution.signatureVerified,
   app: {
     version: process.env.ADEV_APP_VERSION || null,
     runtimeVersion: process.env.ADEV_RUNTIME_VERSION || null,
@@ -330,6 +368,7 @@ const report = {
   },
   packageResolution: packagePolicy,
   packageManagers,
+  runtimeDistribution,
   git: gitIntegration,
   toolPacks,
   bun: {

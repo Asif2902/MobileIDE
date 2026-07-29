@@ -1,5 +1,5 @@
 {
-  "version": "1.14.0",
+  "version": "1.15.0",
   "name": "MobileIDE Runtime",
   "description": "Bundled developer runtime for MobileIDE",
   "components": {
@@ -51,12 +51,17 @@
     "grep", "sed", "awk", "curl", "wget",
     "tar", "gzip", "zip", "unzip"
   ],
-  "architecture": "arm64-v8a",
+  "architectures": [
+    "arm64-v8a",
+    "x86_64"
+  ],
   "minSdk": 29,
   "estimatedSize": "240MB",
   "policies": {
     "bun": "unsupported-android-bionic",
     "credentials": "android-keystore",
-    "toolPacks": "signed-android-feature-delivery"
+    "toolPacks": "signed-android-feature-delivery",
+    "x86_64Runtime": "signed-feature-required",
+    "sharedWorkspaceExecution": "guided-private-import"
   }
 }

@@ -6,3 +6,6 @@ android/app/src/main/assets/runtime/lib/package-managers/** binary
 android/app/src/main/assets/runtime/lib/adev-toolpacks.json text eol=lf
 android/app/src/main/assets/runtime/lib/adev-toolpacks.pub.pem text eol=lf
 android/app/src/main/assets/runtime/lib/adev-toolpacks.sig text eol=lf
+android/app/src/main/assets/runtime/runtime-lock.json text eol=lf
+android/app/src/main/assets/runtime/runtime-lock.pub.pem text eol=lf
+android/app/src/main/assets/runtime/runtime-lock.sig binary
