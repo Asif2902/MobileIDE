@@ -1,0 +1,11 @@
+prefix=/data/data/com.termux/files/usr
+exec_prefix=${prefix}
+libdir=/data/data/com.termux/files/usr/lib
+includedir=/data/data/com.termux/files/usr/include
+
+Name: mit-krb5-gssapi
+Description: Kerberos implementation of the GSSAPI
+Version: 1.22.2
+Requires.private: mit-krb5
+Cflags: -I${includedir}
+Libs: -L${libdir} -lgssapi_krb5

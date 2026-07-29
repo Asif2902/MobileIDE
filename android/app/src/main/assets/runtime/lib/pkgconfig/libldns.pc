@@ -1,0 +1,13 @@
+prefix=/data/data/com.termux/files/usr
+exec_prefix=${prefix}
+libdir=/data/data/com.termux/files/usr/lib
+includedir=/data/data/com.termux/files/usr/include
+
+Name: ldns
+Description: Library for DNS programming
+URL: http://www.nlnetlabs.nl/projects/ldns
+Version: 1.8.4
+Requires: 
+Libs: -L${libdir} -lldns
+Libs.private: -L/data/data/com.termux/files/usr/lib -Wl,-rpath=/data/data/com.termux/files/usr/lib -Wl,--enable-new-dtags -Wl,--as-needed -Wl,-z,relro,-z,now
+Cflags: -I${includedir} 

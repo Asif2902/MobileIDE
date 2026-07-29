@@ -9,7 +9,8 @@
  *  1. Parses simple -c commands
  *  2. If the first token is a JS CLI (shebang node / .js/.mjs/.cjs), runs it
  *     via the bundled `node` ELF (which lives in the exec-permitted jniLibs dir)
- *  3. Otherwise falls back to /system/bin/sh -c
+ *  3. Dispatches node-gyp through npm's real JS entrypoint
+ *  4. Otherwise falls back to bundled bash (or /system/bin/sh)
  *
  * Also usable as a general "run this PATH command via node if needed" shell.
  */
@@ -176,12 +177,58 @@ static void try_direct_node(char **argv) {
     execvp("node", argv);
 }
 
+/**
+ * npm and node-pre-gyp intentionally spawn a command named `node-gyp`.
+ * npm puts a POSIX shell shim in PATH, which Android refuses to exec from the
+ * writable app-data directory. Dispatch the command to npm's real JS entrypoint
+ * through the native Node ELF. This is node-gyp-wide, not package-specific.
+ */
+static void try_node_gyp_exec(char **argv) {
+    if (!argv[0]) return;
+    const char *base = strrchr(argv[0], '/');
+    base = base ? base + 1 : argv[0];
+    if (strcmp(base, "node-gyp") != 0 && strcmp(base, "node-gyp.js") != 0) return;
+
+    const char *node_gyp = getenv("npm_config_node_gyp");
+    if (!node_gyp || !node_gyp[0]) node_gyp = getenv("NPM_CONFIG_NODE_GYP");
+
+    char fallback[PATH_MAX];
+    if ((!node_gyp || !node_gyp[0])) {
+        const char *prefix = getenv("PREFIX");
+        if (prefix && prefix[0]) {
+            snprintf(
+                fallback,
+                sizeof(fallback),
+                "%s/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+                prefix
+            );
+            if (file_exists(fallback)) node_gyp = fallback;
+        }
+    }
+    if (!node_gyp || !node_gyp[0] || !file_exists(node_gyp)) return;
+
+    resolve_node();
+    char *nargv[64];
+    int i = 0;
+    nargv[i++] = g_node_path;
+    nargv[i++] = (char *)node_gyp;
+    for (int j = 1; argv[j] && i < 62; j++) nargv[i++] = argv[j];
+    nargv[i] = nullptr;
+
+    LOGI("node-gyp dispatch: %s %s", g_node_path, node_gyp);
+    execv(g_node_path, nargv);
+    execvp(g_node_path, nargv);
+    LOGE("exec node-gyp failed: %s", strerror(errno));
+}
+
 static void run_system_sh(const char *command) {
-    const char *sh = "/system/bin/sh";
-    if (!file_exists(sh)) sh = "/system/bin/sh";
+    // Prefer bundled bash: BASH_ENV loads the platform wrappers (including
+    // node-gyp) for compound lifecycle commands such as `prebuild || node-gyp`.
+    const char *sh = getenv("MOBILEIDE_BASH");
+    if (!sh || !sh[0] || !file_exists(sh)) sh = "/system/bin/sh";
     char *const argv[] = {(char *)sh, (char *)"-c", (char *)command, nullptr};
     execv(sh, argv);
-    execl(sh, sh, "-c", command, (char *)nullptr);
+    execl("/system/bin/sh", "/system/bin/sh", "-c", command, (char *)nullptr);
     LOGE("fallback sh failed: %s", strerror(errno));
     _exit(127);
 }
@@ -243,6 +290,7 @@ int main(int argc, char **argv) {
         char *v[64];
         int n = tokenize(copy, v, 64);
         if (n > 0) {
+            try_node_gyp_exec(v);
             try_direct_node(v);
             try_node_exec(v);
         }

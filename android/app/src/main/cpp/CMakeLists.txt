@@ -15,6 +15,11 @@ target_link_libraries(mobileide-pty
     ${log-lib}
 )
 
+target_link_options(mobileide-pty PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
+
 set_target_properties(mobileide-pty PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
@@ -29,6 +34,11 @@ add_executable(adev_npm_shell adev_npm_shell.cpp)
 
 target_link_libraries(adev_npm_shell
     ${log-lib}
+)
+
+target_link_options(adev_npm_shell PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
 )
 
 set_target_properties(adev_npm_shell PROPERTIES

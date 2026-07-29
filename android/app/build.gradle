@@ -82,8 +82,8 @@ android {
         applicationId "com.mobileide.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "1.3.3"
+        versionCode 10
+        versionName "1.3.4"
         ndk {
             abiFilters "arm64-v8a"
         }
@@ -284,43 +284,53 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 
 /**
  * CMake builds adev-npm-shell as an executable named libbin_adev_npm_shell.so.
- * AGP only auto-packages SHARED libs, so we copy the ELF into jniLibs after
- * each externalNativeBuild* task so RuntimeManager can symlink bin/adev-npm-shell.
+ * AGP only auto-packages SHARED libraries. Its assemble graph invokes
+ * buildCMake<Variant> directly (not externalNativeBuild<Variant>), so make the
+ * JNI merge explicitly depend on a variant-specific copy of the fresh output.
+ * This avoids packaging the previous build's lifecycle shell.
  */
-tasks.configureEach { task ->
-    if (task.name.startsWith("externalNativeBuild")) {
-        task.doLast {
+def registerAdevNpmShellSync = { String variantName, String cmakeVariant ->
+    def capitalized = variantName.capitalize()
+    def syncTask = tasks.register("sync${capitalized}AdevNpmShell") {
+        dependsOn tasks.matching { it.name == "buildCMake${cmakeVariant}" }
+        doLast {
             def abi = "arm64-v8a"
-            def outDir = file("${buildDir}/intermediates/cxx")
-            def found = null
-            if (outDir.exists()) {
-                outDir.eachFileRecurse { f ->
-                    if (f.isFile() && f.name == "libbin_adev_npm_shell.so") {
-                        found = f
+            def candidates = []
+            [
+                file("${buildDir}/intermediates/cxx/${cmakeVariant}"),
+                file("${projectDir}/.cxx/${cmakeVariant}")
+            ].each { root ->
+                if (root.exists()) {
+                    root.eachFileRecurse { f ->
+                        if (f.isFile() && f.name == "libbin_adev_npm_shell.so" &&
+                                f.absolutePath.replace('\\', '/').contains("/obj/${abi}/")) {
+                            candidates << f
+                        }
                     }
                 }
             }
-            // Also search .cxx which AGP uses for cmake outputs
-            def cxx = file("${projectDir}/.cxx")
-            if (found == null && cxx.exists()) {
-                cxx.eachFileRecurse { f ->
-                    if (f.isFile() && f.name == "libbin_adev_npm_shell.so") {
-                        found = f
-                    }
-                }
+            def found = candidates.sort { a, b -> b.lastModified() <=> a.lastModified() }.find()
+            if (found == null) {
+                throw new GradleException(
+                    "Fresh libbin_adev_npm_shell.so not found for ${variantName}/${abi}"
+                )
             }
-            if (found != null) {
-                def destDir = file("src/main/jniLibs/${abi}")
-                destDir.mkdirs()
-                def dest = new File(destDir, "libbin_adev_npm_shell.so")
-                dest.bytes = found.bytes
-                logger.lifecycle("[runtime] packaged adev-npm-shell -> ${dest} (${dest.length()} bytes)")
-            } else {
-                logger.warn("[runtime] libbin_adev_npm_shell.so not found after ${task.name}")
-            }
+            def destDir = file("src/main/jniLibs/${abi}")
+            destDir.mkdirs()
+            def dest = new File(destDir, "libbin_adev_npm_shell.so")
+            dest.bytes = found.bytes
+            logger.lifecycle(
+                "[runtime] synced ${variantName} adev-npm-shell -> ${dest} (${dest.length()} bytes)"
+            )
         }
     }
+    tasks.matching { it.name == "merge${capitalized}JniLibFolders" }.configureEach {
+        dependsOn syncTask
+    }
 }
+
+registerAdevNpmShellSync("debug", "Debug")
+registerAdevNpmShellSync("release", "RelWithDebInfo")
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

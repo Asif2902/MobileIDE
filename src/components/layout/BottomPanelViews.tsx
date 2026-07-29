@@ -264,7 +264,7 @@ export const DebugView: React.FC = () => {
         <Text style={styles.logText}> </Text>
         <Text style={styles.muted}>
           Tip: run servers in the Terminal tab (`npm start`, `npx vite`, …). Pure JS packages
-          install fine; native node-gyp modules are not supported without a C toolchain.
+          install normally; native node-gyp modules use the bundled Android C/C++ toolchain.
         </Text>
       </ScrollView>
     </View>

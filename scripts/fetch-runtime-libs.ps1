@@ -14,7 +14,8 @@
   This script:
     1. Downloads the Termux Packages index (Packages.gz).
     2. Resolves the recursive Depends closure of the root packages.
-    3. Downloads each package .deb and extracts every usr/lib/*.so* file.
+    3. Downloads each package .deb, verifies it against the repository SHA-256,
+       and extracts every usr/lib/*.so* file.
     4. Copies each real ELF shared object into assets/runtime/lib/ using its
        DT_SONAME (e.g. a libz.so.1.3.1 real file is written as libz.so.1),
        so the on-device symlink farm + LD_LIBRARY_PATH resolve every DT_NEEDED.
@@ -32,14 +33,24 @@
   Termux repository base URL. Default: https://packages.termux.dev/apt/termux-main
 
 .PARAMETER Roots
-  Package names whose dependency closure we bundle. Defaults cover node/git/bash/ssh.
+  Package names whose dependency closure we bundle. Defaults cover the runtime
+  plus the complete node-gyp build stack (Python, Make, Clang/LLVM, sysroot and
+  pkg-config).
+
+.PARAMETER SkipToolchainFiles
+  Copy shared libraries only. By default the script also stages the executable
+  and development files required by node-gyp into runtime assets.
 
 .EXAMPLE
   .\scripts\fetch-runtime-libs.ps1
 #>
 param(
     [string]$Base = "https://packages.termux.dev/apt/termux-main",
-    [string[]]$Roots = @("nodejs", "git", "bash", "dropbear", "openssh")
+    [string[]]$Roots = @(
+        "nodejs", "git", "bash", "dropbear", "openssh",
+        "python", "make", "clang", "pkg-config"
+    ),
+    [switch]$SkipToolchainFiles
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,9 +63,19 @@ $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $proj    = Split-Path $PSScriptRoot -Parent
+$runtimeDest = Join-Path $proj "android\app\src\main\assets\runtime"
 $libDest = Join-Path $proj "android\app\src\main\assets\runtime\lib"
 $binDir  = Join-Path $proj "android\app\src\main\assets\runtime\bin"
+$includeDest = Join-Path $runtimeDest "include"
+$shareDest = Join-Path $runtimeDest "share"
 New-Item -ItemType Directory -Force -Path $libDest | Out-Null
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+
+$stageToolchain = -not $SkipToolchainFiles
+if ($stageToolchain) {
+    New-Item -ItemType Directory -Force -Path $includeDest | Out-Null
+    New-Item -ItemType Directory -Force -Path $shareDest | Out-Null
+}
 
 # Clean any shared libraries from a previous run so the bundle is reproducible.
 # Only touch flat *.so* files directly in lib/ - never the node_modules/ npm tree.
@@ -169,7 +190,8 @@ foreach ($u in $idxUrls) {
 }
 if (-not $pkgsText) { throw "Could not retrieve the Termux Packages index. Check your network." }
 
-# Parse stanzas into records: name -> @{ Filename; Depends=@(); Provides=@() }
+# Parse stanzas into records:
+# name -> @{ Version; Filename; SHA256; Depends=@(); Provides=@() }
 $byName   = @{}
 $provides = @{}   # virtual name -> real package name
 $cur = $null
@@ -182,9 +204,21 @@ foreach ($line in ($pkgsText -split "`n")) {
         }
         $cur = $null; continue
     }
-    if ($line -match '^Package:\s*(.+?)\s*$') { $cur = @{ Name = $Matches[1]; Filename = $null; Depends = @(); Provides = @() }; continue }
+    if ($line -match '^Package:\s*(.+?)\s*$') {
+        $cur = @{
+            Name = $Matches[1]
+            Version = $null
+            Filename = $null
+            SHA256 = $null
+            Depends = @()
+            Provides = @()
+        }
+        continue
+    }
     if (-not $cur) { continue }
+    if ($line -match '^Version:\s*(.+?)\s*$') { $cur.Version = $Matches[1]; continue }
     if ($line -match '^Filename:\s*(.+?)\s*$') { $cur.Filename = $Matches[1]; continue }
+    if ($line -match '^SHA256:\s*([a-fA-F0-9]{64})\s*$') { $cur.SHA256 = $Matches[1].ToLowerInvariant(); continue }
     if ($line -match '^Depends:\s*(.+?)\s*$') {
         foreach ($d in ($Matches[1] -split ',')) {
             $alt = ($d -split '\|')[0].Trim()          # take first alternative
@@ -215,7 +249,11 @@ $closure = New-Object System.Collections.Generic.HashSet[string]
 $queue   = New-Object System.Collections.Generic.Queue[string]
 foreach ($r in $Roots) {
     $rn = Resolve-Name $r
-    if ($rn) { [void]$queue.Enqueue($rn) } else { Write-Warning "root package not found in index: $r" }
+    if ($rn) {
+        [void]$queue.Enqueue($rn)
+    } else {
+        throw "Required root package not found in index: $r"
+    }
 }
 while ($queue.Count -gt 0) {
     $name = $queue.Dequeue()
@@ -232,7 +270,35 @@ Write-Host "  dependency closure: $($closure.Count) packages." -ForegroundColor 
 
 # --- 3+4. Download each package and extract usr/lib/*.so* ----------------------
 $written = @{}   # target filename -> source basename (for summary)
+$staged = @{}    # runtime relative path -> source package
 $pkgNum = 0
+
+function Copy-TreeContents {
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [string]$PackageName
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+        $relative = [IO.Path]::GetRelativePath($runtimeDest, (Join-Path $Destination $_.Name))
+        $staged[$relative.Replace('\', '/')] = $PackageName
+    }
+}
+
+function Copy-Tool {
+    param(
+        [string]$Source,
+        [string]$PackageName
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return }
+    $target = Join-Path $binDir ([IO.Path]::GetFileName($Source))
+    Copy-Item -LiteralPath $Source -Destination $target -Force
+    $staged[("bin/" + [IO.Path]::GetFileName($Source))] = $PackageName
+}
+
 foreach ($name in ($closure | Sort-Object)) {
     $pkgNum++
     $rec = $byName[$name]
@@ -244,9 +310,14 @@ foreach ($name in ($closure | Sort-Object)) {
     try {
         Invoke-WebRequest -UseBasicParsing $debUrl -OutFile $deb
     } catch {
-        Write-Host "  [$pkgNum/$($closure.Count)] $name : download failed ($($_.Exception.Message))" -ForegroundColor DarkYellow
-        Remove-Item -Recurse -Force $ex -ErrorAction SilentlyContinue
-        continue
+        throw "Required package download failed for $name ($debUrl): $($_.Exception.Message)"
+    }
+    if (-not $rec.SHA256) {
+        throw "Package index did not provide SHA256 for required package $name"
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath $deb -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne $rec.SHA256) {
+        throw "SHA256 mismatch for $name $($rec.Version): expected $($rec.SHA256), got $actualSha256"
     }
     # Extraction is best-effort. tar fails to create the symlink entries
     # (libz.so -> libz.so.1.3.2, libicuuc.so.78 -> libicuuc.so.78.3, ...) on
@@ -285,6 +356,77 @@ foreach ($name in ($closure | Sort-Object)) {
         $written[$target] = $name
         if ($f.Name -ne $target) { Copy-Item $f.FullName (Join-Path $libDest $f.Name) -Force; $written[$f.Name] = $name }
         $cnt++
+    }
+
+    if ($stageToolchain) {
+        $usr = Join-Path $ex "data\data\com.termux\files\usr"
+        if (Test-Path -LiteralPath $usr -PathType Container) {
+            # Development headers and pkg-config metadata are cheap compared to
+            # the compiler and make the SDK useful beyond one hard-coded addon.
+            Copy-TreeContents (Join-Path $usr "include") $includeDest $name
+            Copy-TreeContents (Join-Path $usr "lib\pkgconfig") (Join-Path $libDest "pkgconfig") $name
+            Copy-TreeContents (Join-Path $usr "share\pkgconfig") (Join-Path $shareDest "pkgconfig") $name
+
+            # Preserve static archives, CRT objects and linker scripts. Shared
+            # ELF objects are handled above and relocated by Gradle.
+            $usrLib = Join-Path $usr "lib"
+            if (Test-Path -LiteralPath $usrLib -PathType Container) {
+                Get-ChildItem -LiteralPath $usrLib -File -Force -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '\.(a|o|ld)$' -or $_.Name -match '\.so$' } |
+                    ForEach-Object {
+                        # Real ELF .so files were already copied under SONAME.
+                        # Copy non-ELF linker scripts and all archives/objects.
+                        $dyn = if ($_.Name -match '\.so$') { Get-ElfDynamic $_.FullName } else { $null }
+                        if ($_.Name -notmatch '\.so$' -or -not $dyn) {
+                            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $libDest $_.Name) -Force
+                            $staged[("lib/" + $_.Name)] = $name
+                        }
+                    }
+            }
+
+            switch ($name) {
+                "nodejs" {
+                    Copy-TreeContents (Join-Path $usr "include\node") (Join-Path $includeDest "node") $name
+                }
+                "python" {
+                    Get-ChildItem (Join-Path $usr "bin") -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '^python\d+\.\d+$' } |
+                        ForEach-Object { Copy-Tool $_.FullName $name }
+                    Get-ChildItem (Join-Path $usr "lib") -Directory -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '^python\d+\.\d+$' } |
+                        ForEach-Object {
+                            Copy-TreeContents $_.FullName (Join-Path $libDest $_.Name) $name
+                        }
+                }
+                "make" {
+                    Copy-Tool (Join-Path $usr "bin\make") $name
+                }
+                "clang" {
+                    Get-ChildItem (Join-Path $usr "bin") -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '^clang-\d+$' } |
+                        Sort-Object Name |
+                        Select-Object -First 1 |
+                        ForEach-Object { Copy-Tool $_.FullName $name }
+                    Copy-TreeContents (Join-Path $usr "lib\clang") (Join-Path $libDest "clang") $name
+                }
+                "libcompiler-rt" {
+                    Copy-TreeContents (Join-Path $usr "lib\clang") (Join-Path $libDest "clang") $name
+                }
+                "llvm" {
+                    @("llvm-ar", "llvm-nm", "llvm-objcopy", "llvm-objdump", "llvm-readobj") |
+                        ForEach-Object { Copy-Tool (Join-Path $usr "bin\$_") $name }
+                }
+                "lld" {
+                    Copy-Tool (Join-Path $usr "bin\lld") $name
+                }
+                "pkg-config" {
+                    Copy-Tool (Join-Path $usr "bin\pkg-config") $name
+                }
+                "ndk-sysroot" {
+                    Copy-TreeContents (Join-Path $usr "lib") $libDest $name
+                }
+            }
+        }
     }
     Write-Host ("  [{0}/{1}] {2}: {3} lib(s)" -f $pkgNum, $closure.Count, $name, $cnt) -ForegroundColor DarkGray
     Remove-Item -Recurse -Force $ex -ErrorAction SilentlyContinue
@@ -352,7 +494,33 @@ if ($missing.Count -eq 0) {
     foreach ($m in ($missing.Keys | Sort-Object)) {
         Write-Host ("  {0}  <- needed by {1}" -f $m, (($missing[$m] | Select-Object -Unique) -join ', ')) -ForegroundColor Yellow
     }
-    Write-Host "Re-run with -Roots including the package(s) that provide the above." -ForegroundColor Yellow
+    throw "Runtime dependency closure is incomplete. Add the packages listed above to -Roots."
+}
+if ($stageToolchain) {
+    $requiredToolchainPaths = @(
+        "include\node\node.h",
+        "bin\make",
+        "bin\lld",
+        "bin\llvm-ar",
+        "bin\pkg-config"
+    )
+    $missingToolchainPaths = @(
+        $requiredToolchainPaths | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $runtimeDest $_) -PathType Leaf)
+        }
+    )
+    if (-not (Get-ChildItem -LiteralPath $binDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^python\d+\.\d+$' })) {
+        $missingToolchainPaths += "bin\python<major>.<minor>"
+    }
+    if (-not (Get-ChildItem -LiteralPath $binDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^clang-\d+$' })) {
+        $missingToolchainPaths += "bin\clang-<major>"
+    }
+    if ($missingToolchainPaths.Count -gt 0) {
+        throw "Toolchain staging is incomplete: $($missingToolchainPaths -join ', ')"
+    }
+    Write-Host "Staged $($staged.Count) toolchain paths (Python/Make/Clang/LLVM/sysroot)." -ForegroundColor Green
 }
 Write-Host ""
 Write-Host "Next: build a standalone APK (no PC needed to run):" -ForegroundColor Green

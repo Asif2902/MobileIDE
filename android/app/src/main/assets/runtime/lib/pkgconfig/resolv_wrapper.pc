@@ -1,0 +1,4 @@
+Name: resolv_wrapper
+Description: The resolv_wrapper library
+Version: 1.1.7
+Libs: /data/data/com.termux/files/usr/lib/libresolv_wrapper.so

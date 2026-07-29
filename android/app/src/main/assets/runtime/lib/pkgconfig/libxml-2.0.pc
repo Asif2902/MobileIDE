@@ -1,0 +1,13 @@
+prefix=/data/data/com.termux/files/usr
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+modules=1
+
+Name: libXML
+Description: libXML library version2.
+Version: 2.15.3
+Requires.private: zlib, icu-uc
+Libs: -L${libdir} -lxml2
+Libs.private: -lm -pthread -liconv
+Cflags: -I${includedir}/libxml2
