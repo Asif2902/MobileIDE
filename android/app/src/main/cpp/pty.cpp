@@ -262,8 +262,9 @@ Java_com_mobileide_app_pty_PtyProcess_nativeCheckAlive(
         }
         return -1;
     }
-    
-    return -1;
+
+    // ECHILD means another path already reaped it; treat it as terminated.
+    return errno == ECHILD ? 255 : -1;
 }
 
 /**
@@ -288,7 +289,11 @@ Java_com_mobileide_app_pty_PtyProcess_nativeWaitFor(
     jint pid
 ) {
     int status;
-    waitpid(pid, &status, 0);
+    int result;
+    do {
+        result = waitpid(pid, &status, 0);
+    } while (result < 0 && errno == EINTR);
+    if (result < 0) return errno == ECHILD ? 255 : -1;
     
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
@@ -308,5 +313,22 @@ Java_com_mobileide_app_pty_PtyProcess_nativeKill(
     jint pid,
     jint sig
 ) {
-    kill(pid, sig);
+    // forkpty creates a session/process group whose id is the child pid.
+    // Signal the whole terminal job; fall back to the direct child if needed.
+    if (kill(-pid, sig) != 0 && errno == ESRCH) {
+        kill(pid, sig);
+    }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_mobileide_app_process_ProcessSignals_nativeKillProcessGroup(
+    JNIEnv *env,
+    jobject thiz,
+    jint pid,
+    jint sig
+) {
+    if (pid <= 0) return JNI_FALSE;
+    if (kill(-pid, sig) == 0) return JNI_TRUE;
+    if (errno == ESRCH && kill(pid, sig) == 0) return JNI_TRUE;
+    return JNI_FALSE;
 }

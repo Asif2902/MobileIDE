@@ -4,12 +4,14 @@ const { ProcessNative } = NativeModules;
 
 export interface ProcessInfo {
   processId: number;
+  pid: number;
   command: string;
   cwd: string;
 }
 
 export interface ProcessDetails {
   id: number;
+  pid: number;
   command: string;
   cwd: string;
   startTime: number;

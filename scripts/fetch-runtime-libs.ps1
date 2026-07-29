@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Fetch the full Termux shared-library dependency closure for the embedded
-  aarch64 tools (node, git, bash, dropbear) and place the .so files into the
+  aarch64 tools (node, git, curl, bash, dropbear) and place the .so files into the
   runtime assets so the APK bundles them.
 
 .DESCRIPTION
@@ -47,7 +47,7 @@
 param(
     [string]$Base = "https://packages.termux.dev/apt/termux-main",
     [string[]]$Roots = @(
-        "nodejs", "git", "bash", "dropbear", "openssh",
+        "nodejs", "git", "curl", "bash", "dropbear", "openssh",
         "python", "make", "clang", "pkg-config"
     ),
     [switch]$SkipToolchainFiles
@@ -401,6 +401,9 @@ foreach ($name in ($closure | Sort-Object)) {
                 "make" {
                     Copy-Tool (Join-Path $usr "bin\make") $name
                 }
+                "curl" {
+                    Copy-Tool (Join-Path $usr "bin\curl") $name
+                }
                 "clang" {
                     Get-ChildItem (Join-Path $usr "bin") -File -ErrorAction SilentlyContinue |
                         Where-Object { $_.Name -match '^clang-\d+$' } |
@@ -499,6 +502,7 @@ if ($missing.Count -eq 0) {
 if ($stageToolchain) {
     $requiredToolchainPaths = @(
         "include\node\node.h",
+        "bin\curl",
         "bin\make",
         "bin\lld",
         "bin\llvm-ar",
@@ -520,7 +524,7 @@ if ($stageToolchain) {
     if ($missingToolchainPaths.Count -gt 0) {
         throw "Toolchain staging is incomplete: $($missingToolchainPaths -join ', ')"
     }
-    Write-Host "Staged $($staged.Count) toolchain paths (Python/Make/Clang/LLVM/sysroot)." -ForegroundColor Green
+    Write-Host "Staged $($staged.Count) runtime/toolchain paths (curl/Python/Make/Clang/LLVM/sysroot)." -ForegroundColor Green
 }
 Write-Host ""
 Write-Host "Next: build a standalone APK (no PC needed to run):" -ForegroundColor Green

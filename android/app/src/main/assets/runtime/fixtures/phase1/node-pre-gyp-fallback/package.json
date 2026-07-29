@@ -1,0 +1,21 @@
+{
+  "name": "adev-fixture-node-pre-gyp-fallback",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "gypfile": true,
+  "dependencies": {
+    "@mapbox/node-pre-gyp": "^1.0.11"
+  },
+  "binary": {
+    "module_name": "addon",
+    "module_path": "./build/Release",
+    "host": "https://127.0.0.1:9",
+    "remote_path": "./{name}/v{version}",
+    "package_name": "{node_abi}-{platform}-{arch}.tar.gz"
+  },
+  "scripts": {
+    "install": "node-pre-gyp install --fallback-to-build",
+    "test": "node test.js"
+  }
+}

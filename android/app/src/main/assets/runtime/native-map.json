@@ -234,5 +234,6 @@
     "lib/python3.14/lib-dynload/_testsinglephase.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_testsinglephase_cpython_314_aarch64_linux_android_so.so",
     "lib/python3.14/lib-dynload/_xxtestfuzz.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_xxtestfuzz_cpython_314_aarch64_linux_android_so.so",
     "lib/python3.14/lib-dynload/_zoneinfo.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_zoneinfo_cpython_314_aarch64_linux_android_so.so",
-    "lib/python3.14/lib-dynload/_zstd.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_zstd_cpython_314_aarch64_linux_android_so.so"
+    "lib/python3.14/lib-dynload/_zstd.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_zstd_cpython_314_aarch64_linux_android_so.so",
+    "bin/curl": "libbin_curl.so"
 }

@@ -28,6 +28,24 @@ export interface VersionInfo {
   packageName: string;
 }
 
+export interface RuntimeCapabilities {
+  runtimeVersion: string;
+  platform: 'android';
+  libc: 'bionic';
+  abi: string;
+  androidApi: number;
+  packageResolutionOrder: Array<
+    'android-bionic' | 'verified-static-or-musl' | 'source-build' | 'unsupported'
+  >;
+  commands: Record<string, boolean>;
+  nativeBuildReady: boolean;
+  npmLifecycleReady: boolean;
+  termuxExecReady: boolean;
+  privateWorkspaceExecution: boolean;
+  sharedWorkspaceExecution: boolean;
+  globalPlatformSpoof: false;
+}
+
 export interface RuntimeProgressEvent {
   message: string;
   progress: number;
@@ -42,6 +60,7 @@ export interface MobileIDENativeInterface {
   resolvePath(virtualPath: string): Promise<string>;
   toVirtualPath(realPath: string): Promise<string>;
   getEnvironment(): Promise<Record<string, string>>;
+  getRuntimeCapabilities(): Promise<RuntimeCapabilities>;
   getVersionInfo(): Promise<VersionInfo>;
   /** Open http(s) URL in the system browser (dev-server preview). */
   openUrl(url: string): Promise<boolean>;

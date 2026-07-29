@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "host": {
+    "platform": "android",
+    "libc": "bionic",
+    "architectures": ["arm64"]
+  },
+  "resolutionOrder": [
+    "android-bionic",
+    "verified-static-or-musl",
+    "source-build",
+    "unsupported"
+  ],
+  "verifiedLinuxArtifacts": [],
+  "sourceBuild": {
+    "enabled": true,
+    "requires": ["python", "make", "clang", "node-headers"]
+  },
+  "unsupportedMessage": "No Android/Bionic artifact, verified static or musl artifact, or supported source build is available. A glibc Linux binary will not run on Android."
+}

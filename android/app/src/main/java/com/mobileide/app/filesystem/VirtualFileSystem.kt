@@ -23,39 +23,48 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
     /**
      * Resolve a virtual path to a real file, ensuring it's within the sandbox
      */
-    private fun resolvePath(virtualPath: String): File {
+    private fun resolvePath(virtualPath: String, write: Boolean = false): File {
         val realPath = runtimeManager.resolveVirtualPath(virtualPath)
-        val file = File(realPath)
-        
-        // Security check: allow the runtime sandbox, the read-only system tree,
-        // and (when the user has granted all-files access) real external storage
-        // so CLI tools and the editor can operate on real project folders.
-        //
-        // Compare canonical paths on both sides. context.filesDir reports the
-        // /data/user/0/<pkg> path, but File.canonicalPath resolves the
-        // /data/user/0 -> /data/data symlink, so a raw startsWith check wrongly
-        // rejects every runtime path as "outside sandbox".
-        val canonicalPath = file.canonicalPath
-        val runtimeRoot = try {
-            File(runtimeManager.getRuntimeRoot()).canonicalPath
-        } catch (e: IOException) {
-            runtimeManager.getRuntimeRoot()
-        }
-        val allowedPrefixes = listOf(
-            runtimeRoot,
-            "/system",
-            "/storage",
-            "/sdcard",
-            "/mnt",
-            "/data/data",
-            "/data/user"
+        val file = PathPolicy.canonical(File(realPath))
+        val runtimeRoot = File(runtimeManager.getRuntimeRoot())
+        val protectedRoots = listOf(
+            File(runtimeManager.getBinDir()),
+            File(runtimeManager.getLibDir())
         )
-        
-        if (allowedPrefixes.none { canonicalPath.startsWith(it) }) {
-            throw SecurityException("Access denied: path outside sandbox")
+
+        if (PathPolicy.isWithin(file, runtimeRoot)) {
+            if (write && protectedRoots.any { PathPolicy.isWithin(file, it) }) {
+                throw SecurityException("Access denied: protected runtime path")
+            }
+            return file
         }
-        
-        return file
+
+        val readOnlySystemRoots = listOf(File("/system"), File("/apex"))
+        if (readOnlySystemRoots.any { PathPolicy.isWithin(file, it) }) {
+            if (write) throw SecurityException("Access denied: system path is read-only")
+            return file
+        }
+
+        // External access is limited to user-visible volumes. Never grant the
+        // broad /mnt, /data/data, or /data/user prefixes.
+        val sharedRoots = mutableListOf(File("/storage/emulated/0"), File("/sdcard"))
+        File("/storage").listFiles()
+            ?.filter { it.name.matches(Regex("""[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}""")) }
+            ?.let(sharedRoots::addAll)
+        File("/mnt/media_rw").listFiles()
+            ?.filter { it.name.matches(Regex("""[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}""")) }
+            ?.let(sharedRoots::addAll)
+        if (sharedRoots.any {
+                try {
+                    PathPolicy.isWithin(file, it)
+                } catch (_: IOException) {
+                    false
+                }
+            }) {
+            return file
+        }
+
+        throw SecurityException("Access denied: path outside approved roots")
     }
 
     /**
@@ -120,7 +129,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Write content to file
      */
     fun writeFile(virtualPath: String, content: String) {
-        val file = resolvePath(virtualPath)
+        val file = resolvePath(virtualPath, write = true)
         
         // Create parent directories if needed
         file.parentFile?.mkdirs()
@@ -133,7 +142,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Write base64 content to file
      */
     fun writeFileBase64(virtualPath: String, base64Content: String) {
-        val file = resolvePath(virtualPath)
+        val file = resolvePath(virtualPath, write = true)
         file.parentFile?.mkdirs()
         
         val bytes = android.util.Base64.decode(base64Content, android.util.Base64.NO_WRAP)
@@ -144,7 +153,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Append content to file
      */
     fun appendFile(virtualPath: String, content: String) {
-        val file = resolvePath(virtualPath)
+        val file = resolvePath(virtualPath, write = true)
         file.parentFile?.mkdirs()
         file.appendText(content, Charsets.UTF_8)
     }
@@ -153,7 +162,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Create directory
      */
     fun mkdir(virtualPath: String, recursive: Boolean = true) {
-        val dir = resolvePath(virtualPath)
+        val dir = resolvePath(virtualPath, write = true)
         
         val success = if (recursive) dir.mkdirs() else dir.mkdir()
         if (!success && !dir.exists()) {
@@ -165,7 +174,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Create empty file
      */
     fun touch(virtualPath: String) {
-        val file = resolvePath(virtualPath)
+        val file = resolvePath(virtualPath, write = true)
         file.parentFile?.mkdirs()
         
         if (!file.exists()) {
@@ -179,8 +188,8 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Rename/move file or directory
      */
     fun rename(oldPath: String, newPath: String) {
-        val oldFile = resolvePath(oldPath)
-        val newFile = resolvePath(newPath)
+        val oldFile = resolvePath(oldPath, write = true)
+        val newFile = resolvePath(newPath, write = true)
         
         if (!oldFile.exists()) {
             throw IOException("Source not found: $oldPath")
@@ -198,7 +207,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      */
     fun copy(sourcePath: String, destPath: String) {
         val source = resolvePath(sourcePath)
-        val dest = resolvePath(destPath)
+        val dest = resolvePath(destPath, write = true)
         
         if (!source.exists()) {
             throw IOException("Source not found: $sourcePath")
@@ -211,20 +220,10 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Delete file or directory
      */
     fun delete(virtualPath: String, recursive: Boolean = true) {
-        val file = resolvePath(virtualPath)
+        val file = resolvePath(virtualPath, write = true)
         
         if (!file.exists()) {
             return // Already deleted
-        }
-        
-        // Prevent deleting protected directories
-        val protectedPaths = listOf(
-            runtimeManager.getBinDir(),
-            runtimeManager.getLibDir()
-        )
-        
-        if (protectedPaths.any { file.absolutePath.startsWith(it) }) {
-            throw SecurityException("Cannot delete protected runtime files")
         }
         
         val success = if (recursive) file.deleteRecursively() else file.delete()

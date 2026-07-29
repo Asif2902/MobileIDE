@@ -1,0 +1,11 @@
+{
+  "name": "adev-fixture-napi-cpp",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node test.js"
+  }
+}

@@ -174,6 +174,36 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
     }
 
     /**
+     * Report runtime capabilities without exposing credentials or mutable paths.
+     */
+    @ReactMethod
+    fun getRuntimeCapabilities(promise: Promise) {
+        try {
+            val capabilities = getRuntimeManager(reactApplicationContext).getCapabilities()
+            val commands = Arguments.createMap().apply {
+                capabilities.commands.forEach { (name, ready) -> putBoolean(name, ready) }
+            }
+            promise.resolve(Arguments.createMap().apply {
+                putString("runtimeVersion", capabilities.runtimeVersion)
+                putString("platform", capabilities.platform)
+                putString("libc", capabilities.libc)
+                putString("abi", capabilities.abi)
+                putInt("androidApi", capabilities.androidApi)
+                putArray("packageResolutionOrder", Arguments.fromList(capabilities.packageResolutionOrder))
+                putMap("commands", commands)
+                putBoolean("nativeBuildReady", capabilities.nativeBuildReady)
+                putBoolean("npmLifecycleReady", capabilities.npmLifecycleReady)
+                putBoolean("termuxExecReady", capabilities.termuxExecReady)
+                putBoolean("privateWorkspaceExecution", capabilities.privateWorkspaceExecution)
+                putBoolean("sharedWorkspaceExecution", capabilities.sharedWorkspaceExecution)
+                putBoolean("globalPlatformSpoof", capabilities.globalPlatformSpoof)
+            })
+        } catch (e: Exception) {
+            promise.reject("CAPABILITIES_ERROR", e.message, e)
+        }
+    }
+
+    /**
      * Get app version info
      */
     @ReactMethod

@@ -13,7 +13,8 @@ import java.io.IOException
 
 /**
  * RuntimeManager handles extraction and management of the bundled developer runtime.
- * The runtime includes Node.js, Bash, Git, and core utilities for ARM64 Android.
+ * The runtime includes Node.js, Bash, Git, curl, and native build utilities for
+ * ARM64 Android.
  *
  * Execution model
  * ---------------
@@ -44,7 +45,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.11.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.12.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.
@@ -161,7 +162,7 @@ class RuntimeManager(private val context: Context) {
 
         onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
-        setupPlatformSpoof()
+        setupRuntimePolicy()
         setupShellWrappers()
         setupNpmrc()
 
@@ -448,8 +449,12 @@ class RuntimeManager(private val context: Context) {
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
+            val curl = File(nativeLibDir, "libbin_curl.so")
             val clangResourceDir = findClangResourceDir()
             val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
+            val doctor = File(libDir, "adev-doctor.js")
+            val packageResolver = File(libDir, "adev-package-resolver.js")
+            val phase1Test = File(libDir, "adev-phase1-test.js")
             val hasBusybox = File(nativeLibDir, "libbin_busybox.so").exists()
             val hasNode = File(nativeLibDir, "libbin_node.so").exists()
             val hasGit = File(nativeLibDir, "libbin_git.so").exists()
@@ -534,6 +539,9 @@ class RuntimeManager(private val context: Context) {
             }
             lld?.let { sb.appendLine("ld.lld() { \"${it.absolutePath}\" \"\$@\"; }") }
             pkgConfig?.let { sb.appendLine("pkg-config() { \"${it.absolutePath}\" \"\$@\"; }") }
+            if (curl.exists()) {
+                sb.appendLine("curl() { \"${curl.absolutePath}\" \"\$@\"; }")
+            }
             if (python != null || make != null || clang != null) sb.appendLine()
             if (hasGit) {
                 sb.appendLine("git() { \"$git\" \"\$@\"; }")
@@ -576,15 +584,17 @@ class RuntimeManager(private val context: Context) {
             sb.appendLine("}")
             sb.appendLine()
 
-            sb.appendLine("adev-doctor() {")
-            sb.appendLine("  echo \"node \$(node -v 2>/dev/null)  npm \$(npm -v 2>/dev/null)\"")
-            sb.appendLine("  echo \"git \$(git --version 2>/dev/null | head -c 40)\"")
-            sb.appendLine("  echo \"python \$(python --version 2>&1)\"")
-            sb.appendLine("  echo \"make \$(make --version 2>/dev/null | head -n 1)\"")
-            sb.appendLine("  echo \"clang \$(clang --version 2>/dev/null | head -n 1)\"")
-            sb.appendLine("  [ -f \"\$PREFIX/include/node/node_version.h\" ] && echo \"node headers: ready\" || echo \"node headers: missing\"")
-            sb.appendLine("  echo \"run: adev-run-web | adev-run-api | adev-dev\"")
-            sb.appendLine("}")
+            if (hasNode && doctor.exists()) {
+                sb.appendLine("adev-doctor() { \"$node\" \"${doctor.absolutePath}\" \"\$@\"; }")
+            }
+            if (hasNode && packageResolver.exists()) {
+                sb.appendLine(
+                    "adev-resolve-package() { \"$node\" \"${packageResolver.absolutePath}\" \"\$@\"; }"
+                )
+            }
+            if (hasNode && phase1Test.exists()) {
+                sb.appendLine("adev-phase1-test() { \"$node\" \"${phase1Test.absolutePath}\" \"\$@\"; }")
+            }
 
             val out = File(homeDir, ".adev-wrappers")
             out.writeText(sb.toString())
@@ -609,19 +619,24 @@ class RuntimeManager(private val context: Context) {
             if (hasBusybox) {
                 agentEnv.appendLine("export MOBILEIDE_BUSYBOX=\"$busybox\"")
             }
+            if (curl.exists()) {
+                agentEnv.appendLine("export MOBILEIDE_CURL=\"${curl.absolutePath}\"")
+            }
             agentEnv.appendLine("export HOST=0.0.0.0")
             agentEnv.appendLine("export HOSTNAME=0.0.0.0")
             agentEnv.appendLine("export BROWSER=none")
             agentEnv.appendLine("export CHOKIDAR_USEPOLLING=true")
             agentEnv.appendLine("export WATCHPACK_POLLING=true")
-            agentEnv.appendLine("export npm_config_platform=linux")
+            agentEnv.appendLine("export npm_config_platform=android")
             agentEnv.appendLine("export npm_config_arch=arm64")
+            agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
+            agentEnv.appendLine("export ADEV_PLATFORM_SPOOF=disabled")
             appendToolchainEnvironment(agentEnv, exportPrefix = "export ")
             agentEnv.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
             agentEnv.appendLine("[ -f \"\$HOME/.adev-wrappers\" ] && . \"\$HOME/.adev-wrappers\"")
             agentEnv.appendLine(
-                "[ -f \"\$PREFIX/lib/adev-platform-spoof.js\" ] && " +
-                    "export NODE_OPTIONS=\"--require \$PREFIX/lib/adev-platform-spoof.js \${'$'}{NODE_OPTIONS:-}\""
+                "[ -f \"\$PREFIX/lib/adev-runtime-policy.js\" ] && " +
+                    "export NODE_OPTIONS=\"--require \$PREFIX/lib/adev-runtime-policy.js \${'$'}{NODE_OPTIONS:-}\""
             )
             File(homeDir, ".adev-agent-env").writeText(agentEnv.toString())
 
@@ -680,10 +695,15 @@ class RuntimeManager(private val context: Context) {
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
+            val curl = File(nativeLibDir, "libbin_curl.so")
             val clangResourceDir = findClangResourceDir()
             val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
             val npxCli = File(libDir, "node_modules/npm/bin/npx-cli.js")
             val corepackJs = File(libDir, "node_modules/corepack/dist/corepack.js")
+            val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
+            val doctor = File(libDir, "adev-doctor.js")
+            val packageResolver = File(libDir, "adev-package-resolver.js")
+            val phase1Test = File(libDir, "adev-phase1-test.js")
 
             binDir.setWritable(true, false)
 
@@ -718,11 +738,35 @@ class RuntimeManager(private val context: Context) {
                         "#!/system/bin/sh\nexec \"$n\" \"${npxCli.absolutePath}\" \"\$@\"\n"
                     )
                 }
+                if (nodeGyp.exists()) {
+                    writeScript(
+                        "node-gyp",
+                        "#!/system/bin/sh\nexec \"$n\" \"${nodeGyp.absolutePath}\" \"\$@\"\n"
+                    )
+                }
                 if (corepackJs.exists()) {
                     val c = corepackJs.absolutePath
                     writeScript("corepack", "#!/system/bin/sh\nexec \"$n\" \"$c\" \"\$@\"\n")
                     writeScript("yarn", "#!/system/bin/sh\nexec \"$n\" \"$c\" yarn \"\$@\"\n")
                     writeScript("pnpm", "#!/system/bin/sh\nexec \"$n\" \"$c\" pnpm \"\$@\"\n")
+                }
+                if (doctor.exists()) {
+                    writeScript(
+                        "adev-doctor",
+                        "#!/system/bin/sh\nexec \"$n\" \"${doctor.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (packageResolver.exists()) {
+                    writeScript(
+                        "adev-resolve-package",
+                        "#!/system/bin/sh\nexec \"$n\" \"${packageResolver.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (phase1Test.exists()) {
+                    writeScript(
+                        "adev-phase1-test",
+                        "#!/system/bin/sh\nexec \"$n\" \"${phase1Test.absolutePath}\" \"\$@\"\n"
+                    )
                 }
             }
             if (git.exists()) {
@@ -775,6 +819,9 @@ class RuntimeManager(private val context: Context) {
             }
             pkgConfig?.let {
                 writeScript("pkg-config", "#!/system/bin/sh\nexec \"${it.absolutePath}\" \"\$@\"\n")
+            }
+            if (curl.exists()) {
+                writeScript("curl", "#!/system/bin/sh\nexec \"${curl.absolutePath}\" \"\$@\"\n")
             }
 
             Log.i(TAG, "PATH trampolines written under ${binDir.absolutePath}")
@@ -959,40 +1006,21 @@ class RuntimeManager(private val context: Context) {
     }
 
     /**
-     * Ensure the platform-spoof preload script is present under the runtime
-     * tree (copied from assets, or written if missing). Used via NODE_OPTIONS.
+     * Activate the package capability policy without falsifying process.platform.
+     * A stale preload from runtime v1.11 is removed during upgrades so packages
+     * see Android/Bionic unless an artifact is explicitly verified by policy.
      */
-    private fun setupPlatformSpoof() {
-        try {
-            val dest = File(libDir, "adev-platform-spoof.js")
-            dest.parentFile?.mkdirs()
-            // Prefer the asset shipped in the APK (updated on each runtime extract).
-            val assetPath = "runtime/lib/adev-platform-spoof.js"
-            try {
-                context.assets.open(assetPath).use { input ->
-                    FileOutputStream(dest).use { output -> input.copyTo(output) }
-                }
-            } catch (_: Exception) {
-                if (!dest.exists()) {
-                    dest.writeText(
-                        """
-                        try{
-                          Object.defineProperty(process,'platform',{get:function(){return 'linux'}});
-                          Object.defineProperty(process,'arch',{get:function(){return 'arm64'}});
-                          var os=require('os');
-                          os.platform=function(){return 'linux'};
-                          os.arch=function(){return 'arm64'};
-                          os.type=function(){return 'Linux'};
-                          process.adevPlatformSpoof='linux-arm64';
-                        }catch(e){}
-                        """.trimIndent()
-                    )
-                }
-            }
-            Log.i(TAG, "Platform spoof ready: ${dest.absolutePath}")
-        } catch (e: Exception) {
-            Log.w(TAG, "setupPlatformSpoof failed: ${e.message}")
+    private fun setupRuntimePolicy() {
+        val legacySpoof = File(libDir, "adev-platform-spoof.js")
+        if (legacySpoof.exists() && !legacySpoof.delete()) {
+            Log.w(TAG, "Could not remove legacy platform spoof: ${legacySpoof.absolutePath}")
         }
+        val policy = File(libDir, "adev-runtime-policy.json")
+        val preload = File(libDir, "adev-runtime-policy.js")
+        if (!policy.isFile || !preload.isFile) {
+            throw IOException("Runtime package capability policy is missing")
+        }
+        Log.i(TAG, "Android/Bionic package policy ready: ${policy.absolutePath}")
     }
 
     /**
@@ -1012,12 +1040,12 @@ class RuntimeManager(private val context: Context) {
                 update-notifier=false
                 # Run lifecycle scripts through our noexec-safe trampoline.
                 script-shell=${scriptShell}
-                # Pretend we are linux/arm64 so optional platform packages resolve
-                # (opencode, codex, esbuild, …) instead of missing *-android-arm64.
-                platform=linux
+                # Keep the true Android/Bionic identity. Native packages use a
+                # verified Android artifact or compile through the bundled stack.
+                platform=android
                 arch=arm64
                 # Allow optionalDependencies (needed for platform binary packages).
-                # Pure-JS fallbacks still apply when a native optional fails.
+                # Unsupported optional binaries may fail without aborting install.
                 optional=true
                 fetch-retries=3
                 fetch-retry-mintimeout=20000
@@ -1032,14 +1060,20 @@ class RuntimeManager(private val context: Context) {
                 """
                 # A Dev Studio runtime notes
 
-                ## Platform identity (linux arm64 spoof)
-                Node and npm report **linux / arm64** (not android) so CLI tools
-                install the same optional packages as Linux aarch64:
+                ## Platform and package capability policy
+                Node and npm report their real **android / arm64** host:
 
                     node -p "process.platform + ' ' + process.arch"
-                    # => linux arm64
+                    # => android arm64
 
-                This is intentional. Check: `node -p "process.adevPlatformSpoof"`
+                Resolution order is Android/Bionic artifact, verified static or
+                musl artifact, source build, then an actionable unsupported error.
+                Linux/glibc binaries are never selected by a global platform spoof.
+
+                Check:
+                    adev-doctor --verbose
+                    adev-doctor --json
+                    adev-resolve-package --package <name> --version <version> --json
 
                 ## Linux tools (agents + terminal)
                 - /system/bin toybox first (ls, cat, cp, …)
@@ -1060,7 +1094,7 @@ class RuntimeManager(private val context: Context) {
 
                 ## Frontend / backend (essentials)
                 Env is set for device servers:
-                  HOST=0.0.0.0  CHOKIDAR_USEPOLLING=true  BROWSER=none
+                  HOST=0.0.0.0  BROWSER=none
 
                 Seed projects (created once under workspaces/):
                   demo-web   Vite frontend   → npm install && npm run dev  (port 5173)
@@ -1077,26 +1111,20 @@ class RuntimeManager(private val context: Context) {
                   ProcessNative.getProcesses / kill / getActivePorts
 
                 Non-interactive shell (OpenCode binary / any child):
-                  BASH_ENV=${'$'}HOME/.adev-agent-env   # auto-loads wrappers + spoof
+                  BASH_ENV=${'$'}HOME/.adev-agent-env   # auto-loads wrappers + policy
                   SHELL=…/libbin_bash.so
                   . "${'$'}HOME/.adev-agent-env"         # if you start a bare sh
 
                 ## What works
-                - node, npm, npx, corepack (yarn/pnpm via corepack)
-                - git (HTTPS), busybox applets, pure JS packages
-                - Many prebuilt **linux-arm64** optional deps (esbuild via Vite, etc.)
+                - node, npm, npx, git HTTPS, curl HTTPS and BusyBox applets
+                - node-gyp, Python, Make, Clang/LLD and bundled Node headers
                 - Lifecycle scripts via adev-npm-shell (noexec-safe)
+                - Native source builds with 16 KiB ELF alignment
                 - Background builds / servers via ProcessNative
 
-                ## CLI agents (OpenCode, Codex, …)
-                - Use full getEnvironment() from the app (LD_PRELOAD, BASH_ENV, NODE_OPTIONS)
-                - Prefer linux-arm64 optional packages; static/musl builds work best
-                - Downloadable binary install is optional (keeps base APK small)
-                - When the agent runs tools, prefer `bash -c` or ProcessNative.runShell
-
-                ## What still fails
-                - Packages that must **compile** native code (node-gyp / python / gcc)
-                - glibc-only linux binaries that cannot load on Android bionic
+                ## Capability boundary
+                A glibc-only Linux binary without an Android, verified static/musl,
+                or source-build path is unsupported and diagnosed explicitly.
                 """.trimIndent() + "\n"
             )
         } catch (e: Exception) {
@@ -1468,6 +1496,56 @@ class RuntimeManager(private val context: Context) {
     fun getEtcDir(): String = etcDir.absolutePath
     fun getNativeLibDir(): String = context.applicationInfo.nativeLibraryDir
 
+    fun getCapabilities(): RuntimeCapabilities {
+        val commandReadiness = linkedMapOf(
+            "node" to File(nativeLibDir, "libbin_node.so").isFile,
+            "npm" to File(libDir, "node_modules/npm/bin/npm-cli.js").isFile,
+            "npx" to File(libDir, "node_modules/npm/bin/npx-cli.js").isFile,
+            "node-gyp" to File(
+                libDir,
+                "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+            ).isFile,
+            "python" to (findNativeTool("libbin_python", ".so") != null),
+            "make" to (findNativeTool("libbin_make", ".so") != null),
+            "clang" to (findNativeTool("libbin_clang_", ".so") != null),
+            "lld" to (findNativeTool("libbin_lld", ".so") != null),
+            "git" to File(nativeLibDir, "libbin_git.so").isFile,
+            "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
+            "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
+            "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile
+        )
+        val nativeBuildReady = listOf(
+            "node-gyp", "python", "make", "clang", "lld"
+        ).all { commandReadiness[it] == true } &&
+            File(runtimeRoot, "include/node/node.h").isFile
+        val npmShell = File(nativeLibDir, "libbin_adev_npm_shell.so")
+        val termuxExec = listOf(
+            "liblib_libtermux_exec_linker_ld_preload_so.so",
+            "liblib_libtermux_exec_direct_ld_preload_so.so"
+        ).any { File(nativeLibDir, it).isFile }
+
+        return RuntimeCapabilities(
+            runtimeVersion = CURRENT_RUNTIME_VERSION,
+            platform = "android",
+            libc = "bionic",
+            abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown",
+            androidApi = Build.VERSION.SDK_INT,
+            packageResolutionOrder = listOf(
+                "android-bionic",
+                "verified-static-or-musl",
+                "source-build",
+                "unsupported"
+            ),
+            commands = commandReadiness,
+            nativeBuildReady = nativeBuildReady,
+            npmLifecycleReady = npmShell.isFile,
+            termuxExecReady = termuxExec,
+            privateWorkspaceExecution = true,
+            sharedWorkspaceExecution = false,
+            globalPlatformSpoof = false
+        )
+    }
+
     /**
      * Get the environment map for process execution
      */
@@ -1517,14 +1595,15 @@ class RuntimeManager(private val context: Context) {
             "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
             "NPM_CONFIG_FUND" to "false",
             "NPM_CONFIG_AUDIT" to "false",
-            // Allow optionalDependencies (platform binary packages for CLIs).
+            // Allow optionalDependencies. Installers can try an Android artifact
+            // before falling through to the bundled source-build stack.
             "NPM_CONFIG_OPTIONAL" to "true",
-            // Force npm's package resolution to linux/arm64 (not android).
-            "npm_config_platform" to "linux",
+            // Preserve the real Android/Bionic host. Never globally spoof Linux.
+            "npm_config_platform" to "android",
             "npm_config_arch" to "arm64",
-            "npm_config_target_platform" to "linux",
+            "npm_config_target_platform" to "android",
             "npm_config_target_arch" to "arm64",
-            "NPM_CONFIG_PLATFORM" to "linux",
+            "NPM_CONFIG_PLATFORM" to "android",
             "NPM_CONFIG_ARCH" to "arm64",
             "USER" to "root",
             "LOGNAME" to "root",
@@ -1553,6 +1632,13 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_GIT" to File(nativeLibDir, "libbin_git.so").absolutePath,
             "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
             "MOBILEIDE_BUSYBOX" to File(nativeLibDir, "libbin_busybox.so").absolutePath,
+            "MOBILEIDE_CURL" to File(nativeLibDir, "libbin_curl.so").absolutePath,
+            "ADEV_RUNTIME_VERSION" to CURRENT_RUNTIME_VERSION,
+            "ADEV_APP_VERSION" to appVersionName(),
+            "ADEV_ABI" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"),
+            "ADEV_NATIVE_BUILD_API" to NATIVE_BUILD_API.toString(),
+            "ADEV_PACKAGE_POLICY_FILE" to File(libDir, "adev-runtime-policy.json").absolutePath,
+            "ADEV_PLATFORM_SPOOF" to "disabled",
             // ---- Dev-server essentials (frontend + backend on device) ----
             // Bind all interfaces so the in-app browser / phone can hit the server.
             "HOST" to "0.0.0.0",
@@ -1564,16 +1650,13 @@ class RuntimeManager(private val context: Context) {
             "CHOKIDAR_USEPOLLING" to "true",
             "CHOKIDAR_INTERVAL" to "1000",
             "WATCHPACK_POLLING" to "true",
-            // Quieter npm on small terminals (less trash scrolling off-screen)
-            "FORCE_COLOR" to "0",
-            "NO_COLOR" to "1",
+            // Keep npm progress bounded without falsifying TTY/CI behavior.
             "NPM_CONFIG_PROGRESS" to "false",
             "NPM_CONFIG_LOGLEVEL" to "warn",
             "npm_config_progress" to "false",
             "npm_config_loglevel" to "warn",
             // Vite / webpack friendliness
-            "VITE_CJS_IGNORE_WARNING" to "true",
-            "CI" to "true"
+            "VITE_CJS_IGNORE_WARNING" to "true"
         )
 
         // termux-exec >=2 requires the actual host app/rootfs contract. Without
@@ -1615,17 +1698,22 @@ class RuntimeManager(private val context: Context) {
         if (File(runtimeRoot, "include/node").isDirectory) {
             env["npm_config_nodedir"] = runtimeRoot.absolutePath
         }
+        val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
+        if (nodeGyp.isFile) {
+            env["npm_config_node_gyp"] = nodeGyp.absolutePath
+            env["NPM_CONFIG_NODE_GYP"] = nodeGyp.absolutePath
+        }
         env["PKG_CONFIG_PATH"] =
             "${libDir.absolutePath}/pkgconfig:${runtimeRoot.absolutePath}/share/pkgconfig"
 
-        // Every node process (npm, npx, CLIs) loads the platform spoof first.
-        val spoof = File(libDir, "adev-platform-spoof.js")
-        if (spoof.exists()) {
-            val requireFlag = "--require ${spoof.absolutePath}"
+        // Load capability metadata into Node without changing process.platform.
+        val runtimePolicy = File(libDir, "adev-runtime-policy.js")
+        if (runtimePolicy.exists()) {
+            val requireFlag = "--require ${runtimePolicy.absolutePath}"
             val existing = env["NODE_OPTIONS"]?.trim().orEmpty()
             env["NODE_OPTIONS"] = if (existing.isEmpty()) {
                 requireFlag
-            } else if (existing.contains("adev-platform-spoof")) {
+            } else if (existing.contains("adev-runtime-policy")) {
                 existing
             } else {
                 "$requireFlag $existing"
@@ -1667,35 +1755,53 @@ class RuntimeManager(private val context: Context) {
         return env
     }
 
+    private fun appVersionName(): String =
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
+
     /**
      * Convert virtual path to real path
      */
     fun resolveVirtualPath(virtualPath: String): String {
-        return when {
-            virtualPath == VIRTUAL_ROOT -> runtimeRoot.absolutePath
-            virtualPath.startsWith(VIRTUAL_BIN) -> virtualPath.replace(VIRTUAL_BIN, binDir.absolutePath)
-            virtualPath.startsWith(VIRTUAL_HOME) -> virtualPath.replace(VIRTUAL_HOME, homeDir.absolutePath)
-            virtualPath.startsWith(VIRTUAL_WORKSPACES) -> virtualPath.replace(VIRTUAL_WORKSPACES, workspacesDir.absolutePath)
-            virtualPath.startsWith(VIRTUAL_TMP) -> virtualPath.replace(VIRTUAL_TMP, tmpDir.absolutePath)
-            virtualPath.startsWith(VIRTUAL_CACHE) -> virtualPath.replace(VIRTUAL_CACHE, cacheDir.absolutePath)
-            virtualPath.startsWith(VIRTUAL_ROOT) -> virtualPath.replace(VIRTUAL_ROOT, runtimeRoot.absolutePath)
-            else -> virtualPath
+        val mappings = listOf(
+            VIRTUAL_BIN to binDir.absolutePath,
+            VIRTUAL_HOME to homeDir.absolutePath,
+            VIRTUAL_WORKSPACES to workspacesDir.absolutePath,
+            VIRTUAL_TMP to tmpDir.absolutePath,
+            VIRTUAL_CACHE to cacheDir.absolutePath,
+            VIRTUAL_ROOT to runtimeRoot.absolutePath
+        )
+        mappings.forEach { (virtualRoot, realRoot) ->
+            remapPath(virtualPath, virtualRoot, realRoot, "/")?.let { return it }
         }
+        return virtualPath
     }
 
     /**
      * Convert real path to virtual path
      */
     fun toVirtualPath(realPath: String): String {
-        return when {
-            realPath == runtimeRoot.absolutePath -> VIRTUAL_ROOT
-            realPath.startsWith(binDir.absolutePath) -> realPath.replace(binDir.absolutePath, VIRTUAL_BIN)
-            realPath.startsWith(homeDir.absolutePath) -> realPath.replace(homeDir.absolutePath, VIRTUAL_HOME)
-            realPath.startsWith(workspacesDir.absolutePath) -> realPath.replace(workspacesDir.absolutePath, VIRTUAL_WORKSPACES)
-            realPath.startsWith(tmpDir.absolutePath) -> realPath.replace(tmpDir.absolutePath, VIRTUAL_TMP)
-            realPath.startsWith(cacheDir.absolutePath) -> realPath.replace(cacheDir.absolutePath, VIRTUAL_CACHE)
-            realPath.startsWith(runtimeRoot.absolutePath) -> realPath.replace(runtimeRoot.absolutePath, VIRTUAL_ROOT)
-            else -> realPath
+        val mappings = listOf(
+            binDir.absolutePath to VIRTUAL_BIN,
+            homeDir.absolutePath to VIRTUAL_HOME,
+            workspacesDir.absolutePath to VIRTUAL_WORKSPACES,
+            tmpDir.absolutePath to VIRTUAL_TMP,
+            cacheDir.absolutePath to VIRTUAL_CACHE,
+            runtimeRoot.absolutePath to VIRTUAL_ROOT
+        )
+        mappings.forEach { (realRoot, virtualRoot) ->
+            remapPath(realPath, realRoot, virtualRoot, File.separator)?.let { return it }
         }
+        return realPath
     }
+
+    private fun remapPath(path: String, fromRoot: String, toRoot: String, separator: String): String? =
+        when {
+            path == fromRoot -> toRoot
+            path.startsWith("$fromRoot$separator") -> toRoot + path.substring(fromRoot.length)
+            else -> null
+        }
 }

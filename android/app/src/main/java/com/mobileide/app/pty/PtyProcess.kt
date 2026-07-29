@@ -31,8 +31,10 @@ class PtyProcess(
         }
     }
 
-    private var isAlive = true
-    private var exitCode: Int? = null
+    private val stateLock = Any()
+    @Volatile private var isAlive = true
+    @Volatile private var isClosed = false
+    @Volatile private var exitCode: Int? = null
 
     // Native methods implemented in C++
     external fun nativeClose(fd: Int)
@@ -78,13 +80,15 @@ class PtyProcess(
      * Check if the process is still running
      */
     fun isProcessAlive(): Boolean {
-        if (!isAlive) return false
-        val status = nativeCheckAlive(pid)
-        if (status >= 0) {
-            isAlive = false
-            exitCode = status
+        synchronized(stateLock) {
+            if (!isAlive || isClosed) return false
+            val status = nativeCheckAlive(pid)
+            if (status >= 0) {
+                isAlive = false
+                exitCode = status
+            }
+            return isAlive
         }
-        return isAlive
     }
 
     /**
@@ -96,8 +100,10 @@ class PtyProcess(
      * Send a signal to the process (e.g., SIGINT, SIGTERM)
      */
     fun signal(sig: Int) {
-        if (isAlive) {
-            nativeKill(pid, sig)
+        synchronized(stateLock) {
+            if (isAlive && !isClosed) {
+                nativeKill(pid, sig)
+            }
         }
     }
 
@@ -112,12 +118,25 @@ class PtyProcess(
      * Close the PTY session and cleanup
      */
     fun close() {
-        if (isAlive) {
+        synchronized(stateLock) {
+            if (isClosed) return
+            isClosed = true
+            if (isAlive) {
+                // Terminate the forkpty process group. SIGKILL follows TERM so
+                // close is deterministic even if a nested lifecycle script traps it.
+                nativeKill(pid, 15)
+                nativeKill(pid, 9)
+            }
             isAlive = false
-            kill()
             nativeClose(masterFd)
-            Log.d(TAG, "PTY session $sessionId closed")
         }
+        // Reap outside the lock. SIGKILL makes this bounded while avoiding a
+        // zombie if the UI closes a terminal before its reader observes exit.
+        Thread({
+            val status = nativeWaitFor(pid)
+            if (status >= 0 && exitCode == null) exitCode = status
+        }, "pty-reaper-$sessionId").start()
+        Log.d(TAG, "PTY session $sessionId closed")
     }
 
     // Native method declarations

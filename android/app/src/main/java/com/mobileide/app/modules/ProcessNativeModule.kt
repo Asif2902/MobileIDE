@@ -73,6 +73,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("processId", process.id)
+                        putInt("pid", process.pid)
                         putString("command", process.getFullCommand())
                         putString("cwd", process.workingDirectory)
                     }
@@ -124,6 +125,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("processId", process.id)
+                        putInt("pid", process.pid)
                         putString("command", script)
                         putString("cwd", process.workingDirectory)
                     }
@@ -164,6 +166,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
             processes.forEach { process ->
                 result.pushMap(Arguments.createMap().apply {
                     putInt("id", process.id)
+                    putInt("pid", process.pid)
                     putString("command", process.getFullCommand())
                     putString("cwd", process.workingDirectory)
                     putDouble("startTime", process.startTime.toDouble())

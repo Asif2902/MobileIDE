@@ -1,0 +1,11 @@
+{
+  "name": "adev-fixture-v8",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node test.js"
+  }
+}

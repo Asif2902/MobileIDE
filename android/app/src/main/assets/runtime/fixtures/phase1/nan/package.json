@@ -1,0 +1,14 @@
+{
+  "name": "adev-fixture-nan",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "gypfile": true,
+  "dependencies": {
+    "nan": "^2.22.2"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node test.js"
+  }
+}

@@ -94,19 +94,42 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
         Log.i(TAG, "Spawning process $processId: $exe ${exeArgs.joinToString(" ")}")
 
-        val processBuilder = ProcessBuilder(ArrayList<String>().apply {
+        val requestedCommand = ArrayList<String>().apply {
             add(exe)
             addAll(exeArgs)
-        }).directory(workingDir).redirectErrorStream(false)
+        }
+        // Put each managed task in its own process group. This lets stop/close
+        // terminate nested shells and native-addon compiler children together.
+        val busybox = File(runtimeManager.getNativeLibDir(), "libbin_busybox.so")
+        val pidFile = File(runtimeManager.getTmpDir(), ".process-$processId.pid")
+        if (pidFile.exists()) pidFile.delete()
+        val launchCommand = if (busybox.isFile) {
+            ArrayList<String>().apply {
+                add(busybox.absolutePath)
+                add("sh")
+                add("-c")
+                add("umask 077; echo \$\$ > \"\$1\"; shift; exec \"\$0\" setsid \"\$@\"")
+                add(busybox.absolutePath)
+                add(pidFile.absolutePath)
+                addAll(requestedCommand)
+            }
+        } else {
+            requestedCommand
+        }
+        val processBuilder = ProcessBuilder(launchCommand)
+            .directory(workingDir)
+            .redirectErrorStream(false)
 
         val env = processBuilder.environment()
         env.clear()
         env.putAll(runtimeManager.getEnvironment())
 
         val process = processBuilder.start()
+        val reportedPid = readReportedPid(pidFile)
 
         val managedProcess = ManagedProcess(
             id = processId,
+            pid = reportedPid,
             process = process,
             command = command,
             args = args,
@@ -129,6 +152,31 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     }
 
     /**
+     * Android's java.lang.Process does not expose a stable public PID API on all
+     * supported releases. The exec-safe launcher reports its own PID instead of
+     * reflecting into an implementation-private field.
+     */
+    private fun readReportedPid(pidFile: File): Int {
+        repeat(25) {
+            try {
+                if (pidFile.isFile) {
+                    val pid = pidFile.readText().trim().toIntOrNull()
+                    pidFile.delete()
+                    if (pid != null && pid > 0) return pid
+                }
+                Thread.sleep(10)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return -1
+            } catch (_: Exception) {
+                return -1
+            }
+        }
+        pidFile.delete()
+        return -1
+    }
+
+    /**
      * Run a full shell line in background with the agent environment
      * (for OpenCode / UI: builds, typecheck, long-running servers).
      * Does not use `set -e` — agents often chain commands where intermediate
@@ -146,7 +194,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val sh = if (bash.exists()) bash.absolutePath else "/system/bin/sh"
         val agentEnv = File(runtimeManager.getHomeDir(), ".adev-agent-env").absolutePath
         val wrappers = File(runtimeManager.getHomeDir(), ".adev-wrappers").absolutePath
-        // Prefer agent-env (exports + wrappers + spoof); fall back to wrappers only.
+        // Prefer agent-env (exports + wrappers + capability policy); fall back
+        // to wrappers only.
         val wrapped =
             "[ -f \"$agentEnv\" ] && . \"$agentEnv\" || { [ -f \"$wrappers\" ] && . \"$wrappers\"; }; $script"
         // -c only (not -l): env already from getEnvironment(); avoid double-sourcing rc.
@@ -166,12 +215,36 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val npmCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npm-cli.js")
         val npxCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npx-cli.js")
         val corepack = File(runtimeManager.getLibDir(), "node_modules/corepack/dist/corepack.js")
+        val directTools = mapOf(
+            "curl" to "libbin_curl.so",
+            "make" to "libbin_make.so",
+            "llvm-ar" to "libbin_llvm_ar.so",
+            "ar" to "libbin_llvm_ar.so",
+            "lld" to "libbin_lld.so",
+            "ld.lld" to "libbin_lld.so",
+            "pkg-config" to "libbin_pkg_config.so",
+            "adev-npm-shell" to "libbin_adev_npm_shell.so"
+        )
+        fun findNative(prefix: String): File? =
+            File(native).listFiles()
+                ?.filter { it.isFile && it.name.startsWith(prefix) && it.name.endsWith(".so") }
+                ?.sortedBy { it.name }
+                ?.firstOrNull()
 
         return when (base) {
             "node" -> if (node.exists()) node.absolutePath to args else command to args
             "git" -> if (git.exists()) git.absolutePath to args else command to args
             "bash" -> if (bash.exists()) bash.absolutePath to args else command to args
             "busybox" -> if (busybox.exists()) busybox.absolutePath to args else command to args
+            "node-gyp" -> {
+                val nodeGyp = File(
+                    runtimeManager.getLibDir(),
+                    "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+                )
+                if (node.exists() && nodeGyp.exists()) {
+                    node.absolutePath to listOf(nodeGyp.absolutePath) + args
+                } else command to args
+            }
             "npm" -> if (node.exists() && npmCli.exists()) {
                 node.absolutePath to listOf(npmCli.absolutePath) + args
             } else command to args
@@ -189,7 +262,17 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 } else command to args
             }
             else -> {
-                if (BUSYBOX_APPLETS.contains(base) && busybox.exists()) {
+                val nativeTool = directTools[base]?.let {
+                    File(native, it).takeIf(File::isFile)
+                } ?: when (base) {
+                    "python", "python3" -> findNative("libbin_python")
+                    "clang", "cc", "gcc", "clang++", "c++", "g++" ->
+                        findNative("libbin_clang_")
+                    else -> null
+                }
+                if (nativeTool != null) {
+                    nativeTool.absolutePath to args
+                } else if (BUSYBOX_APPLETS.contains(base) && busybox.exists()) {
                     busybox.absolutePath to listOf(base) + args
                 } else if (File(command).isFile) {
                     // Absolute path provided
@@ -252,31 +335,60 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
     fun killProcess(processId: Int) {
         processes[processId]?.let { managedProcess ->
-            killProcessTree(managedProcess.process)
+            killProcessTree(managedProcess)
             managedProcess.isRunning = false
             activePorts.entries.removeIf { it.value == processId }
             Log.i(TAG, "Killed process $processId")
         }
     }
 
-    private fun killProcessTree(process: Process) {
+    private fun killProcessTree(managedProcess: ManagedProcess) {
+        val process = managedProcess.process
+        val pid = managedProcess.pid
         try {
-            val pid = getPid(process)
-            if (pid > 0) android.os.Process.killProcess(pid)
+            if (pid > 0 && ProcessSignals.isAvailable) {
+                ProcessSignals.killGroup(pid, 15) // SIGTERM
+                try {
+                    if (!process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        ProcessSignals.killGroup(pid, 9) // SIGKILL
+                    }
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    ProcessSignals.killGroup(pid, 9)
+                }
+            } else {
+                descendantPids(pid).asReversed().forEach(android.os.Process::killProcess)
+                if (pid > 0) android.os.Process.killProcess(pid)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error killing process tree", e)
         }
-        process.destroyForcibly()
+        if (process.isAlive) process.destroyForcibly()
     }
 
-    private fun getPid(process: Process): Int {
-        return try {
-            val field = process.javaClass.getDeclaredField("pid")
-            field.isAccessible = true
-            field.getInt(process)
-        } catch (e: Exception) {
-            -1
+    private fun descendantPids(rootPid: Int): List<Int> {
+        if (rootPid <= 0) return emptyList()
+        val result = mutableListOf<Int>()
+        val pending = ArrayDeque<Int>()
+        pending.add(rootPid)
+        while (pending.isNotEmpty()) {
+            val parent = pending.removeFirst()
+            val children = try {
+                File("/proc/$parent/task/$parent/children").readText()
+                    .trim()
+                    .split(Regex("\\s+"))
+                    .mapNotNull(String::toIntOrNull)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            children.forEach {
+                if (it !in result) {
+                    result.add(it)
+                    pending.add(it)
+                }
+            }
         }
+        return result
     }
 
     fun getActivePorts(): Map<Int, Int> = activePorts.toMap()
@@ -289,6 +401,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
 data class ManagedProcess(
     val id: Int,
+    val pid: Int,
     val process: Process,
     val command: String,
     val args: List<String>,
@@ -301,4 +414,23 @@ data class ManagedProcess(
 ) {
     fun getFullCommand(): String = listOf(command).plus(args).joinToString(" ")
     fun getUptime(): Long = System.currentTimeMillis() - startTime
+}
+
+private object ProcessSignals {
+    val isAvailable: Boolean
+
+    init {
+        isAvailable = try {
+            System.loadLibrary("mobileide-pty")
+            true
+        } catch (error: UnsatisfiedLinkError) {
+            Log.w("ProcessSignals", "Native process-group signals unavailable: ${error.message}")
+            false
+        }
+    }
+
+    private external fun nativeKillProcessGroup(pid: Int, signal: Int): Boolean
+
+    fun killGroup(pid: Int, signal: Int): Boolean =
+        pid > 0 && nativeKillProcessGroup(pid, signal)
 }

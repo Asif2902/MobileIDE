@@ -1,0 +1,14 @@
+{
+  "name": "adev-fixture-prebuild-fallback",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "gypfile": true,
+  "dependencies": {
+    "prebuild-install": "^7.1.3"
+  },
+  "scripts": {
+    "install": "prebuild-install || node-gyp rebuild",
+    "test": "node test.js"
+  }
+}
