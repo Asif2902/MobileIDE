@@ -8,7 +8,7 @@ Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
 
 | Phase | Status | Commit | Evidence / next action |
 |---|---|---|---|
-| 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | Pending local commit | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 waits for explicit approval. |
+| 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 waits for explicit approval. |
 | 2. Node servers, Next.js, preview, and watching | NOT STARTED | — | Wait for explicit approval after Phase 1. |
 | 3. Git, package managers, optional toolchains, and Bun policy | NOT STARTED | — | Wait for Phase 2. |
 | 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for Phase 3. |
