@@ -18,7 +18,8 @@
     "build:apk": "cd android && ./gradlew assembleRelease && cd ..",
     "prepare:runtime": "bash runtime/scripts/prepare-runtime.sh",
     "test:runtime-policy": "node scripts/test-runtime-policy.mjs",
-    "test:phase2-host": "node scripts/test-phase2-host.mjs"
+    "test:phase2-host": "node scripts/test-phase2-host.mjs",
+    "test:phase3-host": "node scripts/test-phase3-host.mjs"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",

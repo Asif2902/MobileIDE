@@ -2,17 +2,19 @@ package com.mobileide.app.modules
 
 import android.util.Log
 import com.facebook.react.bridge.*
+import com.mobileide.app.git.GitCredentialMetadata
+import com.mobileide.app.git.GitCredentialStore
+import com.mobileide.app.git.GitPolicy
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.lib.Constants
 import org.eclipse.jgit.lib.PersonIdent
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
-import org.eclipse.jgit.transport.CredentialsProvider
-import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.URIish
-import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.Executors
 
 /**
@@ -32,16 +34,9 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
         Thread(r, "adev-git-io").apply { isDaemon = true }
     }
 
-    private var githubToken: String? = null
-    private var githubUser: String? = null
+    private val credentialStore = GitCredentialStore(reactContext.applicationContext)
 
     override fun getName(): String = MODULE_NAME
-
-    private fun getCredentials(): CredentialsProvider? {
-        val token = githubToken ?: return null
-        val user = githubUser ?: "token"
-        return UsernamePasswordCredentialsProvider(user, token)
-    }
 
     private fun resolveRepoPath(path: String): String {
         if (path.isBlank()) return path
@@ -51,6 +46,55 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
         } catch (_: Exception) {
             path
         }
+    }
+
+    private data class NativeGitResult(val exitCode: Int, val output: String)
+
+    /**
+     * Network Git operations use the bundled native CLI so the terminal and UI
+     * share redirect/proxy/custom-CA/credential-helper/SSH/submodule behavior.
+     * Secrets are provided by the native broker, never command arguments.
+     */
+    private fun runNativeGit(cwd: File, arguments: List<String>): NativeGitResult {
+        val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+        val executable = File(runtime.getNativeLibDir(), "libbin_git.so")
+        check(executable.isFile) { "Bundled native Git is unavailable" }
+        val process = ProcessBuilder(listOf(executable.absolutePath) + arguments)
+            .directory(cwd)
+            .redirectErrorStream(true)
+            .apply {
+                environment().putAll(runtime.getEnvironment(cwd.absolutePath))
+                environment()["GIT_TERMINAL_PROMPT"] = "0"
+            }
+            .start()
+        val output = process.inputStream.bufferedReader().use { reader ->
+            val builder = StringBuilder()
+            val buffer = CharArray(8192)
+            while (true) {
+                val read = reader.read(buffer)
+                if (read < 0) break
+                if (builder.length < 1024 * 1024) {
+                    builder.append(buffer, 0, minOf(read, 1024 * 1024 - builder.length))
+                }
+            }
+            GitPolicy.redact(builder.toString(), emptyList())
+        }
+        if (!process.waitFor(5, TimeUnit.MINUTES)) {
+            process.destroy()
+            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
+            throw IllegalStateException("Git operation timed out")
+        }
+        return NativeGitResult(process.exitValue(), output.trim())
+    }
+
+    private fun requireNativeSuccess(result: NativeGitResult, operation: String): String {
+        if (result.exitCode != 0) {
+            throw IllegalStateException(
+                "$operation failed (${result.exitCode}): " +
+                    result.output.ifBlank { "no diagnostic output" }
+            )
+        }
+        return result.output
     }
 
     /** Run git work off the bridge thread; always complete the promise. */
@@ -128,7 +172,7 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
 
     private fun stringArray(items: Collection<String>?): WritableArray {
         val arr = Arguments.createArray()
-        items?.forEach { arr.pushString(it ?: "") }
+        items?.forEach { arr.pushString(it) }
         return arr
     }
 
@@ -150,21 +194,249 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun setCredentials(username: String, token: String) {
-        githubUser = username
-        githubToken = token
-        Log.i(TAG, "Git credentials set for user: $username")
+        credentialStore.putHttps(
+            reference = "github-default",
+            host = "github.com",
+            username = username.ifBlank { "token" },
+            password = token
+        )
+        Log.i(TAG, "Protected Git credential stored for github.com")
     }
 
     @ReactMethod
     fun clearCredentials() {
-        githubUser = null
-        githubToken = null
+        credentialStore.remove("github-default")
     }
 
     @ReactMethod
     fun hasCredentials(promise: Promise) {
-        promise.resolve(githubToken != null)
+        promise.resolve(credentialStore.hasAny())
     }
+
+    @ReactMethod
+    fun storeHttpsCredential(
+        reference: String,
+        host: String,
+        username: String,
+        token: String,
+        promise: Promise
+    ) {
+        runGit(promise) {
+            val metadata = credentialStore.putHttps(reference, host, username, token)
+            promise.resolve(metadataMap(metadata))
+        }
+    }
+
+    @ReactMethod
+    fun importSshIdentity(
+        reference: String,
+        hostPattern: String,
+        username: String,
+        privateKey: String,
+        passphrase: String?,
+        promise: Promise
+    ) {
+        runGit(promise) {
+            val metadata = credentialStore.putSsh(
+                reference,
+                hostPattern,
+                username,
+                privateKey,
+                passphrase
+            )
+            promise.resolve(metadataMap(metadata))
+        }
+    }
+
+    @ReactMethod
+    fun generateSshIdentity(
+        reference: String,
+        hostPattern: String,
+        username: String,
+        promise: Promise
+    ) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            val keygen = File(runtime.getBinDir(), "dropbearkey")
+            check(keygen.exists()) { "Bundled SSH key generator is unavailable" }
+            val keyDir = File(reactApplicationContext.cacheDir, "git-keygen").canonicalFile
+            check(keyDir.exists() || keyDir.mkdirs()) { "Could not create key workspace" }
+            val privateFile = File(keyDir, "key-${UUID.randomUUID()}").canonicalFile
+            check(privateFile.toPath().startsWith(keyDir.toPath())) { "Invalid key path" }
+            try {
+                val generate = ProcessBuilder(
+                    keygen.absolutePath,
+                    "-t",
+                    "ed25519",
+                    "-f",
+                    privateFile.absolutePath
+                )
+                    .redirectErrorStream(true)
+                    .apply { environment().putAll(runtime.getEnvironment(keyDir.absolutePath)) }
+                    .start()
+                val generateOutput = generate.inputStream.bufferedReader().use { it.readText() }
+                if (!generate.waitFor(30, TimeUnit.SECONDS)) {
+                    generate.destroyForcibly()
+                    throw IllegalStateException("SSH key generation timed out")
+                }
+                check(generate.exitValue() == 0 && privateFile.isFile) {
+                    "SSH key generation failed: ${generateOutput.trim()}"
+                }
+                val publicProcess = ProcessBuilder(
+                    keygen.absolutePath,
+                    "-y",
+                    "-f",
+                    privateFile.absolutePath
+                )
+                    .redirectErrorStream(true)
+                    .apply { environment().putAll(runtime.getEnvironment(keyDir.absolutePath)) }
+                    .start()
+                val publicOutput = publicProcess.inputStream.bufferedReader().use { it.readText() }
+                if (!publicProcess.waitFor(30, TimeUnit.SECONDS)) {
+                    publicProcess.destroyForcibly()
+                    throw IllegalStateException("SSH public-key extraction timed out")
+                }
+                check(publicProcess.exitValue() == 0) {
+                    "SSH public-key extraction failed"
+                }
+                val publicKey = publicOutput.lineSequence()
+                    .map(String::trim)
+                    .firstOrNull {
+                        it.startsWith("ssh-ed25519 ") || it.startsWith("ssh-rsa ")
+                    }
+                    ?: throw IllegalStateException("SSH key generator returned no public key")
+                val metadata = credentialStore.putSsh(
+                    reference,
+                    hostPattern,
+                    username,
+                    privateFile.readText(),
+                    null
+                )
+                promise.resolve(
+                    metadataMap(metadata).apply {
+                        putString("publicKey", publicKey)
+                    }
+                )
+            } finally {
+                if (privateFile.exists()) privateFile.delete()
+            }
+        }
+    }
+
+    @ReactMethod
+    fun selectCredential(reference: String, promise: Promise) {
+        runGit(promise) { promise.resolve(credentialStore.select(reference)) }
+    }
+
+    @ReactMethod
+    fun removeCredential(reference: String, promise: Promise) {
+        runGit(promise) { promise.resolve(credentialStore.remove(reference)) }
+    }
+
+    @ReactMethod
+    fun listCredentials(promise: Promise) {
+        runGit(promise) {
+            val result = Arguments.createArray()
+            credentialStore.list().forEach { result.pushMap(metadataMap(it)) }
+            promise.resolve(result)
+        }
+    }
+
+    @ReactMethod
+    fun confirmKnownHost(
+        host: String,
+        keyType: String,
+        keyBase64: String,
+        promise: Promise
+    ) {
+        runGit(promise) {
+            val fingerprint = credentialStore.putKnownHost(host, keyType, keyBase64)
+            promise.resolve(
+                Arguments.createMap().apply {
+                    putString("host", GitPolicy.normalizeHost(host))
+                    putString("fingerprint", fingerprint)
+                }
+            )
+        }
+    }
+
+    @ReactMethod
+    fun removeKnownHost(host: String, promise: Promise) {
+        runGit(promise) { promise.resolve(credentialStore.removeKnownHost(host)) }
+    }
+
+    @ReactMethod
+    fun listKnownHosts(promise: Promise) {
+        runGit(promise) {
+            val result = Arguments.createArray()
+            credentialStore.listKnownHosts().forEach { known ->
+                result.pushMap(
+                    Arguments.createMap().apply {
+                        putString("host", known.optString("host"))
+                        putString("keyType", known.optString("keyType"))
+                        putString("fingerprint", known.optString("fingerprint"))
+                        putDouble("confirmedAt", known.optLong("confirmedAt").toDouble())
+                    }
+                )
+            }
+            promise.resolve(result)
+        }
+    }
+
+    @ReactMethod
+    fun installCustomCa(reference: String, pem: String, promise: Promise) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            promise.resolve(
+                Arguments.createMap().apply {
+                    putString("reference", reference)
+                    putString("sha256", runtime.installGitCustomCa(reference, pem))
+                }
+            )
+        }
+    }
+
+    @ReactMethod
+    fun removeCustomCa(reference: String, promise: Promise) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            promise.resolve(runtime.removeGitCustomCa(reference))
+        }
+    }
+
+    @ReactMethod
+    fun listCustomCas(promise: Promise) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            val result = Arguments.createArray()
+            runtime.listGitCustomCas().forEach(result::pushString)
+            promise.resolve(result)
+        }
+    }
+
+    @ReactMethod
+    fun setProxy(proxyUrl: String?, promise: Promise) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            runtime.setGitProxy(proxyUrl)
+            promise.resolve(runtime.getGitProxy())
+        }
+    }
+
+    @ReactMethod
+    fun getProxy(promise: Promise) {
+        val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+        promise.resolve(runtime.getGitProxy())
+    }
+
+    private fun metadataMap(metadata: GitCredentialMetadata): WritableMap =
+        Arguments.createMap().apply {
+            putString("reference", metadata.reference)
+            putString("kind", metadata.kind)
+            putString("host", metadata.host)
+            putString("username", metadata.username)
+            putDouble("createdAt", metadata.createdAt.toDouble())
+        }
 
     // ==================== REPO OPERATIONS ====================
 
@@ -227,16 +499,22 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun gitClone(url: String, destPath: String, promise: Promise) {
         runGit(promise) {
-            val dir = File(resolveRepoPath(destPath))
-            if (dir.exists()) dir.deleteRecursively()
-            dir.mkdirs()
-
-            val cloneCommand = Git.cloneRepository()
-                .setURI(url)
-                .setDirectory(dir)
-
-            getCredentials()?.let { cloneCommand.setCredentialsProvider(it) }
-            cloneCommand.call().close()
+            val dir = File(resolveRepoPath(destPath)).canonicalFile
+            if (dir.exists() && dir.listFiles()?.isNotEmpty() == true) {
+                throw IllegalStateException(
+                    "Clone destination already exists and is not empty: ${dir.absolutePath}"
+                )
+            }
+            val parent = dir.parentFile
+                ?: throw IllegalStateException("Clone destination has no parent")
+            check(parent.exists() || parent.mkdirs()) {
+                "Cannot create clone parent: ${parent.absolutePath}"
+            }
+            val result = runNativeGit(
+                parent,
+                listOf("clone", "--", url, dir.name)
+            )
+            requireNativeSuccess(result, "Clone")
             Log.i(TAG, "Cloned $url to ${dir.absolutePath}")
             promise.resolve(true)
         }
@@ -299,7 +577,7 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             openRepo(repoPath).use { git ->
                 val addCommand = git.add()
                 for (i in 0 until files.size()) {
-                    addCommand.addFilepattern(files.getString(i) ?: ".")
+                    addCommand.addFilepattern(files.getString(i))
                 }
                 addCommand.call()
                 promise.resolve(true)
@@ -324,7 +602,7 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             openRepo(repoPath).use { git ->
                 val resetCommand = git.reset().setMode(ResetCommand.ResetType.MIXED)
                 for (i in 0 until files.size()) {
-                    val p = files.getString(i) ?: continue
+                    val p = files.getString(i)
                     resetCommand.addPath(p)
                 }
                 resetCommand.call()
@@ -382,15 +660,11 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
                     return@runGit
                 }
                 val b = branch.ifBlank { safeBranchName(git) }
-                val pushCommand = git.push()
-                    .setRemote(remote)
-                    .setRefSpecs(RefSpec("$b:$b"))
-                getCredentials()?.let { pushCommand.setCredentialsProvider(it) }
-                val results = pushCommand.call()
-                val messages = results.flatMap {
-                    it.messages.split("\n").filter { m -> m.isNotBlank() }
-                }
-                promise.resolve(messages.joinToString("\n").ifEmpty { "Push successful" })
+                val result = runNativeGit(
+                    File(resolveRepoPath(repoPath)),
+                    listOf("push", "--porcelain", remote, "$b:$b")
+                )
+                promise.resolve(requireNativeSuccess(result, "Push").ifBlank { "Push successful" })
             }
         }
     }
@@ -407,13 +681,11 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
                     return@runGit
                 }
                 val b = branch.ifBlank { safeBranchName(git) }
-                val pullCommand = git.pull()
-                    .setRemote(remote)
-                    .setRemoteBranchName(b)
-                getCredentials()?.let { pullCommand.setCredentialsProvider(it) }
-                val result = pullCommand.call()
-                val msg = if (result.isSuccessful) "Pull successful" else "Pull completed with issues"
-                promise.resolve(msg)
+                val result = runNativeGit(
+                    File(resolveRepoPath(repoPath)),
+                    listOf("pull", "--ff-only", remote, b)
+                )
+                promise.resolve(requireNativeSuccess(result, "Pull").ifBlank { "Pull successful" })
             }
         }
     }
@@ -421,12 +693,44 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun gitFetch(repoPath: String, remote: String, promise: Promise) {
         runGit(promise) {
-            openRepo(repoPath).use { git ->
-                val fetchCommand = git.fetch().setRemote(remote)
-                getCredentials()?.let { fetchCommand.setCredentialsProvider(it) }
-                fetchCommand.call()
-                promise.resolve("Fetch successful")
+            openRepo(repoPath).close()
+            val result = runNativeGit(
+                File(resolveRepoPath(repoPath)),
+                listOf("fetch", "--prune", remote)
+            )
+            promise.resolve(requireNativeSuccess(result, "Fetch").ifBlank { "Fetch successful" })
+        }
+    }
+
+    @ReactMethod
+    fun gitSubmoduleUpdate(repoPath: String, recursive: Boolean, promise: Promise) {
+        runGit(promise) {
+            val args = mutableListOf("submodule", "update", "--init")
+            if (recursive) args += "--recursive"
+            val result = runNativeGit(File(resolveRepoPath(repoPath)), args)
+            promise.resolve(
+                requireNativeSuccess(result, "Submodule update").ifBlank {
+                    "Submodules updated"
+                }
+            )
+        }
+    }
+
+    @ReactMethod
+    fun gitLfsPull(repoPath: String, promise: Promise) {
+        runGit(promise) {
+            val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+            val lfs = File(runtime.getNativeLibDir(), "libbin_git_lfs.so")
+            if (!lfs.isFile) {
+                promise.reject(
+                    "GIT_LFS_UNAVAILABLE",
+                    "Git LFS requires the signed Android git-lfs feature pack; " +
+                        "the current APK does not contain it."
+                )
+                return@runGit
             }
+            val result = runNativeGit(File(resolveRepoPath(repoPath)), listOf("lfs", "pull"))
+            promise.resolve(requireNativeSuccess(result, "Git LFS pull"))
         }
     }
 

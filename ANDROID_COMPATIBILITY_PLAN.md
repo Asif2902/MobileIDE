@@ -10,8 +10,8 @@ Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
 |---|---|---|---|
 | 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 was authorized separately. |
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. Run `adev-phase2-test --network` from Terminal and repeat the Run/Preview matrix on API 29/API 36; Phase 3 waits for explicit approval. |
-| 3. Git, package managers, optional toolchains, and Bun policy | NOT STARTED | — | Wait for explicit approval after the Phase 2 report. |
-| 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for Phase 3. |
+| 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | PENDING | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, the Bun capability boundary, and signed tool-pack lifecycle pass host/build/APK checks. Run `adev-phase3-test --network` on API 29/API 36; ABI tool-pack delivery remains an explicit Phase 4 feature gate. |
+| 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for explicit approval after the Phase 3 report. |
 | 5. Automation, security, production release, and final audit | NOT STARTED | — | Wait for Phase 4. |
 
 ## Executive result
@@ -84,6 +84,31 @@ Phase 1 native-build path:
   or FUSE paths alone use recursive polling.
 - Runtime 1.13.0 forces upgrade re-extraction of the new launcher, server
   preload, diagnostics, test harness, wrappers, and watcher policy.
+
+Phase 3 completes the ecosystem-policy layer without weakening the Phase 1
+execution boundary:
+
+- UI network operations and the Git CLI now share native Git 2.55, the same
+  canonical repository policy, proxy/custom-CA configuration, redirect policy,
+  submodule behavior, and Android runtime environment.
+- HTTPS credentials, SSH private keys, and passphrases are encrypted with an
+  Android Keystore AES/GCM key. Git receives HTTPS credentials through an
+  app-private loopback broker and APK-native credential helper; JavaScript
+  receives only credential metadata and never stored tokens or private keys.
+- SSH uses managed key leases, strict known-host verification, fingerprint
+  confirmation, Dropbear key generation/import, and app-private cleanup.
+- Corepack 0.35.0, pnpm 11.18.0, and Yarn 4.18.0 are pinned. The exact pnpm and
+  Yarn payloads and hashes are bundled, so declared matching versions work
+  offline and use the Phase 1 lifecycle layer.
+- `bun` now returns an explicit Android/Bionic unsupported capability instead
+  of attempting to execute a glibc Linux artifact.
+- An Ed25519-signed tool-pack index supplies status, dependency, uninstall, and
+  failure diagnostics for CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool,
+  Java, development libraries, and Git LFS. Android's noexec model requires
+  their production native payloads to arrive as ABI-specific APK feature
+  content, which is an explicit Phase 4 distribution boundary.
+- Runtime 1.14.0 re-extracts the package-manager, Git/SSH, diagnostics, Bun,
+  tool-pack, and Phase 3 device-test assets on upgrade.
 
 ## Root cause of `spawn node-gyp EACCES`
 
@@ -218,21 +243,23 @@ Status meanings:
 | Shell execution | ⚠️ Partially integrated | Native Bash is preferred; `/system/bin/sh` is the fallback. `BASH_ENV` loads noninteractive wrappers, and compound lifecycle commands use bundled Bash. Device tests are still required for nested scripts and unusual shebangs. |
 | npm lifecycle scripts | ⚠️ Fixed; device gate | `NPM_CONFIG_SCRIPT_SHELL` points to the APK-installed `adev-npm-shell`; direct JS and `node-gyp` scripts bypass app-data execution. Complex commands fall back to Bash plus `termux-exec`. |
 | Optional dependencies | ⚠️ Policy integrated; device gate | Optional dependencies stay enabled while npm sees Android/ARM64. The global Linux spoof is gone. `adev-resolve-package` permits only Android/Bionic, exact hash-approved static/musl, source-build, or an explicit unsupported decision; the verified static/musl list is intentionally empty until artifacts are tested and locked. |
-| Native addons | ⚠️ Integrated; device gate | Standard C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. Rust, CMake, NASM, Java, and extra system libraries remain Phase 3 tool packs or explicit unsupported capabilities. |
+| Native addons | ⚠️ Integrated; device/feature gate | Standard C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. The signed capability index now reports Rust, CMake/Ninja, NASM, Java, Autotools, and extra-library packs; production ABI payload delivery is a Phase 4 feature gate. |
 | `.node` loading | ⚠️ Device gate | Build output will be Android ARM64 and Node-version-matched. A target-34 device test must prove `dlopen()` plus transitive library lookup from a project directory. |
 | Development task registry | ⚠️ Integrated; device gate | Background tasks and PTY sessions share typed task/status/log/port records. PIDs, process groups, descendants, sources, persistence, exit/failure state, and bounded logs are exposed through task APIs. Stop signals the group and waits for verified ports to close; device orphan/process-tree tests remain. |
 | Node / Express / Vite servers | ⚠️ Integrated; device gate | Structured Node listen/close/error events and `/proc` socket ownership discover arbitrary ports. Run/Preview has first-class Node, Express, Vite, Next, build, test, shell, and generic task types. The bundled device harness covers plain Node, Express, and Vite nested edits; it still needs a connected device. |
 | Next.js | ⚠️ Integrated; device gate | `adev-next` resolves the project version, caches exact matching `@next/swc-wasm-nodejs` outside the project, forces `--webpack` for dev/build even when a script requests Turbopack, and routes direct commands plus npm lifecycle scripts without project mutation. Exact packages 15.5.22 and 16.2.12 exist; the App/Pages dev/HMR/build/start device matrix is bundled but not yet executed. |
 | Preview / ports | ⚠️ Integrated; device gate | Console text no longer creates an active port. Structured events and log text create candidates; ownership plus a successful `127.0.0.1` socket probe is required before UI publication. URLs carry task/PID/group/source/state and update through native events. Android timing and OEM `/proc` restrictions remain device gates. |
-| Git core operations | ✅ Fully integrated | JGit 6.7 provides UI operations and native Git 2.55.0 provides CLI behavior. Runtime Git templates and a default branch are configured. |
-| Git HTTPS | ⚠️ Partially integrated | Native `git-remote-http` plus HTTPS/FTP aliases and CA configuration are packaged. Clone/fetch/push through real mobile networks and proxy/custom-CA cases remain untested. |
+| Git core operations | ✅ Fully integrated | JGit 6.7 remains the local repository engine, while UI network operations and Terminal commands now share native Git 2.55.0, one canonical path policy, runtime templates, and default branch configuration. |
+| Git HTTPS | ⚠️ Integrated; device gate | Native `git-remote-http`, redirects, protocol v2, proxy settings, the assembled CA bundle, validated custom X.509 CAs, and the native credential helper are configured. Host source/build/APK checks pass; live clone/fetch/pull/push, rejection, proxy, redirect, and custom-CA cases require the Phase 3 device matrix. |
 | curl | ⚠️ Integrated; device gate | The real Termux ARM64 curl executable is packaged in `nativeLibraryDir`, mapped through PATH/Java/shell wrappers, shares the assembled Android CA bundle, has a verified dependency closure, and is 16 KiB aligned. `adev-doctor --self-test` performs the device HTTPS probe. |
-| Git SSH | ⚠️ Partially integrated | Dropbear 2026.94 applets provide `dbclient`, `scp`, and key conversion/generation. There is no complete OpenSSH-compatible `ssh-agent`, host-key UX, or automated key/known-host management. |
-| Git credentials | ⚠️ Partially integrated | JGit accepts an in-memory username/token. Credentials are lost on process death; native Git has no Android Keystore-backed credential helper. |
-| Corepack | ⚠️ Partially integrated | Corepack 0.31.0 is fully bundled and wrappers call its JS directly. It is old enough to require signature/key compatibility testing against current registries. |
-| pnpm | ⚠️ Partially integrated | The command routes through Corepack. The package-manager payload is not bundled, so first use requires network/cache population and current Corepack signatures. |
-| Yarn | ⚠️ Partially integrated | Same state as pnpm; no offline Yarn payload is included. |
-| Bun | ❌ Missing | No Android/Bionic-compatible Bun executable or runtime integration is present. A Linux glibc Bun binary is not an acceptable substitute. |
+| Git SSH | ⚠️ Integrated; device gate | Dropbear 2026.94 is wrapped with managed key leases, Keystore-backed passphrases, strict host checking, known-host fingerprint confirmation/removal, key generation/import, and SCP/`ssh://` command support. The lease is the Android-safe agent equivalent; live auth, passphrase, rejection, and host-key-change cases need a device. |
+| Git credentials | ⚠️ Integrated; device gate | HTTPS credentials, SSH private keys, and passphrases are Keystore-encrypted. The native ARM64 credential helper talks to an app-private loopback broker; commands/logs are redacted and JavaScript receives metadata only. Persistence/process-death and live rejection tests remain in the device matrix. |
+| Git LFS | ⚠️ Explicit feature boundary | LFS use is detected and reports the missing signed `git-lfs` feature pack instead of silently failing. The signed index defines the capability, dependency, version, and diagnostics; ABI payload delivery is part of Phase 4 runtime distribution. |
+| Corepack | ✅ Fully integrated | Corepack 0.35.0 is pinned and bundled. Runtime selection reports whether the version came from an exact offline payload, project `packageManager` declaration, warmed Corepack cache, or network; integrity/source metadata is committed. |
+| pnpm | ⚠️ Integrated; device gate | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures from an empty network cache on the host; Android execution remains in the Phase 3 device gate. |
+| Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
+| Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
+| Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production native payloads must be delivered as ABI-specific APK features in Phase 4 because app-data storage is noexec. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
 | Symlinks | ⚠️ Partially integrated | Runtime symlinks are rebuilt automatically on private app storage. Android shared/external storage does not reliably support symlinks, case sensitivity, modes, or execution; projects using those features must stay in private workspaces. |
@@ -246,11 +273,11 @@ Status meanings:
 | CPU architectures | ❌ Missing beyond ARM64 | Gradle and the runtime are restricted to `arm64-v8a`. No `x86_64` emulator/Chromebook build or 32-bit ABI is available. |
 | Android 16 / Play targeting | ❌ Incomplete | The project compiles with API 35 and targets API 34. Starting 2026-08-31, normal phone/tablet app updates must target API 36 for Google Play. Android 15/16 behavior-change testing has not been done. |
 | Release signing | ❌ Broken for production | The release build uses the debug signing configuration. It is buildable but is not a production release/signing integration. |
-| Runtime supply-chain reproducibility | ⚠️ Partially integrated | Package SHA-256 verification is now enforced. The two LLVM libraries above GitHub's normal Git blob limit are tracked with Git LFS, so CI and fresh source checkouts must run `git lfs pull` before an Android build. Versions still follow the live Termux package index and there is no committed version/hash lock or signed-index verification. |
+| Runtime supply-chain reproducibility | ⚠️ Partially integrated | Corepack/pnpm/Yarn payload versions, sources, and SHA-256 hashes are locked, and the optional tool-pack catalog is Ed25519-signed. Termux runtime versions still follow the live package index, two LLVM files require `git lfs pull`, and the complete ABI runtime lock remains Phase 4. |
 | Runtime update cleanup | ⚠️ Partially integrated | Fingerprinting forces device reinitialization when the map changes. The build map and generated JNI source directory merge historical entries, so removed runtime files are not automatically pruned from source control. |
 | APK/install footprint | ⚠️ Partially integrated | Shipping Clang/LLVM and Python removes first-run setup, but the audited release APK is about 200 MB versus the prior 79 MB artifact, and extracted native libraries increase installed size further. |
 | Host Android build toolchain | ⚠️ Partially integrated | Gradle 8.10.2 builds successfully with JDK 17, while the same wrapper fails when it inherits JDK 25.0.3. The supported JDK is not pinned or checked, so success currently depends on the caller's `JAVA_HOME`/PATH. |
-| Test automation | ⚠️ Partially integrated | Phase 1 adds host capability-policy/path tests and native-addon device fixtures. Phase 2 adds host server/launcher tests plus an on-device Node/Express/Vite/Next App+Pages dev/HMR/build/start/cleanup matrix. Existing Jest/lint isolation and automated API/ABI device orchestration remain Phase 5. |
+| Test automation | ⚠️ Partially integrated | Phase 1 covers runtime policy/native addons; Phase 2 covers servers/Next/watchers; Phase 3 adds host credential-policy, offline manager, signed tool-pack/tamper, Bun-boundary tests plus a Git/package-manager device harness. Connected API/ABI orchestration, Jest/lint isolation, and production release gates remain Phase 5. |
 
 ## Prioritized integration plan
 
@@ -444,6 +471,13 @@ Proper integration:
 - Test HTTPS, SSH, proxy, custom CA, redirects, submodules, LFS policy, and
   credential rejection.
 
+Phase 3 result: implemented with Keystore AES/GCM storage, credential
+references, a loopback broker and native ARM64 Git credential helper, URL/log
+redaction, strict known-host confirmation, app-private SSH key leases,
+Dropbear key generation/import, proxy/custom-CA APIs, redirects, submodules,
+and an explicit signed Git LFS feature boundary. Host policy/build/APK tests
+pass; live network and process-death cases remain the device gate.
+
 #### P1.7 Use filesystem-aware watching and workspace policy
 
 Proper integration:
@@ -485,11 +519,18 @@ tests are implemented. Adoptable-storage and work-profile cases remain Phase 4.
 - Show whether a manager came from a project `packageManager` declaration,
   Corepack cache, or network.
 
+Phase 3 result: Corepack 0.35.0, pnpm 11.18.0, and Yarn 4.18.0 are pinned.
+Exact pnpm/Yarn payloads are bundled with SHA-256 locks and run offline
+install/lifecycle/build/test fixtures. Other declared versions use verified
+Corepack cache/network resolution and fail actionably when unavailable.
+
 #### P2.2 Bun
 
-Bun is missing. Add it only when an Android ARM64/Bionic build has a maintained
-update channel and the same execution, dependency, 16 KiB, and device tests.
-Do not relabel a glibc Linux binary as Android-compatible.
+Bun has no supported Android target. Phase 3 implements an honest capability
+gate: `bun` identifies Android/Bionic as unsupported, exits nonzero, and offers
+the working Node/npm/pnpm/Yarn path. No glibc Linux binary is downloaded or
+relabeled. Revisit only if Bun publishes a maintained Android/Bionic artifact
+with the required execution, dependency, 16 KiB, and device guarantees.
 
 #### P2.3 Optional build-tool packs
 
@@ -497,6 +538,13 @@ Provide automatically installable, signed packs for common non-node-gyp build
 systems: CMake/Ninja, Rust/Cargo, NASM, Autoconf/Automake/Libtool, Java, and
 package-specific development libraries. Keep the base node-gyp C/C++ path
 working without these optional packs.
+
+Phase 3 result: an Ed25519-signed catalog plus verified status/install/uninstall
+runtime covers those capabilities and Git LFS. A signed host fixture proves
+the lifecycle and catalog-tamper rejection. Production native pack payloads
+must be APK/feature-delivered because Android private writable storage is
+noexec; their ABI-specific delivery and dependency closure are explicitly
+assigned to Phase 4.
 
 #### P2.4 Environment policy
 
@@ -606,9 +654,55 @@ Framework basis: Next.js documents `--webpack` for both `next dev` and
 [Next.js CLI](https://nextjs.org/docs/app/api-reference/cli/next) and
 [Next.js Compiler](https://nextjs.org/docs/architecture/nextjs-compiler).
 
-Next phase after explicit approval: Phase 3 — Git credentials/SSH/HTTPS,
-offline Corepack/pnpm/Yarn payloads, optional tool packs, and the Bun
-capability boundary.
+## Phase 3 acceptance record
+
+Host evidence on 2026-07-29:
+
+- `npm run test:runtime-policy`: pass.
+- `npm run test:phase2-host`: pass (regression gate).
+- `npm run test:phase3-host`: pass for the protected Git bridge, strict SSH
+  policy, exact offline package-manager selection, pnpm/Yarn
+  install/lifecycle/build/test fixtures, signed tool-pack install/uninstall,
+  catalog-tamper rejection, and Bun capability result.
+- JavaScript syntax checks and `node_modules/.bin/tsc --noEmit`: pass.
+- `:app:testReleaseUnitTest` and `:app:assembleRelease`: pass with JDK 17.
+- Corepack 0.35.0, pnpm 11.18.0, and Yarn 4.18.0 payload/hash checks: pass.
+- The release APK contains the native Git credential helper, generic broker
+  client, strict SSH wrapper, package-manager payloads/lock, signed tool-pack
+  catalog/signature/key, Bun gate, and Phase 3 device harness. It does not
+  contain the obsolete JavaScript Git credential helper.
+- `libbin_adev_git_credential.so` is AArch64, requests
+  `/system/bin/linker64`, and every `PT_LOAD` segment is aligned to `0x4000`.
+- The release APK is 206,006,239 bytes with SHA-256
+  `C9B708D62063E7F89215974528BB8A7A435C2D6923C39C7BA02298E329C480D5`.
+  It verifies with APK Signature Scheme v2, but its Android debug certificate
+  remains the explicit Phase 5 production-signing blocker.
+- No APK, signing credential, package-manager cache, build cache, or existing
+  `ADevStudio-v1.3.3-arm64.apk` is included in the Phase 3 commit.
+
+Blocked device and feature evidence:
+
+- The Android SDK's `adb` is installed, but `adb devices -l` reports no
+  connected emulator or physical device.
+- Run `adev-phase3-test --network` on fresh and upgraded ARM64 API 29 and API
+  36 installations. Verify HTTPS and SSH clone/fetch/pull/push, rejection,
+  key passphrases, unknown/changed host keys, redirects, proxy, custom CA,
+  submodules, process-death credential persistence, and that logs/commands
+  contain no credentials.
+- Repeat npm/npx/pnpm/Yarn online and warmed-offline lifecycle fixtures through
+  Terminal and background tasks on those devices.
+- Git LFS and the large optional native build packs intentionally stop at the
+  signed feature capability. Android's noexec boundary requires their
+  ARM64/x86_64 APK feature payloads, dependency closure, and uninstall tests
+  in Phase 4.
+
+Bun platform basis: Bun's official installation documentation lists supported
+macOS, Linux, and Windows targets but no Android target:
+[Bun installation](https://bun.sh/docs/installation).
+
+Next phase after explicit approval: Phase 4 — Android 16, ARM64/x86_64,
+filesystem policy, deterministic runtime locks, and ABI feature-pack
+distribution. Phase 4 has not started.
 
 ## Definition of done for Android-native npm installs
 

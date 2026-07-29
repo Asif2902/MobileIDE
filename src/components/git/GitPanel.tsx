@@ -663,8 +663,9 @@ const AuthModal: React.FC<{
           </TouchableOpacity>
         </View>
         <Text style={styles.modalSub}>
-          Use a Personal Access Token (PAT) with repo scope.{'\n'}
-          GitHub → Settings → Developer → Tokens
+          Use a Personal Access Token (PAT) with repo scope. It is encrypted by
+          Android Keystore and shared with UI and terminal Git without appearing
+          in commands or logs.{'\n'}GitHub → Settings → Developer → Tokens
         </Text>
         <TextInput
           style={styles.input}

@@ -38,6 +38,21 @@ export interface GitDiffEntry {
   status: 'modified' | 'added' | 'untracked' | 'removed';
 }
 
+export interface GitCredentialMetadata {
+  reference: string;
+  kind: 'https' | 'ssh';
+  host: string;
+  username?: string;
+  createdAt: number;
+}
+
+export interface GitKnownHost {
+  host: string;
+  keyType: string;
+  fingerprint: string;
+  confirmedAt: number;
+}
+
 export const GitNative = {
   // Auth
   setCredentials(username: string, token: string): void {
@@ -48,6 +63,76 @@ export const GitNative = {
   },
   hasCredentials(): Promise<boolean> {
     return GitNativeModule.hasCredentials();
+  },
+  storeHttpsCredential(
+    reference: string,
+    host: string,
+    username: string,
+    token: string,
+  ): Promise<GitCredentialMetadata> {
+    return GitNativeModule.storeHttpsCredential(reference, host, username, token);
+  },
+  importSshIdentity(
+    reference: string,
+    hostPattern: string,
+    username: string,
+    privateKey: string,
+    passphrase?: string,
+  ): Promise<GitCredentialMetadata> {
+    return GitNativeModule.importSshIdentity(
+      reference,
+      hostPattern,
+      username,
+      privateKey,
+      passphrase ?? null,
+    );
+  },
+  generateSshIdentity(
+    reference: string,
+    hostPattern: string,
+    username: string = 'git',
+  ): Promise<GitCredentialMetadata & {publicKey: string}> {
+    return GitNativeModule.generateSshIdentity(reference, hostPattern, username);
+  },
+  selectCredential(reference: string): Promise<boolean> {
+    return GitNativeModule.selectCredential(reference);
+  },
+  removeCredential(reference: string): Promise<boolean> {
+    return GitNativeModule.removeCredential(reference);
+  },
+  listCredentials(): Promise<GitCredentialMetadata[]> {
+    return GitNativeModule.listCredentials();
+  },
+  confirmKnownHost(
+    host: string,
+    keyType: string,
+    keyBase64: string,
+  ): Promise<{host: string; fingerprint: string}> {
+    return GitNativeModule.confirmKnownHost(host, keyType, keyBase64);
+  },
+  removeKnownHost(host: string): Promise<boolean> {
+    return GitNativeModule.removeKnownHost(host);
+  },
+  listKnownHosts(): Promise<GitKnownHost[]> {
+    return GitNativeModule.listKnownHosts();
+  },
+  installCustomCa(
+    reference: string,
+    pem: string,
+  ): Promise<{reference: string; sha256: string}> {
+    return GitNativeModule.installCustomCa(reference, pem);
+  },
+  removeCustomCa(reference: string): Promise<boolean> {
+    return GitNativeModule.removeCustomCa(reference);
+  },
+  listCustomCas(): Promise<string[]> {
+    return GitNativeModule.listCustomCas();
+  },
+  setProxy(proxyUrl?: string): Promise<string | null> {
+    return GitNativeModule.setProxy(proxyUrl ?? null);
+  },
+  getProxy(): Promise<string | null> {
+    return GitNativeModule.getProxy();
   },
 
   // Repo operations
@@ -91,6 +176,12 @@ export const GitNative = {
   },
   fetch(repoPath: string, remote: string): Promise<string> {
     return GitNativeModule.gitFetch(repoPath, remote);
+  },
+  updateSubmodules(repoPath: string, recursive: boolean = true): Promise<string> {
+    return GitNativeModule.gitSubmoduleUpdate(repoPath, recursive);
+  },
+  lfsPull(repoPath: string): Promise<string> {
+    return GitNativeModule.gitLfsPull(repoPath);
   },
 
   // Log

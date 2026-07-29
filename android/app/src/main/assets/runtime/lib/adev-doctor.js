@@ -75,6 +75,87 @@ const probes = {
   busybox: probe('busybox', process.env.MOBILEIDE_BUSYBOX || native('busybox'), ['--help']),
 };
 
+const packageManagerLauncher = path.join(prefix, 'lib', 'adev-package-manager.js');
+const packageManagerLock = path.join(prefix, 'lib', 'adev-package-managers.json');
+const packageManagerStatusProbe = fs.existsSync(packageManagerLauncher)
+  ? childProcess.spawnSync(process.execPath, [packageManagerLauncher, '--status'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 15000,
+      env: process.env,
+    })
+  : null;
+let packageManagers = {error: 'package-manager launcher missing'};
+try {
+  packageManagers = JSON.parse(packageManagerStatusProbe && packageManagerStatusProbe.stdout);
+} catch (error) {
+  packageManagers = {error: error.message};
+}
+packageManagers.lockPath = packageManagerLock;
+packageManagers.lockReady = fs.existsSync(packageManagerLock);
+packageManagers.pnpmProbe = fs.existsSync(packageManagerLauncher)
+  ? probe('pnpm', process.execPath, [packageManagerLauncher, 'pnpm', '--version'])
+  : {name: 'pnpm', ready: false, error: 'launcher missing'};
+packageManagers.yarnProbe = fs.existsSync(packageManagerLauncher)
+  ? probe('yarn', process.execPath, [packageManagerLauncher, 'yarn', '--version'])
+  : {name: 'yarn', ready: false, error: 'launcher missing'};
+
+const toolPackLauncher = path.join(prefix, 'lib', 'adev-toolpack.js');
+const toolPackProbe = fs.existsSync(toolPackLauncher)
+  ? childProcess.spawnSync(process.execPath, [toolPackLauncher, 'status', '--json'], {
+      encoding: 'utf8',
+      timeout: 15000,
+      env: process.env,
+    })
+  : null;
+let toolPacks = {catalogVerified: false, error: 'tool-pack launcher missing'};
+try {
+  toolPacks = JSON.parse(toolPackProbe && toolPackProbe.stdout);
+} catch (error) {
+  toolPacks = {
+    catalogVerified: false,
+    error: (toolPackProbe && toolPackProbe.stderr.trim()) || error.message,
+  };
+}
+
+const nativeGitCredentialHelper =
+  nativeDir && path.join(nativeDir, 'libbin_adev_git_credential.so');
+const sshLauncher = path.join(prefix, 'lib', 'adev-ssh.js');
+const bunBoundary = path.join(prefix, 'lib', 'adev-bun.js');
+const gitIntegration = {
+  nativeCliReady: probes.git.ready,
+  credentialStore: 'Android Keystore AES-GCM',
+  credentialBrokerReady: Boolean(
+    nativeGitCredentialHelper &&
+      fs.existsSync(nativeGitCredentialHelper) &&
+      process.env.ADEV_GIT_CREDENTIAL_PORT &&
+      process.env.ADEV_GIT_CREDENTIAL_SESSION
+  ),
+  secretsInCommandLine: false,
+  ssh: {
+    launcherReady: fs.existsSync(sshLauncher),
+    clientReady: Boolean(nativeDir && fs.existsSync(path.join(nativeDir, 'libbin_dropbearmulti.so'))),
+    strictHostKeyChecking: true,
+    knownHostsManaged: true,
+    keyMaterialization: 'ephemeral app-private lease',
+  },
+  https: {
+    ca: process.env.GIT_SSL_CAINFO || process.env.GIT_SSL_CAPATH || null,
+    proxyConfigured: Boolean(
+      process.env.HTTPS_PROXY ||
+        process.env.HTTP_PROXY ||
+        process.env.https_proxy ||
+        process.env.http_proxy
+    ),
+    redirects: 'initial',
+  },
+  lfs: {
+    ready: Boolean(nativeDir && fs.existsSync(path.join(nativeDir, 'libbin_git_lfs.so'))),
+    boundary: 'signed Android feature pack required when false',
+  },
+  submodules: true,
+};
+
 const requiredLinuxCommands = [
   'sh', 'env', 'ls', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'ln', 'chmod', 'touch',
   'find', 'grep', 'sed', 'awk', 'head', 'tail', 'wc', 'sort', 'uniq', 'xargs',
@@ -196,7 +277,7 @@ const requiredReady = [
 const executionReady = Object.values(executionTests).every(item => item.ready);
 
 const report = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   healthy: requiredReady && executionReady && missingLinuxCommands.length === 0,
   app: {
     version: process.env.ADEV_APP_VERSION || null,
@@ -248,6 +329,17 @@ const report = {
     nodeHeadersReady: fs.existsSync(path.join(prefix, 'include', 'node', 'node.h')),
   },
   packageResolution: packagePolicy,
+  packageManagers,
+  git: gitIntegration,
+  toolPacks,
+  bun: {
+    supported: false,
+    capabilityGateReady: fs.existsSync(bunBoundary),
+    platform: 'android',
+    libc: 'bionic',
+    alternative: 'node/npm/npx/pnpm/yarn',
+    upstream: 'https://bun.sh/docs/installation',
+  },
   frameworks: {
     next: nextProject,
     serverEvents: {
@@ -287,6 +379,22 @@ if (jsonMode) {
   );
   process.stdout.write(
     `Server events: ${report.frameworks.serverEvents.ready ? 'ready' : 'missing'}; preview ports require loopback verification\n`
+  );
+  process.stdout.write(
+    `Git credentials: ${gitIntegration.credentialBrokerReady ? 'Keystore broker ready' : 'broker missing'}; ` +
+      `SSH host checks ${gitIntegration.ssh.strictHostKeyChecking ? 'strict' : 'unsafe'}; ` +
+      `LFS ${gitIntegration.lfs.ready ? 'ready' : 'feature-gated'}\n`
+  );
+  process.stdout.write(
+    `Package managers: Corepack ${packageManagers.corepack?.version || '?'}; ` +
+      `pnpm ${packageManagers.pnpm?.bundledVersion || '?'} ` +
+      `${packageManagers.pnpm?.offlineReady ? 'offline-ready' : 'network/cache'}; ` +
+      `Yarn ${packageManagers.yarn?.bundledVersion || '?'} ` +
+      `${packageManagers.yarn?.offlineReady ? 'offline-ready' : 'network/cache'}\n`
+  );
+  process.stdout.write(
+    `Tool-pack catalog: ${toolPacks.catalogVerified ? 'signature verified' : 'invalid'}; ` +
+      `Bun: unsupported Android/Bionic boundary\n`
   );
   if (nextProject.installed) {
     process.stdout.write(

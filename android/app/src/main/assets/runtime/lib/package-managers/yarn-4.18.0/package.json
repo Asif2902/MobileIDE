@@ -1,0 +1,17 @@
+{
+  "name": "@yarnpkg/cli-dist",
+  "version": "4.18.0",
+  "bin": {
+    "yarn": "bin/yarn.js",
+    "yarnpkg": "bin/yarn.js"
+  },
+  "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yarnpkg/berry.git",
+    "directory": "packages/yarnpkg-cli"
+  },
+  "engines": {
+    "node": ">=18.12.0"
+  }
+}

@@ -283,45 +283,54 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 /**
- * CMake builds adev-npm-shell as an executable named libbin_adev_npm_shell.so.
+ * CMake builds the npm shell and Git credential helper as executable lib*.so
+ * files.
  * AGP only auto-packages SHARED libraries. Its assemble graph invokes
  * buildCMake<Variant> directly (not externalNativeBuild<Variant>), so make the
  * JNI merge explicitly depend on a variant-specific copy of the fresh output.
  * This avoids packaging the previous build's lifecycle shell.
  */
-def registerAdevNpmShellSync = { String variantName, String cmakeVariant ->
+def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
     def capitalized = variantName.capitalize()
     def syncTask = tasks.register("sync${capitalized}AdevNpmShell") {
         dependsOn tasks.matching { it.name == "buildCMake${cmakeVariant}" }
         doLast {
             def abi = "arm64-v8a"
-            def candidates = []
+            def helperNames = [
+                "libbin_adev_npm_shell.so",
+                "libbin_adev_git_credential.so"
+            ]
+            def candidates = [:].withDefault { [] }
             [
                 file("${buildDir}/intermediates/cxx/${cmakeVariant}"),
                 file("${projectDir}/.cxx/${cmakeVariant}")
             ].each { root ->
                 if (root.exists()) {
                     root.eachFileRecurse { f ->
-                        if (f.isFile() && f.name == "libbin_adev_npm_shell.so" &&
+                        if (f.isFile() && helperNames.contains(f.name) &&
                                 f.absolutePath.replace('\\', '/').contains("/obj/${abi}/")) {
-                            candidates << f
+                            candidates[f.name] << f
                         }
                     }
                 }
             }
-            def found = candidates.sort { a, b -> b.lastModified() <=> a.lastModified() }.find()
-            if (found == null) {
-                throw new GradleException(
-                    "Fresh libbin_adev_npm_shell.so not found for ${variantName}/${abi}"
-                )
-            }
             def destDir = file("src/main/jniLibs/${abi}")
             destDir.mkdirs()
-            def dest = new File(destDir, "libbin_adev_npm_shell.so")
-            dest.bytes = found.bytes
-            logger.lifecycle(
-                "[runtime] synced ${variantName} adev-npm-shell -> ${dest} (${dest.length()} bytes)"
-            )
+            helperNames.each { helperName ->
+                def found = candidates[helperName]
+                    .sort { a, b -> b.lastModified() <=> a.lastModified() }
+                    .find()
+                if (found == null) {
+                    throw new GradleException(
+                        "Fresh ${helperName} not found for ${variantName}/${abi}"
+                    )
+                }
+                def dest = new File(destDir, helperName)
+                dest.bytes = found.bytes
+                logger.lifecycle(
+                    "[runtime] synced ${variantName} ${helperName} -> ${dest} (${dest.length()} bytes)"
+                )
+            }
         }
     }
     tasks.matching { it.name == "merge${capitalized}JniLibFolders" }.configureEach {
@@ -329,8 +338,8 @@ def registerAdevNpmShellSync = { String variantName, String cmakeVariant ->
     }
 }
 
-registerAdevNpmShellSync("debug", "Debug")
-registerAdevNpmShellSync("release", "RelWithDebInfo")
+registerAdevNativeHelpersSync("debug", "Debug")
+registerAdevNativeHelpersSync("release", "RelWithDebInfo")
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

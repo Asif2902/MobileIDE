@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "issuedAt": "2026-07-29T00:00:00Z",
+  "platform": "android-bionic",
+  "abi": "arm64-v8a",
+  "signatureAlgorithm": "Ed25519",
+  "packs": [
+    {
+      "id": "cmake-ninja",
+      "version": "1.0.0",
+      "license": "mixed; see feature-pack license inventory",
+      "dependencies": [],
+      "capabilities": ["cmake", "ninja"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": ["libbin_cmake.so", "libbin_ninja.so"],
+      "phase4Boundary": "Executable Android libraries must be APK/feature-delivered; writable app storage is noexec."
+    },
+    {
+      "id": "rust-cargo",
+      "version": "1.0.0",
+      "license": "Apache-2.0 OR MIT plus toolchain notices",
+      "dependencies": ["native-c-cpp"],
+      "capabilities": ["rustc", "cargo"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": ["libbin_rustc.so", "libbin_cargo.so"],
+      "phase4Boundary": "The ABI-specific Rust sysroot and executables require signed feature delivery."
+    },
+    {
+      "id": "nasm",
+      "version": "1.0.0",
+      "license": "BSD-2-Clause",
+      "dependencies": [],
+      "capabilities": ["nasm"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": ["libbin_nasm.so"],
+      "phase4Boundary": "The executable must be delivered as an APK native library."
+    },
+    {
+      "id": "autotools-libtool",
+      "version": "1.0.0",
+      "license": "GPL-2.0-or-later and GPL-3.0-or-later",
+      "dependencies": [],
+      "capabilities": ["autoconf", "automake", "libtool"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": [
+        "libbin_autoconf.so",
+        "libbin_automake.so",
+        "libbin_libtool.so"
+      ],
+      "phase4Boundary": "App-prefix-aware payloads and executable entrypoints require signed feature delivery."
+    },
+    {
+      "id": "java",
+      "version": "1.0.0",
+      "license": "GPL-2.0-with-classpath-exception plus notices",
+      "dependencies": [],
+      "capabilities": ["java", "javac", "jar"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": ["libbin_java.so", "libbin_javac.so"],
+      "phase4Boundary": "A complete JRE/JDK image is too large for unsafe writable-storage installation."
+    },
+    {
+      "id": "development-libraries",
+      "version": "1.0.0",
+      "license": "per-library SPDX inventory",
+      "dependencies": ["native-c-cpp"],
+      "capabilities": ["pkg-config-development-libraries"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": [],
+      "requiredAssetMarker": "feature-packs/development-libraries/manifest.json",
+      "phase4Boundary": "Versioned headers/libraries need the ABI runtime lock and signed feature index."
+    },
+    {
+      "id": "git-lfs",
+      "version": "1.0.0",
+      "license": "MIT",
+      "dependencies": [],
+      "capabilities": ["git-lfs"],
+      "delivery": "android-feature-pack",
+      "requiredNativeLibraries": ["libbin_git_lfs.so"],
+      "phase4Boundary": "No app-prefix-aware Android git-lfs executable is present in the base APK."
+    }
+  ]
+}

@@ -29,7 +29,7 @@ assert.deepEqual(JSON.parse(preloadProbe.stdout), [originalPlatform, false]);
 
 const doctor = run(doctorScript, ['--json']);
 const doctorReport = JSON.parse(doctor.stdout);
-assert.equal(doctorReport.schemaVersion, 1);
+assert.equal(doctorReport.schemaVersion, 3);
 assert.equal(doctorReport.environment.globalPlatformSpoof, false);
 assert.deepEqual(doctorReport.packageResolution.resolutionOrder, [
   'android-bionic',

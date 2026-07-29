@@ -57,6 +57,16 @@ export const useGitStore = create<GitState>((set, get) => ({
   username: '',
 
   checkRepo: async (repoPath: string) => {
+    try {
+      const credentials = await GitNative.listCredentials();
+      const httpsCredential = credentials.find(item => item.kind === 'https');
+      set({
+        isAuthenticated: credentials.length > 0,
+        username: httpsCredential?.username || '',
+      });
+    } catch {
+      // Credential metadata is advisory; repository operations still work.
+    }
     if (!repoPath?.trim()) {
       set({ isRepo: false, isInitialized: true, status: null, error: null });
       return;
@@ -347,6 +357,8 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   setCredentials: (username: string, token: string) => {
+    // Native code immediately encrypts the secret with Android Keystore. No
+    // API exists to read the stored token back into React Native.
     GitNative.setCredentials(username, token);
     set({ isAuthenticated: true, username });
   },

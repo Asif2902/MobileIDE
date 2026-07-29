@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-29T00:00:00Z",
+  "corepack": {
+    "version": "0.35.0",
+    "registryIntegrity": "sha512-9BuIGHDFE7Zieor1CeRsvt7X7AJFEuJ6OnbSbsVprq83ChDFoBh1wP98NeUS9FT3ZwlzFllPElXcz/OiDf0YGw==",
+    "source": "https://registry.npmjs.org/corepack/-/corepack-0.35.0.tgz",
+    "assets": {
+      "node_modules/corepack/dist/lib/corepack.cjs": "89cc83cf02dafbb768017901147933023eb43d6ce6373f9698b8b2f29210a9fd"
+    }
+  },
+  "managers": {
+    "pnpm": {
+      "version": "11.18.0",
+      "registryIntegrity": "sha512-M9g8d9qC9J+6g2klxvG4QRgewxMrZwY5vQEvcHX1x89jTF+HAUfBmq50ePrAHfCdiJLogEVIlu3SPumzN1dWPA==",
+      "source": "https://registry.npmjs.org/pnpm/-/pnpm-11.18.0.tgz",
+      "curation": "Removed duplicate artifacts/exe output and Windows-only fastlist executables; Android uses bin plus dist.",
+      "entrypoint": "package-managers/pnpm-11.18.0/bin/pnpm.mjs",
+      "assets": {
+        "package-managers/pnpm-11.18.0/bin/pnpm.mjs": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
+        "package-managers/pnpm-11.18.0/dist/pnpm.mjs": "d34a7b439643e7b8680a817387ec3692c7097ae7a85865c2c15ad6211143d506"
+      }
+    },
+    "yarn": {
+      "version": "4.18.0",
+      "registryIntegrity": "sha512-WV9H+/O8BPElO7GKzrKipTtCNt8/gBCUJaNAEOw4U/x2k17aZjseYzll4QhpZE4xIsEvo8bK6KvjhsXuHrclPg==",
+      "source": "https://registry.npmjs.org/@yarnpkg/cli-dist/-/cli-dist-4.18.0.tgz",
+      "entrypoint": "package-managers/yarn-4.18.0/bin/yarn.js",
+      "assets": {
+        "package-managers/yarn-4.18.0/bin/yarn.js": "fb8b1d20be72a0b544a35bcec4c7ed0ff55a9b173c01f191b02ba164b2051db5"
+      }
+    }
+  }
+}

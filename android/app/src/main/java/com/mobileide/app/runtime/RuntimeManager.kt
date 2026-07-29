@@ -6,10 +6,16 @@ import android.os.Build
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import com.mobileide.app.git.GitCredentialBroker
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.ByteArrayInputStream
+import java.net.URI
+import java.security.MessageDigest
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 
 /**
  * RuntimeManager handles extraction and management of the bundled developer runtime.
@@ -45,7 +51,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.13.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.14.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.
@@ -75,6 +81,7 @@ class RuntimeManager(private val context: Context) {
     private val npmGlobalDir: File by lazy { File(homeDir, ".npm-global") }
     private val localBinDir: File by lazy { File(homeDir, ".local/bin") }
     private val caBundleFile: File by lazy { File(etcDir, "ssl/certs/ca-bundle.crt") }
+    private val customCaDir: File by lazy { File(etcDir, "ssl/custom-ca") }
     private val gitTemplateDir: File by lazy { File(etcDir, "git-templates") }
     private val nativeLibDir: File by lazy { File(context.applicationInfo.nativeLibraryDir) }
     private val selinuxProcessContext: String? by lazy {
@@ -457,6 +464,11 @@ class RuntimeManager(private val context: Context) {
             val phase1Test = File(libDir, "adev-phase1-test.js")
             val nextLauncher = File(libDir, "adev-next.js")
             val phase2Test = File(libDir, "adev-phase2-test.js")
+            val packageManagerLauncher = File(libDir, "adev-package-manager.js")
+            val bunBoundary = File(libDir, "adev-bun.js")
+            val sshLauncher = File(libDir, "adev-ssh.js")
+            val toolPackLauncher = File(libDir, "adev-toolpack.js")
+            val phase3Test = File(libDir, "adev-phase3-test.js")
             val hasBusybox = File(nativeLibDir, "libbin_busybox.so").exists()
             val hasNode = File(nativeLibDir, "libbin_node.so").exists()
             val hasGit = File(nativeLibDir, "libbin_git.so").exists()
@@ -511,11 +523,17 @@ class RuntimeManager(private val context: Context) {
                 if (nodeGyp.exists()) {
                     sb.appendLine("node-gyp() { \"$node\" \"${nodeGyp.absolutePath}\" \"\$@\"; }")
                 }
-                sb.appendLine("if [ -f \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" ]; then")
-                sb.appendLine("  corepack() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" \"\$@\"; }")
-                sb.appendLine("  yarn() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" yarn \"\$@\"; }")
-                sb.appendLine("  pnpm() { \"$node\" \"\$PREFIX/lib/node_modules/corepack/dist/corepack.js\" pnpm \"\$@\"; }")
+                sb.appendLine("if [ -f \"${packageManagerLauncher.absolutePath}\" ]; then")
+                sb.appendLine("  corepack() { \"$node\" \"${packageManagerLauncher.absolutePath}\" corepack \"\$@\"; }")
+                sb.appendLine("  yarn() { \"$node\" \"${packageManagerLauncher.absolutePath}\" yarn \"\$@\"; }")
+                sb.appendLine("  pnpm() { \"$node\" \"${packageManagerLauncher.absolutePath}\" pnpm \"\$@\"; }")
                 sb.appendLine("fi")
+                if (bunBoundary.exists()) {
+                    sb.appendLine("bun() { \"$node\" \"${bunBoundary.absolutePath}\" \"\$@\"; }")
+                }
+                if (sshLauncher.exists()) {
+                    sb.appendLine("ssh() { \"$node\" \"${sshLauncher.absolutePath}\" \"\$@\"; }")
+                }
                 sb.appendLine("tsc() { npx --no-install tsc \"\$@\" 2>/dev/null || npx --yes tsc \"\$@\"; }")
                 sb.appendLine("eslint() { npx --no-install eslint \"\$@\" 2>/dev/null || npx --yes eslint \"\$@\"; }")
                 sb.appendLine("vite() { npx --no-install vite \"\$@\" 2>/dev/null || npx --yes vite \"\$@\"; }")
@@ -619,6 +637,12 @@ class RuntimeManager(private val context: Context) {
             if (hasNode && phase2Test.exists()) {
                 sb.appendLine("adev-phase2-test() { \"$node\" \"${phase2Test.absolutePath}\" \"\$@\"; }")
             }
+            if (hasNode && toolPackLauncher.exists()) {
+                sb.appendLine("adev-toolpack() { \"$node\" \"${toolPackLauncher.absolutePath}\" \"\$@\"; }")
+            }
+            if (hasNode && phase3Test.exists()) {
+                sb.appendLine("adev-phase3-test() { \"$node\" \"${phase3Test.absolutePath}\" \"\$@\"; }")
+            }
 
             val out = File(homeDir, ".adev-wrappers")
             out.writeText(sb.toString())
@@ -652,6 +676,8 @@ class RuntimeManager(private val context: Context) {
             agentEnv.appendLine("export npm_config_platform=android")
             agentEnv.appendLine("export npm_config_arch=arm64")
             agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
+            agentEnv.appendLine("export ADEV_PACKAGE_MANAGER_LOCK=\"${File(libDir, "adev-package-managers.json").absolutePath}\"")
+            agentEnv.appendLine("export COREPACK_HOME=\"${File(cacheDir, "corepack").absolutePath}\"")
             agentEnv.appendLine("export ADEV_PLATFORM_SPOOF=disabled")
             appendToolchainEnvironment(agentEnv, exportPrefix = "export ")
             agentEnv.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
@@ -732,6 +758,11 @@ class RuntimeManager(private val context: Context) {
             val phase1Test = File(libDir, "adev-phase1-test.js")
             val nextLauncher = File(libDir, "adev-next.js")
             val phase2Test = File(libDir, "adev-phase2-test.js")
+            val packageManagerLauncher = File(libDir, "adev-package-manager.js")
+            val bunBoundary = File(libDir, "adev-bun.js")
+            val sshLauncher = File(libDir, "adev-ssh.js")
+            val toolPackLauncher = File(libDir, "adev-toolpack.js")
+            val phase3Test = File(libDir, "adev-phase3-test.js")
 
             binDir.setWritable(true, false)
 
@@ -772,11 +803,25 @@ class RuntimeManager(private val context: Context) {
                         "#!/system/bin/sh\nexec \"$n\" \"${nodeGyp.absolutePath}\" \"\$@\"\n"
                     )
                 }
-                if (corepackJs.exists()) {
-                    val c = corepackJs.absolutePath
-                    writeScript("corepack", "#!/system/bin/sh\nexec \"$n\" \"$c\" \"\$@\"\n")
-                    writeScript("yarn", "#!/system/bin/sh\nexec \"$n\" \"$c\" yarn \"\$@\"\n")
-                    writeScript("pnpm", "#!/system/bin/sh\nexec \"$n\" \"$c\" pnpm \"\$@\"\n")
+                if (corepackJs.exists() && packageManagerLauncher.exists()) {
+                    val launcher = packageManagerLauncher.absolutePath
+                    writeScript("corepack", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" corepack \"\$@\"\n")
+                    writeScript("yarn", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" yarn \"\$@\"\n")
+                    writeScript("yarnpkg", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" yarn \"\$@\"\n")
+                    writeScript("pnpm", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" pnpm \"\$@\"\n")
+                    writeScript("pnpx", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" pnpm dlx \"\$@\"\n")
+                }
+                if (bunBoundary.exists()) {
+                    writeScript(
+                        "bun",
+                        "#!/system/bin/sh\nexec \"$n\" \"${bunBoundary.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (sshLauncher.exists()) {
+                    writeScript(
+                        "ssh",
+                        "#!/system/bin/sh\nexec \"$n\" \"${sshLauncher.absolutePath}\" \"\$@\"\n"
+                    )
                 }
                 if (doctor.exists()) {
                     writeScript(
@@ -810,6 +855,18 @@ class RuntimeManager(private val context: Context) {
                     writeScript(
                         "adev-phase2-test",
                         "#!/system/bin/sh\nexec \"$n\" \"${phase2Test.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (toolPackLauncher.exists()) {
+                    writeScript(
+                        "adev-toolpack",
+                        "#!/system/bin/sh\nexec \"$n\" \"${toolPackLauncher.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (phase3Test.exists()) {
+                    writeScript(
+                        "adev-phase3-test",
+                        "#!/system/bin/sh\nexec \"$n\" \"${phase3Test.absolutePath}\" \"\$@\"\n"
                     )
                 }
             }
@@ -1183,11 +1240,11 @@ class RuntimeManager(private val context: Context) {
      */
     private fun setupCaBundle() {
         try {
-            if (caBundleFile.exists() && caBundleFile.length() > 0) return
             caBundleFile.parentFile?.mkdirs()
+            customCaDir.mkdirs()
             val sysCerts = File("/system/etc/security/cacerts")
-            if (sysCerts.isDirectory) {
-                caBundleFile.bufferedWriter().use { w ->
+            caBundleFile.bufferedWriter().use { w ->
+                if (sysCerts.isDirectory) {
                     sysCerts.listFiles()?.forEach { c ->
                         if (c.isFile) {
                             try {
@@ -1197,12 +1254,83 @@ class RuntimeManager(private val context: Context) {
                         }
                     }
                 }
-                Log.i(TAG, "Assembled CA bundle (${caBundleFile.length()} bytes)")
+                customCaDir.listFiles()
+                    ?.filter { it.isFile && it.extension == "pem" }
+                    ?.sortedBy { it.name }
+                    ?.forEach { certificate ->
+                        w.write(certificate.readText())
+                        w.write("\n")
+                    }
             }
+            Log.i(TAG, "Assembled CA bundle (${caBundleFile.length()} bytes)")
         } catch (e: Exception) {
             Log.w(TAG, "CA bundle assembly failed: ${e.message}")
         }
     }
+
+    fun installGitCustomCa(reference: String, pem: String): String {
+        require(reference.matches(Regex("^[A-Za-z0-9._-]{1,64}$"))) {
+            "CA reference must be 1-64 safe characters"
+        }
+        require(pem.contains("BEGIN CERTIFICATE") && pem.contains("END CERTIFICATE")) {
+            "A PEM X.509 certificate is required"
+        }
+        val certificate = CertificateFactory.getInstance("X.509").generateCertificate(
+            ByteArrayInputStream(pem.toByteArray(Charsets.UTF_8))
+        ) as X509Certificate
+        certificate.checkValidity()
+        customCaDir.mkdirs()
+        val target = File(customCaDir, "$reference.pem").canonicalFile
+        require(target.toPath().startsWith(customCaDir.canonicalFile.toPath())) {
+            "Invalid custom CA path"
+        }
+        target.writeText(pem.trim() + "\n")
+        setupCaBundle()
+        return MessageDigest.getInstance("SHA-256").digest(certificate.encoded)
+            .joinToString(":") { "%02X".format(it) }
+    }
+
+    fun removeGitCustomCa(reference: String): Boolean {
+        require(reference.matches(Regex("^[A-Za-z0-9._-]{1,64}$"))) {
+            "Invalid CA reference"
+        }
+        val target = File(customCaDir, "$reference.pem").canonicalFile
+        require(target.toPath().startsWith(customCaDir.canonicalFile.toPath())) {
+            "Invalid custom CA path"
+        }
+        val removed = !target.exists() || target.delete()
+        setupCaBundle()
+        return removed
+    }
+
+    fun listGitCustomCas(): List<String> =
+        customCaDir.listFiles()
+            ?.filter { it.isFile && it.extension == "pem" }
+            ?.map { it.nameWithoutExtension }
+            ?.sorted()
+            ?: emptyList()
+
+    fun setGitProxy(proxyUrl: String?) {
+        val normalized = proxyUrl?.trim().orEmpty()
+        if (normalized.isNotEmpty()) {
+            val uri = URI(normalized)
+            require(uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank()) {
+                "Proxy must be an http(s) URL with a host"
+            }
+            require(uri.userInfo.isNullOrBlank()) {
+                "Proxy credentials must use a protected credential reference, not the URL"
+            }
+        }
+        context.getSharedPreferences("adev_git_network", Context.MODE_PRIVATE)
+            .edit()
+            .putString("proxy", normalized)
+            .apply()
+    }
+
+    fun getGitProxy(): String? =
+        context.getSharedPreferences("adev_git_network", Context.MODE_PRIVATE)
+            .getString("proxy", null)
+            ?.takeIf { it.isNotBlank() }
 
     /**
      * Create a default workspace with a welcome file so the file explorer isn't empty
@@ -1557,7 +1685,17 @@ class RuntimeManager(private val context: Context) {
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
             "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile,
-            "next" to File(libDir, "adev-next.js").isFile
+            "next" to File(libDir, "adev-next.js").isFile,
+            "ssh" to (
+                File(nativeLibDir, "libbin_dropbearmulti.so").isFile &&
+                    File(libDir, "adev-ssh.js").isFile
+                ),
+            "git-credential-broker" to File(
+                nativeLibDir,
+                "libbin_adev_git_credential.so"
+            ).isFile,
+            "git-lfs" to File(nativeLibDir, "libbin_git_lfs.so").isFile,
+            "adev-toolpack" to File(libDir, "adev-toolpack.js").isFile
         )
         val nativeBuildReady = listOf(
             "node-gyp", "python", "make", "clang", "lld"
@@ -1586,15 +1724,25 @@ class RuntimeManager(private val context: Context) {
                 "npm" to (commandReadiness["npm"] == true),
                 "npx" to (commandReadiness["npx"] == true),
                 "corepack" to File(libDir, "node_modules/corepack/dist/corepack.js").isFile,
-                "pnpm-offline" to false,
-                "yarn-offline" to false,
+                "pnpm-offline" to File(
+                    libDir,
+                    "package-managers/pnpm-11.18.0/bin/pnpm.mjs"
+                ).isFile,
+                "yarn-offline" to File(
+                    libDir,
+                    "package-managers/yarn-4.18.0/bin/yarn.js"
+                ).isFile,
                 "bun" to false
             ),
             toolPacks = linkedMapOf(
                 "native-c-cpp" to nativeBuildReady,
+                "signed-catalog" to File(libDir, "adev-toolpacks.json").isFile,
                 "cmake-ninja" to false,
                 "rust-cargo" to false,
-                "java" to false
+                "nasm" to false,
+                "autotools-libtool" to false,
+                "java" to false,
+                "package-development-libraries" to false
             ),
             filesystems = linkedMapOf(
                 "private-native-watch" to true,
@@ -1690,6 +1838,10 @@ class RuntimeManager(private val context: Context) {
             "LC_ALL" to "en_US.UTF-8",
             "GIT_EXEC_PATH" to "${binDir.absolutePath}/git-core",
             "GIT_TEMPLATE_DIR" to gitTemplateDir.absolutePath,
+            "GIT_SSH_COMMAND" to
+                "${File(nativeLibDir, "libbin_node.so").absolutePath} " +
+                File(libDir, "adev-ssh.js").absolutePath,
+            "GIT_SSH_VARIANT" to "ssh",
             // Prefer HTTP/1.1 for flaky mobile TLS stacks with libcurl.
             "GIT_HTTP_LOW_SPEED_LIMIT" to "1000",
             "GIT_HTTP_LOW_SPEED_TIME" to "30",
@@ -1709,6 +1861,9 @@ class RuntimeManager(private val context: Context) {
             "ADEV_ABI" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"),
             "ADEV_NATIVE_BUILD_API" to NATIVE_BUILD_API.toString(),
             "ADEV_PACKAGE_POLICY_FILE" to File(libDir, "adev-runtime-policy.json").absolutePath,
+            "ADEV_PACKAGE_MANAGER_LOCK" to
+                File(libDir, "adev-package-managers.json").absolutePath,
+            "COREPACK_HOME" to File(cacheDir, "corepack").absolutePath,
             "ADEV_PLATFORM_SPOOF" to "disabled",
             "ADEV_NEXT_LAUNCHER" to File(libDir, "adev-next.js").absolutePath,
             "ADEV_NEXT_CACHE" to File(cacheDir, "next-swc").absolutePath,
@@ -1729,6 +1884,24 @@ class RuntimeManager(private val context: Context) {
             "VITE_CJS_IGNORE_WARNING" to "true"
         )
 
+        // Native Git obtains protected credentials through a loopback broker.
+        // The session capability is inherited by app-launched children but no
+        // stored token/private key is placed in a command line or React state.
+        env.putAll(GitCredentialBroker.get(context).environment())
+        val credentialHelper =
+            File(nativeLibDir, "libbin_adev_git_credential.so").absolutePath
+        val commandConfig = listOf(
+            "credential.helper" to "",
+            "credential.helper" to credentialHelper,
+            "http.followRedirects" to "initial",
+            "protocol.version" to "2"
+        )
+        env["GIT_CONFIG_COUNT"] = commandConfig.size.toString()
+        commandConfig.forEachIndexed { index, (key, value) ->
+            env["GIT_CONFIG_KEY_$index"] = key
+            env["GIT_CONFIG_VALUE_$index"] = value
+        }
+
         val watchPath = File(workingDirectory ?: workspacesDir.absolutePath)
         if (requiresPolling(watchPath)) {
             env["ADEV_WATCH_MODE"] = "polling"
@@ -1737,6 +1910,13 @@ class RuntimeManager(private val context: Context) {
             env["WATCHPACK_POLLING"] = "true"
         } else {
             env["ADEV_WATCH_MODE"] = "native"
+        }
+
+        getGitProxy()?.let { proxy ->
+            env["HTTP_PROXY"] = proxy
+            env["HTTPS_PROXY"] = proxy
+            env["http_proxy"] = proxy
+            env["https_proxy"] = proxy
         }
 
         // termux-exec >=2 requires the actual host app/rootfs contract. Without
