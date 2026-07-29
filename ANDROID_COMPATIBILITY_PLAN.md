@@ -920,13 +920,19 @@ Host evidence on 2026-07-30:
 - Final debug evidence APK: 257,619,039 bytes, SHA-256
   `2718C5E013B1406B5F270011D726EFA7C9D8E611285722B556C1A873C6F720E8`.
   It remains ignored test output and is not a production release artifact.
-- Standalone phone-test APK: 270,582,410 bytes, SHA-256
-  `961E7A428C52F934D53EEF4085EE41139B66A144B0145111466024F68F11F0AF`.
-  It bundles the JavaScript/runtime payload, targets API 36, contains exact
-  ARM64+x86_64 native libraries, passes the 16 KiB ZIP/ELF and dependency
-  checks, and installs beside the production app as
-  `com.mobileide.app.phonetest`. It is intentionally test-signed for direct
-  device testing and is not a production/Play release artifact.
+- Corrected standalone phone-test APK: 357,840,069 bytes, SHA-256
+  `C66A6BAFA3C4067BF508FE2F3AA7FF914038AF99F673981267C40D391F147846`.
+  The first phone-test artifact exposed that MobileIDE's helper-only CMake
+  project had replaced React Native's required New Architecture application
+  CMake entrypoint. It omitted `libappmodules.so` and generated/autolinked
+  component registration, causing an immediate `PlatformConstants` startup
+  crash. The fixed build nests the existing helpers beneath
+  `ReactNative-application.cmake`, requires `libappmodules.so` for both ABIs,
+  pins Android SDK CMake 3.31.6 for Windows long-path support, and preserves
+  the signed non-LTO helper hashes. On an Infinix X689B ARM64 device running
+  Android 11/API 30, a cold launch remained alive and resumed with an empty
+  crash buffer; the terminal rendered and produced a working prompt. The APK
+  remains intentionally test-signed and is not a production/Play artifact.
 - The signed ownership check reports zero stale JNI/map outputs. Gradle invokes
   the signature-verifying pruner automatically and can delete only manifest-
   owned generated names.

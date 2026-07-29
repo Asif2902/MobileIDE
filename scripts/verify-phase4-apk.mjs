@@ -65,12 +65,14 @@ const run = (command, args, options = {}) =>
 
 const entries = run(jar, ['tf', apk]).trim().split(/\r?\n/);
 const required = [
+  'lib/arm64-v8a/libappmodules.so',
   'lib/arm64-v8a/libbin_adev_npm_shell.so',
   'lib/arm64-v8a/libbin_adev_git_credential.so',
   'lib/arm64-v8a/libbin_opencode.so',
   'lib/arm64-v8a/libbin_opencode_runtime.so',
   'lib/arm64-v8a/liblib_opencode_opentui.so',
   'lib/arm64-v8a/liblib_opencode_tagfix.so',
+  'lib/x86_64/libappmodules.so',
   'lib/x86_64/libbin_adev_npm_shell.so',
   'lib/x86_64/libbin_adev_git_credential.so',
   'lib/x86_64/libbin_opencode.so',

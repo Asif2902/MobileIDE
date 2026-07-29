@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-project("mobileide-pty")
-
 # ---------------------------------------------------------------------------
 # PTY native library (JNI)
 # ---------------------------------------------------------------------------
@@ -23,6 +21,7 @@ target_link_options(mobileide-pty PRIVATE
 set_target_properties(mobileide-pty PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
 )
 
 # ---------------------------------------------------------------------------
@@ -48,6 +47,7 @@ target_compile_definitions(adev_npm_shell PRIVATE NDEBUG)
 set_target_properties(adev_npm_shell PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
     # Name must look like a JNI lib so the packaging pipeline keeps it.
     OUTPUT_NAME "bin_adev_npm_shell"
     PREFIX "lib"
@@ -70,6 +70,7 @@ target_compile_definitions(adev_git_credential PRIVATE NDEBUG)
 set_target_properties(adev_git_credential PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
     OUTPUT_NAME "bin_adev_git_credential"
     PREFIX "lib"
     SUFFIX ".so"
@@ -91,6 +92,7 @@ target_compile_definitions(adev_opencode PRIVATE NDEBUG)
 set_target_properties(adev_opencode PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
     OUTPUT_NAME "bin_opencode"
     PREFIX "lib"
     SUFFIX ".so"

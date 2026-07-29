@@ -40,7 +40,7 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
       - uses: android-actions/setup-android@v3
       - name: Install pinned Android SDK
-        run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+        run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.31.6"
       - run: npm ci
       - run: npm run release:check
       - run: npm audit --omit=dev --audit-level=low
@@ -78,7 +78,7 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.31.6"
       - run: npm ci
       - working-directory: android
         run: ./gradlew --no-daemon assembleDebug
@@ -170,7 +170,7 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.31.6"
       - run: npm ci
       - run: npm run release:check
       - name: Prepare external release tools and keystore

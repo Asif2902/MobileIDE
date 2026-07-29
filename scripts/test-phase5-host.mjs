@@ -71,6 +71,7 @@ assert.match(workflow, /pagesize-16k/);
 assert.match(workflow, /git lfs pull/);
 assert.match(workflow, /assembleRelease bundleRelease/);
 assert.match(workflow, /npm audit --omit=dev/);
+assert.match(workflow, /cmake;3\.31\.6/);
 
 const publicKey = crypto.createPublicKey(
   text('android/app/src/main/assets/runtime/runtime-lock.pub.pem'),

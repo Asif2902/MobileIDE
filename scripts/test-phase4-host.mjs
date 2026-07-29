@@ -57,9 +57,22 @@ assert.equal(
 );
 
 const build = text('android/build.gradle');
+const appBuild = text('android/app/build.gradle');
+const appCmake = text('android/app/src/main/jni/CMakeLists.txt');
 assert.match(build, /compileSdkVersion = 36/);
 assert.match(build, /targetSdkVersion = 36/);
 assert.match(build, /ndkVersion = "29\.0\.14206865"/);
+assert.match(appBuild, /path "src\/main\/jni\/CMakeLists\.txt"/);
+assert.match(appBuild, /version "3\.31\.6"/);
+assert.match(
+  appCmake,
+  /include\(\$\{REACT_ANDROID_DIR\}\/cmake-utils\/ReactNative-application\.cmake\)/,
+);
+assert.match(appCmake, /add_subdirectory\([^)]*cpp/);
+assert.match(
+  text('scripts/verify-phase4-apk.mjs'),
+  /lib\/arm64-v8a\/libappmodules\.so/,
+);
 assert.match(text('android/gradle.properties'), /arm64-v8a,x86_64/);
 assert.match(text('package.json'), /"react-native": "0\.86\.2"/);
 assert.match(

@@ -9,6 +9,11 @@ Phone-test package:
   runtime, so it runs without Metro.
 - It installs beside the production app under `com.mobileide.app.phonetest`
   and is Android-debug-key signed solely for direct device testing.
+- The corrected package restores React Native's required New Architecture
+  `libappmodules.so` and generated/autolinked component registrations. This
+  fixes the immediate `PlatformConstants` crash in the first test package.
+- Android SDK CMake 3.31.6 and shortened, clone-specific native staging make
+  the complete generated ARM64/x86_64 graph build on Windows.
 
 Highlights:
 

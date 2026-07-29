@@ -106,6 +106,22 @@ if (releaseSigningReady) {
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
 
+// CMake/Ninja on Windows still rejects generated React Native object paths
+// above MAX_PATH. Keep its persistent staging graph under a short,
+// clone-specific user path; other hosts retain the normal module-local path.
+def nativeBuildWorkspaceKey = java.security.MessageDigest
+    .getInstance("SHA-256")
+    .digest(projectDir.canonicalPath.toLowerCase(Locale.ROOT).getBytes("UTF-8"))
+    .encodeHex()
+    .toString()
+    .substring(0, 12)
+def nativeBuildStagingOverride = System.getenv("ADEV_NATIVE_BUILD_STAGING_DIR")
+def nativeBuildStagingDir = nativeBuildStagingOverride
+    ? file(nativeBuildStagingOverride)
+    : (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows")
+        ? new File(System.getProperty("user.home"), ".adev-cxx/${nativeBuildWorkspaceKey}")
+        : file(".cxx"))
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -132,8 +148,11 @@ android {
     }
     externalNativeBuild {
         cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1"
+            // Preserve React Native's appmodules/autolinking entrypoint while
+            // building MobileIDE's PTY and command helpers in a subdirectory.
+            path "src/main/jni/CMakeLists.txt"
+            version "3.31.6"
+            buildStagingDirectory nativeBuildStagingDir
         }
     }
     signingConfigs {
@@ -364,7 +383,8 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
             def candidates = [:].withDefault { [:].withDefault { [] } }
             [
                 file("${buildDir}/intermediates/cxx/${cmakeVariant}"),
-                file("${projectDir}/.cxx/${cmakeVariant}")
+                file("${projectDir}/.cxx/${cmakeVariant}"),
+                file("${nativeBuildStagingDir}/${cmakeVariant}")
             ].each { root ->
                 if (root.exists()) {
                     root.eachFileRecurse { f ->
