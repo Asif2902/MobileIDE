@@ -166,6 +166,18 @@ android {
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
+        phoneTest {
+            initWith release
+            // Standalone, release-mode test package for physical-device
+            // compatibility testing. It is deliberately separate from the
+            // production application and never qualifies as a release signer.
+            applicationIdSuffix ".phonetest"
+            versionNameSuffix "-phone-test"
+            signingConfig signingConfigs.debug
+            debuggable false
+            minifyEnabled false
+            matchingFallbacks = ["release"]
+        }
     }
     packagingOptions {
         resources {
@@ -414,6 +426,7 @@ gradle.taskGraph.whenReady { graph ->
 
 registerAdevNativeHelpersSync("debug", "Debug")
 registerAdevNativeHelpersSync("release", "RelWithDebInfo")
+registerAdevNativeHelpersSync("phoneTest", "RelWithDebInfo")
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

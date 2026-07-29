@@ -3,6 +3,13 @@
 This release adds an Android-native OpenCode CLI path and fixes the terminal
 startup loop.
 
+Phone-test package:
+
+- A standalone `1.3.5-phone-test` APK bundles the JavaScript application and
+  runtime, so it runs without Metro.
+- It installs beside the production app under `com.mobileide.app.phonetest`
+  and is Android-debug-key signed solely for direct device testing.
+
 Highlights:
 
 - The terminal no longer retries a failed native session forever. A failed

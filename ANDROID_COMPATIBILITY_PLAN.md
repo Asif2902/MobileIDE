@@ -920,6 +920,13 @@ Host evidence on 2026-07-30:
 - Final debug evidence APK: 257,619,039 bytes, SHA-256
   `2718C5E013B1406B5F270011D726EFA7C9D8E611285722B556C1A873C6F720E8`.
   It remains ignored test output and is not a production release artifact.
+- Standalone phone-test APK: 270,582,410 bytes, SHA-256
+  `961E7A428C52F934D53EEF4085EE41139B66A144B0145111466024F68F11F0AF`.
+  It bundles the JavaScript/runtime payload, targets API 36, contains exact
+  ARM64+x86_64 native libraries, passes the 16 KiB ZIP/ELF and dependency
+  checks, and installs beside the production app as
+  `com.mobileide.app.phonetest`. It is intentionally test-signed for direct
+  device testing and is not a production/Play release artifact.
 - The signed ownership check reports zero stale JNI/map outputs. Gradle invokes
   the signature-verifying pruner automatically and can delete only manifest-
   owned generated names.
