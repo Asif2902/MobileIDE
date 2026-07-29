@@ -11,7 +11,7 @@ Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 | 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 was authorized separately. |
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. Run `adev-phase2-test --network` from Terminal and repeat the Run/Preview matrix on API 29/API 36; Phase 3 waits for explicit approval. |
 | 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | `93b3527` | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, the Bun capability boundary, and signed tool-pack lifecycle pass host/build/APK checks. Run `adev-phase3-test --network` on API 29/API 36; ABI tool-pack delivery remains an explicit Phase 4 feature gate. |
-| 4. Android 16, ABI, filesystem, and runtime distribution | **IMPLEMENTED — DEVICE / FEATURE / HOST RELEASE GATES** | PENDING | React Native 0.86.2, API 36, NDK r29, Gradle 9.3.1, dual-ABI app/native helpers, signed runtime locking, guided private imports, and packaged 16 KiB checks pass. Connected APIs 29/34/35/36, the full x86_64 developer-runtime feature, and a host allowed to execute Hermes remain explicit gates. |
+| 4. Android 16, ABI, filesystem, and runtime distribution | **IMPLEMENTED — DEVICE / FEATURE / HOST RELEASE GATES** | `001cc17` | React Native 0.86.2, API 36, NDK r29, Gradle 9.3.1, dual-ABI app/native helpers, signed runtime locking, guided private imports, and packaged 16 KiB checks pass. Connected APIs 29/34/35/36, the full x86_64 developer-runtime feature, and a host allowed to execute Hermes remain explicit gates. |
 | 5. Automation, security, production release, and final audit | NOT STARTED | — | Start only after explicit approval. |
 
 ## Executive result
@@ -760,7 +760,7 @@ macOS, Linux, and Windows targets but no Android target:
 
 Host evidence on 2026-07-29:
 
-- Implementation commit: PENDING
+- Implementation commit: `001cc17`
   (`phase-4: complete Android 16 and multi-ABI platform support`).
 - React Native 0.86.2/React 19.2.3/CLI 20.1.0, Gradle 9.3.1,
   AGP 8.12.0, Kotlin 2.1.20, API/build tools 36, NDK 29.0.14206865, JDK 17,
