@@ -10,7 +10,7 @@ Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
 |---|---|---|---|
 | 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 was authorized separately. |
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. Run `adev-phase2-test --network` from Terminal and repeat the Run/Preview matrix on API 29/API 36; Phase 3 waits for explicit approval. |
-| 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | PENDING | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, the Bun capability boundary, and signed tool-pack lifecycle pass host/build/APK checks. Run `adev-phase3-test --network` on API 29/API 36; ABI tool-pack delivery remains an explicit Phase 4 feature gate. |
+| 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | `93b3527` | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, the Bun capability boundary, and signed tool-pack lifecycle pass host/build/APK checks. Run `adev-phase3-test --network` on API 29/API 36; ABI tool-pack delivery remains an explicit Phase 4 feature gate. |
 | 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for explicit approval after the Phase 3 report. |
 | 5. Automation, security, production release, and final audit | NOT STARTED | — | Wait for Phase 4. |
 
@@ -603,6 +603,8 @@ The native fixture must then be loaded with Node and its result asserted.
 
 Host evidence on 2026-07-29:
 
+- Implementation commit: `93b3527`
+  (`phase-3: complete Git and package-manager integrations`).
 - `npm run test:runtime-policy`: pass.
 - `:app:testReleaseUnitTest`: pass.
 - `:app:assembleRelease`: pass.
