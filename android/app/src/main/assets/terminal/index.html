@@ -41,8 +41,8 @@
     // Phone vs tablet: smaller font on narrow widths so more columns fit.
     function pickFontSize() {
       const w = Math.min(window.innerWidth || 360, (window.visualViewport && window.visualViewport.width) || 9999);
-      if (w < 360) return 10;
-      if (w < 480) return 11;
+      if (w < 360) return 9;
+      if (w < 480) return 10;
       if (w < 700) return 12;
       if (w < 1000) return 13;
       return 14;
@@ -222,10 +222,19 @@
       try {
         const buf = term.buffer.active;
         const lines = [];
+        let logicalLine = '';
         for (let i = 0; i < buf.length; i++) {
           const line = buf.getLine(i);
-          if (line) lines.push(line.translateToString(true));
+          if (!line) continue;
+          const text = line.translateToString(true);
+          if (line.isWrapped) {
+            logicalLine += text;
+          } else {
+            if (i > 0) lines.push(logicalLine);
+            logicalLine = text;
+          }
         }
+        lines.push(logicalLine);
         return lines.join('\n').replace(/\n+$/, '');
       } catch (e) {
         return '';

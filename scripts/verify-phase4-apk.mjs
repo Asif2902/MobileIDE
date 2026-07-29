@@ -64,6 +64,7 @@ const run = (command, args, options = {}) =>
   });
 
 const entries = run(jar, ['tf', apk]).trim().split(/\r?\n/);
+const entrySet = new Set(entries);
 const required = [
   'lib/arm64-v8a/libappmodules.so',
   'lib/arm64-v8a/libbin_adev_npm_shell.so',
@@ -84,8 +85,38 @@ const required = [
   'assets/runtime/lib/adev-phase5-test.js',
 ];
 for (const entry of required) {
-  assert.ok(entries.includes(entry), `APK entry is missing: ${entry}`);
+  assert.ok(entrySet.has(entry), `APK entry is missing: ${entry}`);
 }
+
+// Every runtime source asset must survive AAPT packaging. Android's default
+// ignoreAssetsPattern drops underscore-prefixed directories, which previously
+// removed Python's zipfile/_path package and most modular libc++ headers.
+const runtimeAssets = path.join(
+  root,
+  'android/app/src/main/assets/runtime',
+);
+const missingRuntimeAssets = [];
+const inspectRuntimeAssets = directory => {
+  for (const sourceEntry of fs.readdirSync(directory, {withFileTypes: true})) {
+    const sourcePath = path.join(directory, sourceEntry.name);
+    if (sourceEntry.isDirectory()) {
+      inspectRuntimeAssets(sourcePath);
+      continue;
+    }
+    const relative = path
+      .relative(path.join(root, 'android/app/src/main/assets'), sourcePath)
+      .split(path.sep)
+      .join('/');
+    const apkEntry = `assets/${relative}`;
+    if (!entrySet.has(apkEntry)) missingRuntimeAssets.push(apkEntry);
+  }
+};
+inspectRuntimeAssets(runtimeAssets);
+assert.deepEqual(
+  missingRuntimeAssets,
+  [],
+  `AAPT omitted ${missingRuntimeAssets.length} runtime assets`,
+);
 const abis = [
   ...new Set(
     entries

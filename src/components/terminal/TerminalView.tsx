@@ -33,8 +33,8 @@ interface TerminalViewProps {
 }
 
 function fontForWidth(width: number): number {
-  if (width < 360) return 10;
-  if (width < 480) return 11;
+  if (width < 360) return 9;
+  if (width < 480) return 10;
   if (width < 700) return 12;
   if (width < 1000) return 13;
   return 14;

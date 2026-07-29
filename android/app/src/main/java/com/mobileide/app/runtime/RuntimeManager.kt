@@ -754,6 +754,7 @@ class RuntimeManager(private val context: Context) {
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
+            val openCode = File(nativeLibDir, "libbin_opencode.so")
             val clangResourceDir = findClangResourceDir()
             val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
             val npxCli = File(libDir, "node_modules/npm/bin/npx-cli.js")
@@ -929,6 +930,15 @@ class RuntimeManager(private val context: Context) {
             }
             if (curl.exists()) {
                 writeScript("curl", "#!/system/bin/sh\nexec \"${curl.absolutePath}\" \"\$@\"\n")
+            }
+            if (openCode.exists()) {
+                // OpenCode must be discoverable through PATH by non-interactive
+                // shells and child processes, not only as an interactive shell
+                // function from ~/.adev-wrappers.
+                writeScript(
+                    "opencode",
+                    "#!/system/bin/sh\nexec \"${openCode.absolutePath}\" \"\$@\"\n"
+                )
             }
 
             Log.i(TAG, "PATH trampolines written under ${binDir.absolutePath}")
@@ -1554,7 +1564,7 @@ class RuntimeManager(private val context: Context) {
 
     private fun getMkshrcContent(): String = """
         # A Dev Studio - mksh (short prompt for phone screens)
-        export PS1='adev:\${'$'}{PWD##*/}${'$'} '
+        export PS1='adev:${'$'}{PWD##*/}${'$'} '
         export EDITOR=vi
         export PROMPT_DIRTRIM=1
 

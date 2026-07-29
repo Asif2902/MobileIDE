@@ -63,6 +63,14 @@ assert.match(launcher, /\/system\/bin\/linker64|ANDROID_ROOT/);
 assert.match(launcher, /LD_PRELOAD/);
 assert.match(launcher, /OPENTUI_LIB_PATH/);
 assert.match(launcher, /Linux\/glibc binary will not be substituted/);
+const runtimeManager = text(
+  'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
+);
+assert.match(
+  runtimeManager,
+  /writeScript\(\s*"opencode",\s*"#!\/system\/bin\/sh\\nexec/,
+  'OpenCode must have a real PATH trampoline for child processes',
+);
 
 const sdk =
   process.env.ANDROID_SDK_ROOT ??

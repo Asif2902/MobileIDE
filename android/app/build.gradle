@@ -128,6 +128,13 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.mobileide.app"
+    androidResources {
+        // AAPT's default pattern drops underscore directories and all dot
+        // entries. That silently removes Python's zipfile/_path, libc++'s
+        // __algorithm tree, and package-manager .bin commands/.npmrc files.
+        // Retain those runtime inputs while still excluding VCS/editor junk.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
     defaultConfig {
         applicationId "com.mobileide.app"
         minSdkVersion rootProject.ext.minSdkVersion
