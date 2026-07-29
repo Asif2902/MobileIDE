@@ -18,8 +18,8 @@
     "aab": "ADevStudio-v{versionName}-arm64-x86_64.aab"
   },
   "sizeBudgetsBytes": {
-    "apk": 285000000,
-    "aab": 285000000
+    "apk": 390000000,
+    "aab": 390000000
   },
   "security": {
     "productionAuditMaximum": {
@@ -43,7 +43,13 @@
     "assets/runtime/lib/adev-phase5-test.js",
     "lib/arm64-v8a/libbin_adev_npm_shell.so",
     "lib/arm64-v8a/libbin_adev_git_credential.so",
+    "lib/arm64-v8a/libbin_opencode.so",
+    "lib/arm64-v8a/libbin_opencode_runtime.so",
+    "lib/arm64-v8a/liblib_opencode_opentui.so",
+    "lib/arm64-v8a/liblib_opencode_tagfix.so",
     "lib/x86_64/libbin_adev_npm_shell.so",
-    "lib/x86_64/libbin_adev_git_credential.so"
+    "lib/x86_64/libbin_adev_git_credential.so",
+    "lib/x86_64/libbin_opencode.so",
+    "assets/runtime/lib/adev-opencode.json"
   ]
 }

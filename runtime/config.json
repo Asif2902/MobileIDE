@@ -1,5 +1,5 @@
 {
-  "version": "1.15.0",
+  "version": "1.16.0",
   "name": "MobileIDE Runtime",
   "description": "Bundled developer runtime for MobileIDE",
   "components": {

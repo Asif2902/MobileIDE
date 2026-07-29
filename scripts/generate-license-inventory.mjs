@@ -48,12 +48,30 @@ if (unknown.length) {
         .join(', '),
   );
 }
+const openCodeManifestPath = path.join(
+  root,
+  'android/app/src/main/assets/runtime/lib/adev-opencode.json',
+);
+const openCodeManifest = fs.existsSync(openCodeManifestPath)
+  ? JSON.parse(fs.readFileSync(openCodeManifestPath, 'utf8'))
+  : null;
+const runtimeArtifacts = openCodeManifest
+  ? openCodeManifest.components.map(component => ({
+        name: component.packagedName,
+        version: openCodeManifest.version,
+        license: component.license,
+        source:
+          'https://github.com/guysoft/opencode-termux/tree/f63664eaa774b7fb8ff9e043ad735b05ecb7024b',
+        sha256: component.sha256,
+      }))
+  : [];
 const inventory = {
   schemaVersion: 1,
   generatedFrom: 'package-lock.json',
   applicationLicense: lock.packages[''].license,
   packageCount: packages.length,
   packages,
+  runtimeArtifacts,
 };
 const destination = path.join(root, 'release', 'third-party-licenses.json');
 fs.writeFileSync(destination, `${JSON.stringify(inventory, null, 2)}\n`);

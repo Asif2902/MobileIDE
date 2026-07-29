@@ -25,8 +25,19 @@ interface TerminalPanelProps {
 }
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }) => {
-  const { sessions, activeSessionId, createSession, isCreating } = useTerminalStore();
-  const { isReady } = useRuntimeStore();
+  const {
+    sessions,
+    activeSessionId,
+    createSession,
+    isCreating,
+    creationError,
+  } = useTerminalStore();
+  const {
+    isReady,
+    isInitializing,
+    error: runtimeError,
+    initializeRuntime,
+  } = useRuntimeStore();
   const { activeBottomPanelView, setBottomPanelView } = useUIStore();
   const currentWorkspaceRealPath = useFileStore(state => state.currentWorkspaceRealPath);
   const hasAutoCreated = useRef(false);
@@ -38,10 +49,16 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }
       hasAutoCreated.current = true;
       createSession(currentWorkspaceRealPath || undefined).catch(err => {
         console.error('Failed to auto-create terminal session:', err);
-        hasAutoCreated.current = false;
       });
     }
   }, [isReady, sessions.length, isCreating, createSession, currentWorkspaceRealPath]);
+
+  const retryTerminal = () => {
+    hasAutoCreated.current = true;
+    createSession(currentWorkspaceRealPath || undefined).catch(err => {
+      console.error('Failed to create terminal session:', err);
+    });
+  };
 
   const renderActiveView = () => {
     switch (activeBottomPanelView) {
@@ -72,7 +89,35 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }
                 })
               ) : (
                 <View style={styles.emptyState}>
-                  {isCreating || !isReady ? (
+                  {runtimeError && !isReady ? (
+                    <>
+                      <Icon name="problems" size={28} color="#f59e0b" />
+                      <Text style={styles.errorTitle}>Runtime could not start</Text>
+                      <Text style={styles.errorText}>{runtimeError}</Text>
+                      <TouchableOpacity
+                        style={styles.retryButton}
+                        onPress={() => initializeRuntime()}
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry runtime initialization"
+                      >
+                        <Text style={styles.retryButtonText}>Retry runtime</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : creationError ? (
+                    <>
+                      <Icon name="problems" size={28} color="#f59e0b" />
+                      <Text style={styles.errorTitle}>Terminal could not start</Text>
+                      <Text style={styles.errorText}>{creationError}</Text>
+                      <TouchableOpacity
+                        style={styles.retryButton}
+                        onPress={retryTerminal}
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry terminal creation"
+                      >
+                        <Text style={styles.retryButtonText}>Retry terminal</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : isCreating || isInitializing || !isReady ? (
                     <>
                       <ActivityIndicator size="small" color="#569cd6" />
                       <Text style={styles.loadingText}>
@@ -180,6 +225,32 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 13,
     marginTop: 8,
+  },
+  errorTitle: {
+    color: '#f0f0f0',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 10,
+  },
+  errorText: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    lineHeight: 18,
+    marginHorizontal: 24,
+    marginTop: 7,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#007acc',
+    borderRadius: 5,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 

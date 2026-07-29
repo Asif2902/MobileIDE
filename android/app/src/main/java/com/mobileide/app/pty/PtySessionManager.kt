@@ -10,6 +10,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -124,8 +125,21 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
             val pb = ProcessBuilder(bashPath, "-c", "exit 0")
             pb.environment().putAll(runtimeManager.getEnvironment())
             val p = pb.start()
-            p.waitFor()
-            p.exitValue() == 0
+            val exited = p.waitFor(5, TimeUnit.SECONDS)
+            if (!exited) {
+                p.destroy()
+                if (!p.waitFor(250, TimeUnit.MILLISECONDS)) {
+                    p.destroyForcibly()
+                }
+                Log.w(TAG, "Timed out while validating shell: $bashPath")
+                false
+            } else {
+                p.exitValue() == 0
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.w(TAG, "Shell validation interrupted: $bashPath", e)
+            false
         } catch (e: Exception) {
             Log.w(TAG, "Bash not usable at $bashPath: ${e.message}")
             false

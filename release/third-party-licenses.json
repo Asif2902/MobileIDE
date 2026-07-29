@@ -7268,5 +7268,28 @@
       "resolved": "https://registry.npmjs.org/zustand/-/zustand-5.0.14.tgz",
       "integrity": "sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g=="
     }
+  ],
+  "runtimeArtifacts": [
+    {
+      "name": "libbin_opencode_runtime.so",
+      "version": "1.17.9",
+      "license": "MIT plus embedded dependency notices",
+      "source": "https://github.com/guysoft/opencode-termux/tree/f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+      "sha256": "5609e288519cac6ad6dc0eddb4bd99fb77564e82d878e9a54915c565c75f0402"
+    },
+    {
+      "name": "liblib_opencode_opentui.so",
+      "version": "1.17.9",
+      "license": "MIT",
+      "source": "https://github.com/guysoft/opencode-termux/tree/f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+      "sha256": "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44"
+    },
+    {
+      "name": "liblib_opencode_tagfix.so",
+      "version": "1.17.9",
+      "license": "MIT",
+      "source": "https://github.com/guysoft/opencode-termux/tree/f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+      "sha256": "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
+    }
   ]
 }

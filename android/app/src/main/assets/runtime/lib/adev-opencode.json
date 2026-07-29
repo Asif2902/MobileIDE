@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode-android",
+  "version": "1.17.9",
+  "platform": "android-bionic",
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "unsupportedAbis": {
+    "x86_64": "No verified Android/Bionic x86_64 OpenCode runtime is available."
+  },
+  "delivery": "base-apk-native-library",
+  "source": {
+    "openCodeRepository": "https://github.com/anomalyco/opencode",
+    "openCodeCommit": "5c23e88419c4743b9be42cea132f2fb1e6cb63ff",
+    "androidPortRepository": "https://github.com/guysoft/opencode-termux",
+    "androidPortTag": "v0.2.1",
+    "androidPortCommit": "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+    "archiveUrl": "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
+    "archiveSha256": "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
+    "upstreamSignature": "not-published; exact SHA-256 and source commits are pinned"
+  },
+  "runtime": {
+    "interpreter": "/system/bin/linker64",
+    "pie": true,
+    "minimumLoadAlignment": 16384,
+    "requiresWritableExecutable": false,
+    "globalLinuxSpoof": false,
+    "fileWatcher": "disabled for the bundled host-only @parcel/watcher binding"
+  },
+  "components": [
+    {
+      "packagedName": "libbin_opencode_runtime.so",
+      "sourceName": "opencode.bin",
+      "sha256": "5609e288519cac6ad6dc0eddb4bd99fb77564e82d878e9a54915c565c75f0402",
+      "license": "MIT plus embedded dependency notices"
+    },
+    {
+      "packagedName": "liblib_opencode_opentui.so",
+      "sourceName": "libopentui.so",
+      "sha256": "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44",
+      "license": "MIT"
+    },
+    {
+      "packagedName": "liblib_opencode_tagfix.so",
+      "sourceName": "libtagfix.so",
+      "sha256": "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1",
+      "license": "MIT"
+    }
+  ],
+  "deviceGate": "Run --version, TUI startup, provider auth, prompt, tool execution, PTY, and clean exit on an ARM64 API 29/36 device."
+}

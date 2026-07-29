@@ -244,7 +244,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "lld" to "libbin_lld.so",
             "ld.lld" to "libbin_lld.so",
             "pkg-config" to "libbin_pkg_config.so",
-            "adev-npm-shell" to "libbin_adev_npm_shell.so"
+            "adev-npm-shell" to "libbin_adev_npm_shell.so",
+            "opencode" to "libbin_opencode.so"
         )
         fun findNative(prefix: String): File? =
             File(native).listFiles()

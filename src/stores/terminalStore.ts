@@ -15,6 +15,7 @@ interface TerminalState {
   sessions: TerminalSession[];
   activeSessionId: number | null;
   isCreating: boolean;
+  creationError: string | null;
   // Whether the Termux-style extra-keys accessory bar is shown above the keyboard.
   isKeyboardBarVisible: boolean;
   
@@ -27,6 +28,7 @@ interface TerminalState {
   sendInterrupt: (sessionId: number) => Promise<void>;
   sendTab: (sessionId: number) => Promise<void>;
   refreshSessions: () => Promise<void>;
+  clearCreationError: () => void;
   toggleKeyboardBar: () => void;
   
   // Event handlers
@@ -36,6 +38,7 @@ interface TerminalState {
 
 // Output buffer for each terminal (sessionId -> output chunks)
 const outputBuffers = new Map<number, string[]>();
+let createSessionInFlight: Promise<number> | null = null;
 
 export const getOutputBuffer = (sessionId: number): string[] => {
   return outputBuffers.get(sessionId) || [];
@@ -49,40 +52,64 @@ export const useTerminalStore = create<TerminalState>((set, _get) => ({
   sessions: [],
   activeSessionId: null,
   isCreating: false,
+  creationError: null,
   isKeyboardBarVisible: true,
 
   toggleKeyboardBar: () => {
     set(state => ({ isKeyboardBarVisible: !state.isKeyboardBarVisible }));
   },
 
-  createSession: async (cwd?: string) => {
-    set({ isCreating: true });
-    try {
-      const session = await PtyNativeModule.createSession(80, 24, cwd || null);
-      const newSession: TerminalSession = {
-        id: session.sessionId,
-        title: `Terminal ${session.sessionId}`,
-        cwd: session.cwd,
-        cols: session.cols,
-        rows: session.rows,
-        isAlive: true,
-        createdAt: Date.now(),
-      };
-      
-      // Initialize output buffer
-      outputBuffers.set(session.sessionId, []);
-      
-      set(state => ({
-        sessions: [...state.sessions, newSession],
-        activeSessionId: session.sessionId,
-        isCreating: false,
-      }));
-      
-      return session.sessionId;
-    } catch (error) {
-      set({ isCreating: false });
-      throw error;
+  createSession: (cwd?: string) => {
+    if (createSessionInFlight) {
+      return createSessionInFlight;
     }
+
+    const operation = (async () => {
+      // Yield once so the shared in-flight reference is assigned even if a
+      // native bridge implementation throws synchronously.
+      await Promise.resolve();
+      set({ isCreating: true, creationError: null });
+      try {
+        const session = await PtyNativeModule.createSession(80, 24, cwd || null);
+        const newSession: TerminalSession = {
+          id: session.sessionId,
+          title: `Terminal ${session.sessionId}`,
+          cwd: session.cwd,
+          cols: session.cols,
+          rows: session.rows,
+          isAlive: true,
+          createdAt: Date.now(),
+        };
+
+        // Output can arrive before the native create promise resolves. Preserve it.
+        if (!outputBuffers.has(session.sessionId)) {
+          outputBuffers.set(session.sessionId, []);
+        }
+
+        set(state => ({
+          sessions: state.sessions.some(existing => existing.id === session.sessionId)
+            ? state.sessions
+            : [...state.sessions, newSession],
+          activeSessionId: session.sessionId,
+          isCreating: false,
+          creationError: null,
+        }));
+
+        return session.sessionId;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set({
+          isCreating: false,
+          creationError: message || 'The terminal process could not be started.',
+        });
+        throw error;
+      } finally {
+        createSessionInFlight = null;
+      }
+    })();
+
+    createSessionInFlight = operation;
+    return operation;
   },
 
   closeSession: async (sessionId: number) => {
@@ -146,21 +173,38 @@ export const useTerminalStore = create<TerminalState>((set, _get) => ({
   refreshSessions: async () => {
     try {
       const sessions = await PtyNativeModule.getSessions();
-      set({
-        sessions: sessions.map(s => ({
-          id: s.id,
-          title: s.title,
-          cwd: s.cwd,
-          cols: s.cols,
-          rows: s.rows,
-          isAlive: s.isAlive,
-          createdAt: s.createdAt,
-        })),
+      set(state => {
+        const activeSessionId = sessions.some(
+          session => session.id === state.activeSessionId,
+        )
+          ? state.activeSessionId
+          : sessions[sessions.length - 1]?.id ?? null;
+
+        sessions.forEach(session => {
+          if (!outputBuffers.has(session.id)) {
+            outputBuffers.set(session.id, []);
+          }
+        });
+
+        return {
+          sessions: sessions.map(s => ({
+            id: s.id,
+            title: s.title,
+            cwd: s.cwd,
+            cols: s.cols,
+            rows: s.rows,
+            isAlive: s.isAlive,
+            createdAt: s.createdAt,
+          })),
+          activeSessionId,
+        };
       });
     } catch (error) {
       console.error('Failed to refresh sessions:', error);
     }
   },
+
+  clearCreationError: () => set({ creationError: null }),
 
   handleOutput: (event: TerminalOutputEvent) => {
     const buffer = outputBuffers.get(event.sessionId) || [];

@@ -459,6 +459,7 @@ class RuntimeManager(private val context: Context) {
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
+            val openCode = File(nativeLibDir, "libbin_opencode.so")
             val clangResourceDir = findClangResourceDir()
             val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
             val doctor = File(libDir, "adev-doctor.js")
@@ -566,6 +567,9 @@ class RuntimeManager(private val context: Context) {
             pkgConfig?.let { sb.appendLine("pkg-config() { \"${it.absolutePath}\" \"\$@\"; }") }
             if (curl.exists()) {
                 sb.appendLine("curl() { \"${curl.absolutePath}\" \"\$@\"; }")
+            }
+            if (openCode.exists()) {
+                sb.appendLine("opencode() { \"${openCode.absolutePath}\" \"\$@\"; }")
             }
             if (python != null || make != null || clang != null) sb.appendLine()
             if (hasGit) {
@@ -1687,6 +1691,10 @@ class RuntimeManager(private val context: Context) {
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
             "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile,
+            "opencode" to (
+                File(nativeLibDir, "libbin_opencode.so").isFile &&
+                    File(nativeLibDir, "libbin_opencode_runtime.so").isFile
+                ),
             "next" to File(libDir, "adev-next.js").isFile,
             "ssh" to (
                 File(nativeLibDir, "libbin_dropbearmulti.so").isFile &&
@@ -1756,7 +1764,8 @@ class RuntimeManager(private val context: Context) {
                 "node-server" to (commandReadiness["node"] == true),
                 "structured-listen-events" to File(libDir, "adev-server-events.js").isFile,
                 "verified-preview" to true,
-                "next-webpack-wasm" to File(libDir, "adev-next.js").isFile
+                "next-webpack-wasm" to File(libDir, "adev-next.js").isFile,
+                "opencode-cli-arm64" to (commandReadiness["opencode"] == true)
             ),
             nativeBuildReady = nativeBuildReady,
             npmLifecycleReady = npmShell.isFile,
@@ -1858,6 +1867,7 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
             "MOBILEIDE_BUSYBOX" to File(nativeLibDir, "libbin_busybox.so").absolutePath,
             "MOBILEIDE_CURL" to File(nativeLibDir, "libbin_curl.so").absolutePath,
+            "MOBILEIDE_OPENCODE" to File(nativeLibDir, "libbin_opencode.so").absolutePath,
             "ADEV_RUNTIME_VERSION" to CURRENT_RUNTIME_VERSION,
             "ADEV_APP_VERSION" to appVersionName(),
             "ADEV_ABI" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"),

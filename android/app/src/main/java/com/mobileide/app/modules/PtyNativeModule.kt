@@ -62,7 +62,11 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
                 }
             } catch (e: Throwable) {
                 withContext(Dispatchers.Main) {
-                    promise.reject("PTY_ERROR", e.message)
+                    promise.reject(
+                        "PTY_ERROR",
+                        e.message ?: "Terminal creation failed: ${e.javaClass.simpleName}",
+                        e,
+                    )
                 }
             }
         }

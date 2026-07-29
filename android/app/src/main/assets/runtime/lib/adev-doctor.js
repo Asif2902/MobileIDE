@@ -74,6 +74,12 @@ const probes = {
   curl: probe('curl', process.env.MOBILEIDE_CURL || native('curl'), ['--version']),
   bash: probe('bash', process.env.MOBILEIDE_BASH || native('bash'), ['--version']),
   busybox: probe('busybox', process.env.MOBILEIDE_BUSYBOX || native('busybox'), ['--help']),
+  opencode: probe(
+    'opencode',
+    process.env.MOBILEIDE_OPENCODE || native('opencode'),
+    ['--version'],
+    {timeout: 30000}
+  ),
 };
 
 const packageManagerLauncher = path.join(prefix, 'lib', 'adev-package-manager.js');
@@ -378,6 +384,18 @@ const report = {
     libc: 'bionic',
     alternative: 'node/npm/npx/pnpm/yarn',
     upstream: 'https://bun.sh/docs/installation',
+  },
+  opencode: {
+    ready: probes.opencode.ready,
+    version: probes.opencode.version,
+    platform: 'android-bionic',
+    abi: process.env.ADEV_ABI || process.arch,
+    supportedAbis: ['arm64-v8a'],
+    delivery: 'APK native library',
+    globalLinuxSpoof: false,
+    boundary: probes.opencode.ready
+      ? null
+      : 'A verified Android/Bionic OpenCode runtime is currently available only for ARM64.',
   },
   frameworks: {
     next: nextProject,

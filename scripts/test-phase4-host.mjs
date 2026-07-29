@@ -10,8 +10,9 @@ const text = file => read(file).toString('utf8');
 const lock = JSON.parse(
   text('android/app/src/main/assets/runtime/runtime-lock.json'),
 );
+const version = JSON.parse(text('version.json'));
 
-assert.equal(lock.runtimeVersion, '1.15.0');
+assert.equal(lock.runtimeVersion, version.runtimeVersion);
 assert.equal(lock.compileApi, 36);
 assert.equal(lock.targetApi, 36);
 assert.equal(lock.pageAlignment, 16384);
@@ -22,8 +23,25 @@ assert.equal(
   'base-apk-plus-signed-runtime-feature-pack',
 );
 assert.equal(lock.abis.x86_64.developerRuntime, 'signed-android-feature-pack');
-assert.ok(lock.abis['arm64-v8a'].nativeFiles.length >= 190);
-assert.ok(lock.abis.x86_64.nativeFiles.length >= 2);
+assert.ok(lock.abis['arm64-v8a'].nativeFiles.length >= 194);
+assert.ok(lock.abis.x86_64.nativeFiles.length >= 3);
+for (const [abi, policy] of Object.entries(lock.abis)) {
+  for (const entry of policy.nativeFiles) {
+    const file = path.join(
+      root,
+      'android/app/src/main/jniLibs',
+      abi,
+      entry.packagedName,
+    );
+    assert.ok(fs.existsSync(file), `${abi}/${entry.packagedName} is missing`);
+    assert.equal(fs.statSync(file).size, entry.bytes);
+    assert.equal(
+      crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+      entry.sha256,
+      `${abi}/${entry.packagedName} differs from the signed runtime lock`,
+    );
+  }
+}
 
 const publicKey = crypto.createPublicKey(
   text('android/app/src/main/assets/runtime/runtime-lock.pub.pem'),

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.15.0",
+  "runtimeVersion": "1.16.0",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -13,15 +13,15 @@
       "nativeFiles": [
         {
           "packagedName": "libbin_adev_git_credential.so",
-          "sha256": "572a09547e8f3e510c64eb8d2a47b8f9a6199bda0c3804fde5c25c185d392f74",
-          "bytes": 315184,
+          "sha256": "fc0b5f6c0be0b54367360de1a08ea1d2d3f950d3f8650ac3d9463eeb6f887d6e",
+          "bytes": 41272,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "c27f41aeb7065642a81ed3e72bef1b7f8eacb5c509aa9f68ca25c769ea4b1384",
-          "bytes": 34920,
+          "sha256": "81bf1e679ecef8323cdcaf3f571755f16bb45838c52ef9d504b10008febd18f6",
+          "bytes": 11496,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -195,6 +195,20 @@
             "bin/node"
           ],
           "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "libbin_opencode.so",
+          "sha256": "8c67963edb4e010d1b62cf4b15a51969f711b6d0df0b42e06d8ba8ee09c5bbbd",
+          "bytes": 34552,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_opencode_runtime.so",
+          "sha256": "5609e288519cac6ad6dc0eddb4bd99fb77564e82d878e9a54915c565c75f0402",
+          "bytes": 141823216,
+          "runtimePaths": [],
+          "owner": "app-native"
         },
         {
           "packagedName": "libbin_pkg_config.so",
@@ -1163,6 +1177,20 @@
           "owner": "developer-runtime"
         },
         {
+          "packagedName": "liblib_opencode_opentui.so",
+          "sha256": "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44",
+          "bytes": 9905129,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "liblib_opencode_tagfix.so",
+          "sha256": "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1",
+          "bytes": 5272,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "liblib_python3_14_config_3_14_aarch64_linux_android_python_o.so",
           "sha256": "adf115e0c1cfcd01b0f31466928c3e3e9457ff4c252537a063a3ae3dac3ca9af",
           "bytes": 2944,
@@ -1855,15 +1883,22 @@
       "nativeFiles": [
         {
           "packagedName": "libbin_adev_git_credential.so",
-          "sha256": "19a0ebf433dfc261bb25d286606b084bf25aa18ca038d4772f5c4f8adf08cd85",
-          "bytes": 301248,
+          "sha256": "77057ec11dcdad955fd3acf9b9c25f9e369c37e918690d2870feb45addd706b3",
+          "bytes": 42232,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "adab52e5f36da50af3347c3a8b14e6f53a2f251b707d177acec3d704f2e2b9b6",
-          "bytes": 33864,
+          "sha256": "c35e1f881fd6d8a2dab01b4c86515999dc836e309dffac5e5dc7bb89398c9ae2",
+          "bytes": 11848,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_opencode.so",
+          "sha256": "388c937f6ced0eb53dabe920e171199100c3311ade2a0e617fb15f4c49d5f024",
+          "bytes": 34120,
           "runtimePaths": [],
           "owner": "app-native"
         }
@@ -1889,5 +1924,23 @@
       "nasm",
       "rust-cargo"
     ]
+  },
+  "openCode": {
+    "sha256": "20161320048cf54f215fb17e8e42d5454b5d21afe454bd2d775f969b59d941c0",
+    "version": "1.17.9",
+    "platform": "android-bionic",
+    "supportedAbis": [
+      "arm64-v8a"
+    ],
+    "source": {
+      "openCodeRepository": "https://github.com/anomalyco/opencode",
+      "openCodeCommit": "5c23e88419c4743b9be42cea132f2fb1e6cb63ff",
+      "androidPortRepository": "https://github.com/guysoft/opencode-termux",
+      "androidPortTag": "v0.2.1",
+      "androidPortCommit": "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+      "archiveUrl": "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
+      "archiveSha256": "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
+      "upstreamSignature": "not-published; exact SHA-256 and source commits are pinned"
+    }
   }
 }

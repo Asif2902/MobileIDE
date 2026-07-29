@@ -14,6 +14,12 @@ const packageManagers = JSON.parse(
 const toolPacks = JSON.parse(
   fs.readFileSync(path.join(assets, 'lib/adev-toolpacks.json'), 'utf8'),
 );
+const openCode = JSON.parse(
+  fs.readFileSync(path.join(assets, 'lib/adev-opencode.json'), 'utf8'),
+);
+const releaseVersion = JSON.parse(
+  fs.readFileSync(path.join(root, 'version.json'), 'utf8'),
+);
 
 const sha256 = file =>
   crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -56,7 +62,7 @@ const x86NativeFiles = nativeFilesFor('x86_64', new Map());
 
 const lock = {
   schemaVersion: 1,
-  runtimeVersion: '1.15.0',
+  runtimeVersion: releaseVersion.runtimeVersion,
   platform: 'android-bionic',
   minApi: 29,
   compileApi: 36,
@@ -87,6 +93,13 @@ const lock = {
   toolPacks: {
     sha256: sha256(path.join(assets, 'lib/adev-toolpacks.json')),
     ids: toolPacks.packs.map(pack => pack.id).sort(),
+  },
+  openCode: {
+    sha256: sha256(path.join(assets, 'lib/adev-opencode.json')),
+    version: openCode.version,
+    platform: openCode.platform,
+    supportedAbis: openCode.supportedAbis,
+    source: openCode.source,
   },
 };
 

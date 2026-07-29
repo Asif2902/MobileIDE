@@ -67,11 +67,17 @@ const entries = run(jar, ['tf', apk]).trim().split(/\r?\n/);
 const required = [
   'lib/arm64-v8a/libbin_adev_npm_shell.so',
   'lib/arm64-v8a/libbin_adev_git_credential.so',
+  'lib/arm64-v8a/libbin_opencode.so',
+  'lib/arm64-v8a/libbin_opencode_runtime.so',
+  'lib/arm64-v8a/liblib_opencode_opentui.so',
+  'lib/arm64-v8a/liblib_opencode_tagfix.so',
   'lib/x86_64/libbin_adev_npm_shell.so',
   'lib/x86_64/libbin_adev_git_credential.so',
+  'lib/x86_64/libbin_opencode.so',
   'assets/runtime/runtime-lock.json',
   'assets/runtime/runtime-lock.pub.pem',
   'assets/runtime/runtime-lock.sig',
+  'assets/runtime/lib/adev-opencode.json',
   'assets/runtime/lib/adev-phase4-test.js',
   'assets/runtime/lib/adev-phase5-test.js',
 ];

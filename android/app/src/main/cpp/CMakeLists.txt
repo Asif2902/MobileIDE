@@ -39,7 +39,11 @@ target_link_libraries(adev_npm_shell
 target_link_options(adev_npm_shell PRIVATE
     "-Wl,-z,max-page-size=16384"
     "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
 )
+
+target_compile_options(adev_npm_shell PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_npm_shell PRIVATE NDEBUG)
 
 set_target_properties(adev_npm_shell PROPERTIES
     CXX_STANDARD 17
@@ -57,12 +61,37 @@ add_executable(adev_git_credential adev_git_credential.cpp)
 target_link_options(adev_git_credential PRIVATE
     "-Wl,-z,max-page-size=16384"
     "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
 )
+
+target_compile_options(adev_git_credential PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_git_credential PRIVATE NDEBUG)
 
 set_target_properties(adev_git_credential PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
     OUTPUT_NAME "bin_adev_git_credential"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+# Android-native OpenCode entrypoint. The launcher is built for every app ABI;
+# the large, source-pinned Bionic runtime is currently delivered for ARM64.
+add_executable(adev_opencode adev_opencode.cpp)
+
+target_link_options(adev_opencode PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_opencode PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_opencode PRIVATE NDEBUG)
+
+set_target_properties(adev_opencode PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    OUTPUT_NAME "bin_opencode"
     PREFIX "lib"
     SUFFIX ".so"
 )
