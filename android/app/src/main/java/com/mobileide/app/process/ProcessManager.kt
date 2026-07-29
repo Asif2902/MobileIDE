@@ -4,9 +4,9 @@ import android.util.Log
 import com.mobileide.app.runtime.RuntimeManager
 import java.io.BufferedReader
 import java.io.File
+import java.io.IOException
 import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * ProcessManager handles spawning and managing background processes
@@ -22,17 +22,6 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         private const val TAG = "ProcessManager"
 
         val MONITORED_PORTS = listOf(3000, 3001, 4173, 5173, 8000, 8080, 5000, 4000, 8787)
-
-        val SERVER_START_PATTERNS = listOf(
-            Regex("listening on.*:(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("Local:\\s+https?://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("ready on.*:(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("started server on.*:(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("Server running at.*:(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("VITE.*ready.*(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("Next\\.js.*(?:localhost|127\\.0\\.0\\.1):(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("http://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):(\\d+)", RegexOption.IGNORE_CASE)
-        )
 
         /** Busybox multi-call applets we rewrite to: busybox <applet> … */
         val BUSYBOX_APPLETS = setOf(
@@ -74,8 +63,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     }
 
     private val processes = ConcurrentHashMap<Int, ManagedProcess>()
-    private val processIdCounter = AtomicInteger(0)
-    private val activePorts = ConcurrentHashMap<Int, Int>()
+    private val taskRegistry = TaskRegistry.shared()
 
     /**
      * Spawn a process, rewriting node/npm/git/busybox applets to exec-safe paths.
@@ -84,15 +72,23 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         command: String,
         args: List<String> = emptyList(),
         cwd: String? = null,
-        onOutput: ((String) -> Unit)? = null,
-        onError: ((String) -> Unit)? = null,
-        onExit: ((Int) -> Unit)? = null
+        taskType: TaskType = inferTaskType(command, args),
+        persistent: Boolean = false,
+        onOutput: ((Int, String) -> Unit)? = null,
+        onError: ((Int, String) -> Unit)? = null,
+        onExit: ((Int, Int) -> Unit)? = null
     ): ManagedProcess {
-        val processId = processIdCounter.incrementAndGet()
         val workingDir = File(cwd ?: runtimeManager.getWorkspacesDir())
         val (exe, exeArgs) = resolveCommand(command, args)
+        val taskId = taskRegistry.create(
+            type = taskType,
+            source = TaskSource.BACKGROUND,
+            command = listOf(command).plus(args).joinToString(" "),
+            cwd = workingDir.absolutePath,
+            persistent = persistent
+        )
 
-        Log.i(TAG, "Spawning process $processId: $exe ${exeArgs.joinToString(" ")}")
+        Log.i(TAG, "Spawning task $taskId: $exe ${exeArgs.joinToString(" ")}")
 
         val requestedCommand = ArrayList<String>().apply {
             add(exe)
@@ -101,7 +97,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         // Put each managed task in its own process group. This lets stop/close
         // terminate nested shells and native-addon compiler children together.
         val busybox = File(runtimeManager.getNativeLibDir(), "libbin_busybox.so")
-        val pidFile = File(runtimeManager.getTmpDir(), ".process-$processId.pid")
+        val pidFile = File(runtimeManager.getTmpDir(), ".process-$taskId.pid")
         if (pidFile.exists()) pidFile.delete()
         val launchCommand = if (busybox.isFile) {
             ArrayList<String>().apply {
@@ -122,13 +118,21 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
         val env = processBuilder.environment()
         env.clear()
-        env.putAll(runtimeManager.getEnvironment())
+        env.putAll(runtimeManager.getEnvironment(workingDir.absolutePath))
 
-        val process = processBuilder.start()
+        val process = try {
+            processBuilder.start()
+        } catch (error: Exception) {
+            val reason =
+                "Could not start ${command}: ${error.message ?: error.javaClass.simpleName}. " +
+                    "Run adev-doctor --verbose for PATH and execution diagnostics."
+            taskRegistry.failed(taskId, reason)
+            throw IOException(reason, error)
+        }
         val reportedPid = readReportedPid(pidFile)
 
         val managedProcess = ManagedProcess(
-            id = processId,
+            id = taskId,
             pid = reportedPid,
             process = process,
             command = command,
@@ -136,17 +140,22 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             workingDirectory = workingDir.absolutePath,
             startTime = System.currentTimeMillis()
         )
-        processes[processId] = managedProcess
+        processes[taskId] = managedProcess
+        taskRegistry.started(taskId, reportedPid)
         startOutputReader(managedProcess, onOutput, onError)
 
         Thread {
             val exitCode = process.waitFor()
             managedProcess.exitCode = exitCode
             managedProcess.isRunning = false
-            activePorts.entries.removeIf { it.value == processId }
-            onExit?.invoke(exitCode)
-            Log.i(TAG, "Process $processId exited with code $exitCode")
-        }.start()
+            taskRegistry.exited(taskId, exitCode)
+            onExit?.invoke(taskId, exitCode)
+            Log.i(TAG, "Task $taskId exited with code $exitCode")
+        }.apply {
+            name = "adev-task-wait-$taskId"
+            isDaemon = true
+            start()
+        }
 
         return managedProcess
     }
@@ -185,9 +194,11 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     fun spawnShell(
         script: String,
         cwd: String? = null,
-        onOutput: ((String) -> Unit)? = null,
-        onError: ((String) -> Unit)? = null,
-        onExit: ((Int) -> Unit)? = null
+        taskType: TaskType = TaskType.SHELL,
+        persistent: Boolean = false,
+        onOutput: ((Int, String) -> Unit)? = null,
+        onError: ((Int, String) -> Unit)? = null,
+        onExit: ((Int, Int) -> Unit)? = null
     ): ManagedProcess {
         val native = runtimeManager.getNativeLibDir()
         val bash = File(native, "libbin_bash.so")
@@ -199,7 +210,16 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val wrapped =
             "[ -f \"$agentEnv\" ] && . \"$agentEnv\" || { [ -f \"$wrappers\" ] && . \"$wrappers\"; }; $script"
         // -c only (not -l): env already from getEnvironment(); avoid double-sourcing rc.
-        return spawnProcess(sh, listOf("-c", wrapped), cwd, onOutput, onError, onExit)
+        return spawnProcess(
+            sh,
+            listOf("-c", wrapped),
+            cwd,
+            taskType,
+            persistent,
+            onOutput,
+            onError,
+            onExit
+        )
     }
 
     /**
@@ -215,6 +235,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val npmCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npm-cli.js")
         val npxCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npx-cli.js")
         val corepack = File(runtimeManager.getLibDir(), "node_modules/corepack/dist/corepack.js")
+        val nextLauncher = File(runtimeManager.getLibDir(), "adev-next.js")
         val directTools = mapOf(
             "curl" to "libbin_curl.so",
             "make" to "libbin_make.so",
@@ -255,7 +276,10 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 val extra = if (base == "corepack") emptyList() else listOf(base)
                 node.absolutePath to listOf(corepack.absolutePath) + extra + args
             } else command to args
-            "tsc", "eslint", "prettier", "vite", "next", "webpack", "rollup", "esbuild",
+            "next" -> if (node.exists() && nextLauncher.exists()) {
+                node.absolutePath to listOf(nextLauncher.absolutePath) + args
+            } else command to args
+            "tsc", "eslint", "prettier", "vite", "webpack", "rollup", "esbuild",
             "tsx", "nodemon", "jest", "vitest", "turbo", "nx" -> {
                 if (node.exists() && npxCli.exists()) {
                     node.absolutePath to listOf(npxCli.absolutePath, "--yes", base) + args
@@ -287,8 +311,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
     private fun startOutputReader(
         managedProcess: ManagedProcess,
-        onOutput: ((String) -> Unit)?,
-        onError: ((String) -> Unit)?
+        onOutput: ((Int, String) -> Unit)?,
+        onError: ((Int, String) -> Unit)?
     ) {
         Thread {
             BufferedReader(InputStreamReader(managedProcess.process.inputStream)).use { reader ->
@@ -296,8 +320,9 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 while (reader.readLine().also { line = it } != null) {
                     line?.let {
                         managedProcess.outputBuffer.add(it)
-                        onOutput?.invoke(it)
-                        detectPortFromOutput(managedProcess.id, it)
+                        taskRegistry.output(managedProcess.id, "stdout", it)?.let { visible ->
+                            onOutput?.invoke(managedProcess.id, visible)
+                        }
                     }
                 }
             }
@@ -309,37 +334,35 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 while (reader.readLine().also { line = it } != null) {
                     line?.let {
                         managedProcess.errorBuffer.add(it)
-                        onError?.invoke(it)
-                        detectPortFromOutput(managedProcess.id, it)
+                        taskRegistry.output(managedProcess.id, "stderr", it)?.let { visible ->
+                            onError?.invoke(managedProcess.id, visible)
+                        }
                     }
                 }
             }
         }.start()
     }
 
-    private fun detectPortFromOutput(processId: Int, output: String) {
-        for (pattern in SERVER_START_PATTERNS) {
-            val match = pattern.find(output)
-            if (match != null) {
-                val port = match.groupValues[1].toIntOrNull()
-                if (port != null) {
-                    activePorts[port] = processId
-                    Log.i(TAG, "Detected server on port $port (process $processId)")
-                }
-            }
-        }
-    }
-
     fun getProcess(processId: Int): ManagedProcess? = processes[processId]
     fun getAllProcesses(): List<ManagedProcess> = processes.values.filter { it.isRunning }
+    fun getTasks(includeExited: Boolean = true): List<TaskSnapshot> =
+        taskRegistry.getTasks(includeExited)
+    fun getTask(taskId: Int): TaskSnapshot? = taskRegistry.getTask(taskId)
+    fun getTaskLogs(taskId: Int, limit: Int): List<TaskLog> =
+        taskRegistry.getLogs(taskId, limit)
 
-    fun killProcess(processId: Int) {
-        processes[processId]?.let { managedProcess ->
-            killProcessTree(managedProcess)
-            managedProcess.isRunning = false
-            activePorts.entries.removeIf { it.value == processId }
-            Log.i(TAG, "Killed process $processId")
+    fun killProcess(processId: Int): Boolean {
+        val managedProcess = processes[processId] ?: return false
+        taskRegistry.stopping(processId)
+        killProcessTree(managedProcess)
+        managedProcess.isRunning = false
+        taskRegistry.exited(processId, 143)
+        val clean = taskRegistry.awaitPortsClosed(processId, 2_000)
+        if (!clean) {
+            Log.w(TAG, "Task $processId stopped but a verified port is still reachable")
         }
+        Log.i(TAG, "Killed task $processId (portsClosed=$clean)")
+        return clean
     }
 
     private fun killProcessTree(managedProcess: ManagedProcess) {
@@ -349,9 +372,11 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             if (pid > 0 && ProcessSignals.isAvailable) {
                 ProcessSignals.killGroup(pid, 15) // SIGTERM
                 try {
-                    if (!process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                        ProcessSignals.killGroup(pid, 9) // SIGKILL
-                    }
+                    process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    // The launcher can exit while a backgrounded child remains
+                    // in the same group. Always follow the grace period with a
+                    // group SIGKILL; killpg safely fails if the group is gone.
+                    ProcessSignals.killGroup(pid, 9)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     ProcessSignals.killGroup(pid, 9)
@@ -391,11 +416,32 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         return result
     }
 
-    fun getActivePorts(): Map<Int, Int> = activePorts.toMap()
-    fun isPortActive(port: Int): Boolean = activePorts.containsKey(port)
-    fun getProcessForPort(port: Int): Int? = activePorts[port]
+    fun getActivePorts(): List<VerifiedPort> {
+        taskRegistry.refreshNow()
+        return taskRegistry.getActivePorts()
+    }
+    fun isPortActive(port: Int): Boolean {
+        taskRegistry.refreshNow()
+        return taskRegistry.isPortActive(port)
+    }
+    fun getProcessForPort(port: Int): Int? =
+        getActivePorts().firstOrNull { it.port == port }?.taskId
     fun killAllProcesses() {
         processes.keys.toList().forEach { killProcess(it) }
+    }
+
+    private fun inferTaskType(command: String, args: List<String>): TaskType {
+        val full = listOf(command).plus(args).joinToString(" ").lowercase()
+        return when {
+            Regex("""(^|\s)next(\s|$)""").containsMatchIn(full) -> TaskType.NEXT
+            Regex("""(^|\s)vite(\s|$)""").containsMatchIn(full) -> TaskType.VITE
+            "express" in full -> TaskType.EXPRESS
+            Regex("""(^|\s)(test|jest|vitest)(\s|$)""").containsMatchIn(full) -> TaskType.TEST
+            Regex("""(^|\s)(build|tsc)(\s|$)""").containsMatchIn(full) -> TaskType.BUILD
+            command.substringAfterLast('/').startsWith("node") -> TaskType.NODE
+            command.endsWith("sh") -> TaskType.SHELL
+            else -> TaskType.GENERIC
+        }
     }
 }
 

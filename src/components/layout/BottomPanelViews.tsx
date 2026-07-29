@@ -83,7 +83,7 @@ export const ProblemsView: React.FC = () => {
  * Dev servers / builds spawned via ProcessNative stream here.
  */
 export const OutputView: React.FC = () => {
-  const { processes, ports, logs, isLoading, error, refresh, kill, clearLogs, runShell } =
+  const { processes, ports, logs, isLoading, error, refresh, kill, clearLogs, startTask } =
     useProcessStore();
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export const OutputView: React.FC = () => {
       kind === 'web'
         ? 'adev-run-web'
         : 'adev-run-api';
-    runShell(script).then(id => {
+    startTask(kind === 'web' ? 'VITE' : 'EXPRESS', 'bash', ['-c', script], null, true).then(id => {
       if (id != null) {
         Alert.alert(
           kind === 'web' ? 'Vite starting' : 'API starting',
@@ -160,10 +160,10 @@ export const OutputView: React.FC = () => {
                   #{p.id} {p.command}
                 </Text>
                 <Text style={styles.muted} numberOfLines={1}>
-                  {p.isRunning ? 'running' : 'stopped'} · {p.cwd}
+                  {p.state.toLowerCase()} · {p.type.toLowerCase()} · {p.source.toLowerCase()} · {p.cwd}
                 </Text>
               </View>
-              {p.isRunning && (
+              {p.isRunning && p.source === 'BACKGROUND' && (
                 <TouchableOpacity style={styles.killBtn} onPress={() => kill(p.id)}>
                   <Text style={styles.killBtnText}>Kill</Text>
                 </TouchableOpacity>
@@ -179,15 +179,14 @@ export const OutputView: React.FC = () => {
           <Text style={styles.muted}>No open ports yet. Start demo-web or demo-api first.</Text>
         ) : (
           ports.map(port => (
-            <View key={`${port.port}-${port.processId}`} style={styles.portRow}>
+            <View key={`${port.port}-${port.taskId}`} style={styles.portRow}>
               <Text style={styles.logText}>
-                :{port.port} → process {port.processId}
+                :{port.port} → task {port.taskId} · verified {port.source.toLowerCase()}
               </Text>
               <TouchableOpacity
                 style={styles.openBtn}
                 onPress={() => {
-                  const url = `http://127.0.0.1:${port.port}`;
-                  MobileIDENativeModule.openUrl(url).catch(e =>
+                  MobileIDENativeModule.openUrl(port.url).catch(e =>
                     Alert.alert('Open failed', e?.message || String(e)),
                   );
                 }}

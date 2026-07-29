@@ -52,6 +52,8 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("sessionId", session.id)
+                        putInt("taskId", session.taskId)
+                        putInt("pid", session.backend.pid)
                         putString("cwd", session.workingDirectory)
                         putInt("cols", session.cols)
                         putInt("rows", session.rows)
@@ -130,6 +132,8 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
             sessions.forEach { session ->
                 result.pushMap(Arguments.createMap().apply {
                     putInt("id", session.id)
+                    putInt("taskId", session.taskId)
+                    putInt("pid", session.backend.pid)
                     putString("title", session.title)
                     putString("cwd", session.workingDirectory)
                     putInt("cols", session.cols)
@@ -252,12 +256,16 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
                     
                     if (bytesRead > 0) {
                         val output = String(buffer, 0, bytesRead, Charsets.UTF_8)
-                        
-                        withContext(Dispatchers.Main) {
-                            sendEvent("onTerminalOutput", Arguments.createMap().apply {
-                                putInt("sessionId", sessionId)
-                                putString("data", output)
-                            })
+                        val visibleOutput = manager.recordOutput(sessionId, output)
+
+                        if (!visibleOutput.isNullOrEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                sendEvent("onTerminalOutput", Arguments.createMap().apply {
+                                    putInt("sessionId", sessionId)
+                                    putInt("taskId", session.taskId)
+                                    putString("data", visibleOutput)
+                                })
+                            }
                         }
                     } else if (bytesRead == 0) {
                         // No data available, small delay
@@ -272,10 +280,13 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
             }
             
             // Session ended
+            val exitCode = session.backend.getExitCode() ?: -1
+            manager.recordExit(sessionId, exitCode)
             withContext(Dispatchers.Main) {
                 sendEvent("onTerminalExit", Arguments.createMap().apply {
                     putInt("sessionId", sessionId)
-                    putInt("exitCode", session.backend.getExitCode() ?: -1)
+                    putInt("taskId", session.taskId)
+                    putInt("exitCode", exitCode)
                 })
             }
         }

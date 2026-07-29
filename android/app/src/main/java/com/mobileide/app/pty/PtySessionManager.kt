@@ -1,6 +1,9 @@
 package com.mobileide.app.pty
 
 import android.util.Log
+import com.mobileide.app.process.TaskRegistry
+import com.mobileide.app.process.TaskSource
+import com.mobileide.app.process.TaskType
 import com.mobileide.app.runtime.RuntimeManager
 import java.io.File
 import java.io.IOException
@@ -36,6 +39,7 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
 
     private val sessions = ConcurrentHashMap<Int, PtySession>()
     private val sessionIdCounter = AtomicInteger(0)
+    private val taskRegistry = TaskRegistry.shared()
 
     // Cached result of the bundled-bash usability probe (null = not yet checked).
     private var bashUsable: Boolean? = null
@@ -54,7 +58,7 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
         val workingDir = cwd ?: runtimeManager.getWorkspacesDir()
 
         // Build environment
-        val env = runtimeManager.getEnvironment().toMutableMap()
+        val env = runtimeManager.getEnvironment(workingDir).toMutableMap()
         extraEnv?.let { env.putAll(it) }
 
         // Pick a backend: native PTY when the JNI lib is available, otherwise
@@ -71,8 +75,18 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
             ProcessShellBackend(resolveShell(), env, workingDir)
         }
 
+        val taskId = taskRegistry.create(
+            type = TaskType.SHELL,
+            source = TaskSource.TERMINAL,
+            command = "interactive shell",
+            cwd = workingDir,
+            persistent = true
+        )
+        taskRegistry.started(taskId, backend.pid)
+
         val session = PtySession(
             id = sessionId,
+            taskId = taskId,
             backend = backend,
             workingDirectory = workingDir,
             cols = cols,
@@ -182,7 +196,9 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
      */
     fun destroySession(sessionId: Int) {
         sessions.remove(sessionId)?.let { session ->
+            taskRegistry.stopping(session.taskId)
             session.close()
+            taskRegistry.exited(session.taskId, session.backend.getExitCode() ?: 143)
             Log.i(TAG, "Destroyed PTY session $sessionId")
         }
     }
@@ -199,6 +215,15 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
      */
     fun isSessionAlive(sessionId: Int): Boolean {
         return sessions[sessionId]?.isAlive() ?: false
+    }
+
+    fun recordOutput(sessionId: Int, data: String): String? {
+        val session = sessions[sessionId] ?: return data
+        return taskRegistry.output(session.taskId, "stdout", data)
+    }
+
+    fun recordExit(sessionId: Int, exitCode: Int) {
+        sessions[sessionId]?.let { taskRegistry.exited(it.taskId, exitCode) }
     }
 
     // Native method for forkpty
@@ -221,6 +246,7 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
  */
 data class PtySession(
     val id: Int,
+    val taskId: Int,
     val backend: TerminalBackend,
     var workingDirectory: String,
     var cols: Int,
@@ -246,6 +272,7 @@ data class PtySession(
  * use the native PTY or a fallback shell.
  */
 interface TerminalBackend {
+    val pid: Int
     fun write(data: String)
     fun read(buffer: ByteArray): Int
     fun resize(cols: Int, rows: Int)
@@ -258,6 +285,8 @@ interface TerminalBackend {
  * Native PTY backend (real pseudo-terminal via JNI).
  */
 class NativePtyBackend(private val ptyProcess: PtyProcess) : TerminalBackend {
+    override val pid: Int
+        get() = ptyProcess.pid
     override fun write(data: String) = ptyProcess.write(data)
     override fun read(buffer: ByteArray): Int = ptyProcess.read(buffer)
     override fun resize(cols: Int, rows: Int) = ptyProcess.resize(cols, rows)
@@ -276,6 +305,7 @@ class ProcessShellBackend(
     env: Map<String, String>,
     cwd: String
 ) : TerminalBackend {
+    override val pid: Int = -1
     private val process: Process
     private val stdin: OutputStream
     private val stdout: InputStream

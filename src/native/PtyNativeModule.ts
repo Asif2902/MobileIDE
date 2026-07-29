@@ -4,6 +4,8 @@ const { PtyNative } = NativeModules;
 
 export interface PtySession {
   sessionId: number;
+  taskId: number;
+  pid: number;
   cwd: string;
   cols: number;
   rows: number;
@@ -11,6 +13,8 @@ export interface PtySession {
 
 export interface PtySessionInfo {
   id: number;
+  taskId: number;
+  pid: number;
   title: string;
   cwd: string;
   cols: number;
@@ -21,11 +25,13 @@ export interface PtySessionInfo {
 
 export interface TerminalOutputEvent {
   sessionId: number;
+  taskId: number;
   data: string;
 }
 
 export interface TerminalExitEvent {
   sessionId: number;
+  taskId: number;
   exitCode: number;
 }
 

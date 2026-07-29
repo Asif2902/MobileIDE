@@ -1,10 +1,11 @@
 package com.mobileide.app.filesystem
 
-import android.os.FileObserver
 import android.util.Log
 import com.mobileide.app.runtime.RuntimeManager
 import java.io.File
 import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * VirtualFileSystem provides scoped file operations within the runtime root.
@@ -18,7 +19,7 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
         private const val MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB limit for reading
     }
 
-    private val watchers = mutableMapOf<String, FileObserver>()
+    private val watchers = ConcurrentHashMap<String, WorkspaceWatcher>()
 
     /**
      * Resolve a virtual path to a real file, ensuring it's within the sandbox
@@ -361,35 +362,24 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      */
     fun watchDirectory(virtualPath: String, callback: (FileEvent) -> Unit): String {
         val dir = resolvePath(virtualPath)
-        val watchId = virtualPath.hashCode().toString()
-        
-        // Stop existing watcher
-        stopWatching(watchId)
-        
-        @Suppress("DEPRECATION")
-        val observer = object : FileObserver(dir.absolutePath, ALL_EVENTS) {
-            override fun onEvent(event: Int, path: String?) {
-                if (path == null) return
-                
-                val eventType = when {
-                    event and CREATE != 0 -> FileEventType.CREATE
-                    event and DELETE != 0 -> FileEventType.DELETE
-                    event and MODIFY != 0 -> FileEventType.MODIFY
-                    event and MOVED_FROM != 0 -> FileEventType.MOVE
-                    event and MOVED_TO != 0 -> FileEventType.MOVE
-                    else -> return
-                }
-                
-                callback(FileEvent(
-                    type = eventType,
-                    path = runtimeManager.toVirtualPath(File(dir, path).absolutePath)
-                ))
+        if (!dir.isDirectory) throw IOException("Watch path is not a directory: $virtualPath")
+        val watchId = UUID.randomUUID().toString()
+        val watcher: WorkspaceWatcher =
+            if (runtimeManager.requiresPolling(dir)) {
+                PollingFileWatcher(
+                    root = dir.canonicalFile,
+                    toVirtualPath = runtimeManager::toVirtualPath,
+                    callback = callback
+                )
+            } else {
+                RecursiveFileWatcher(
+                    root = dir.canonicalFile,
+                    toVirtualPath = runtimeManager::toVirtualPath,
+                    callback = callback
+                )
             }
-        }
-        
-        observer.startWatching()
-        watchers[watchId] = observer
-        
+        watcher.start()
+        watchers[watchId] = watcher
         return watchId
     }
 
@@ -397,14 +387,14 @@ class VirtualFileSystem(private val runtimeManager: RuntimeManager) {
      * Stop watching a directory
      */
     fun stopWatching(watchId: String) {
-        watchers.remove(watchId)?.stopWatching()
+        watchers.remove(watchId)?.stop()
     }
 
     /**
      * Stop all watchers
      */
     fun stopAllWatchers() {
-        watchers.values.forEach { it.stopWatching() }
+        watchers.values.forEach { it.stop() }
         watchers.clear()
     }
 
@@ -477,5 +467,5 @@ data class FileEvent(
 )
 
 enum class FileEventType {
-    CREATE, DELETE, MODIFY, MOVE
+    CREATE, DELETE, MODIFY, MOVE, OVERFLOW
 }

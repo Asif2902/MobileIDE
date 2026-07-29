@@ -38,6 +38,10 @@ export interface RuntimeCapabilities {
     'android-bionic' | 'verified-static-or-musl' | 'source-build' | 'unsupported'
   >;
   commands: Record<string, boolean>;
+  packageManagers: Record<string, boolean>;
+  toolPacks: Record<string, boolean>;
+  filesystems: Record<string, boolean>;
+  frameworks: Record<string, boolean>;
   nativeBuildReady: boolean;
   npmLifecycleReady: boolean;
   termuxExecReady: boolean;

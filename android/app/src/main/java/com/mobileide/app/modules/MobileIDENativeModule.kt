@@ -183,6 +183,10 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
             val commands = Arguments.createMap().apply {
                 capabilities.commands.forEach { (name, ready) -> putBoolean(name, ready) }
             }
+            fun capabilityMap(values: Map<String, Boolean>) =
+                Arguments.createMap().apply {
+                    values.forEach { (name, ready) -> putBoolean(name, ready) }
+                }
             promise.resolve(Arguments.createMap().apply {
                 putString("runtimeVersion", capabilities.runtimeVersion)
                 putString("platform", capabilities.platform)
@@ -191,6 +195,10 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
                 putInt("androidApi", capabilities.androidApi)
                 putArray("packageResolutionOrder", Arguments.fromList(capabilities.packageResolutionOrder))
                 putMap("commands", commands)
+                putMap("packageManagers", capabilityMap(capabilities.packageManagers))
+                putMap("toolPacks", capabilityMap(capabilities.toolPacks))
+                putMap("filesystems", capabilityMap(capabilities.filesystems))
+                putMap("frameworks", capabilityMap(capabilities.frameworks))
                 putBoolean("nativeBuildReady", capabilities.nativeBuildReady)
                 putBoolean("npmLifecycleReady", capabilities.npmLifecycleReady)
                 putBoolean("termuxExecReady", capabilities.termuxExecReady)

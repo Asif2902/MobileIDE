@@ -3,6 +3,10 @@ package com.mobileide.app.modules
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.mobileide.app.process.ProcessManager
+import com.mobileide.app.process.TaskRegistry
+import com.mobileide.app.process.TaskSnapshot
+import com.mobileide.app.process.TaskType
+import com.mobileide.app.process.VerifiedPort
 import kotlinx.coroutines.*
 
 /**
@@ -18,6 +22,16 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val taskRegistry = TaskRegistry.shared()
+    private val portListener: (List<VerifiedPort>) -> Unit = { ports ->
+        sendEvent("onTaskPortsChanged", Arguments.createMap().apply {
+            putArray("ports", portsToArray(ports))
+        })
+    }
+
+    init {
+        taskRegistry.addPortListener(portListener)
+    }
 
     override fun getName(): String = NAME
 
@@ -42,37 +56,38 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
                     argList.add(args.getString(i) ?: "")
                 }
 
-                val pidHolder = intArrayOf(-1)
                 val process = manager.spawnProcess(
                     command = command,
                     args = argList,
                     cwd = cwd,
-                    onOutput = { line ->
+                    onOutput = { processId, line ->
                         sendEvent("onProcessOutput", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putString("data", line)
                             putString("stream", "stdout")
                         })
                     },
-                    onError = { line ->
+                    onError = { processId, line ->
                         sendEvent("onProcessOutput", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putString("data", line)
                             putString("stream", "stderr")
                         })
                     },
-                    onExit = { exitCode ->
+                    onExit = { processId, exitCode ->
                         sendEvent("onProcessExit", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putInt("exitCode", exitCode)
                         })
                     }
                 )
-                pidHolder[0] = process.id
-
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("processId", process.id)
+                        putInt("taskId", process.id)
                         putInt("pid", process.pid)
                         putString("command", process.getFullCommand())
                         putString("cwd", process.workingDirectory)
@@ -96,35 +111,37 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
         scope.launch {
             try {
                 val manager = getProcessManager()
-                val pidHolder = intArrayOf(-1)
                 val process = manager.spawnShell(
                     script = script,
                     cwd = cwd,
-                    onOutput = { line ->
+                    onOutput = { processId, line ->
                         sendEvent("onProcessOutput", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putString("data", line)
                             putString("stream", "stdout")
                         })
                     },
-                    onError = { line ->
+                    onError = { processId, line ->
                         sendEvent("onProcessOutput", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putString("data", line)
                             putString("stream", "stderr")
                         })
                     },
-                    onExit = { exitCode ->
+                    onExit = { processId, exitCode ->
                         sendEvent("onProcessExit", Arguments.createMap().apply {
-                            putInt("processId", pidHolder[0])
+                            putInt("processId", processId)
+                            putInt("taskId", processId)
                             putInt("exitCode", exitCode)
                         })
                     }
                 )
-                pidHolder[0] = process.id
                 withContext(Dispatchers.Main) {
                     val result = Arguments.createMap().apply {
                         putInt("processId", process.id)
+                        putInt("taskId", process.id)
                         putInt("pid", process.pid)
                         putString("command", script)
                         putString("cwd", process.workingDirectory)
@@ -140,14 +157,79 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
     }
 
     /**
+     * First-class task start API. Task type is metadata used by Run/Preview
+     * and diagnostics; all command execution still uses the Phase 1 resolver.
+     */
+    @ReactMethod
+    fun startTask(
+        type: String,
+        command: String,
+        args: ReadableArray,
+        cwd: String?,
+        persistent: Boolean,
+        promise: Promise
+    ) {
+        scope.launch {
+            try {
+                val argList = (0 until args.size()).map { args.getString(it) ?: "" }
+                val manager = getProcessManager()
+                val requestedType = TaskType.from(type)
+                val process = manager.spawnProcess(
+                    command = command,
+                    args = argList,
+                    cwd = cwd,
+                    taskType = requestedType,
+                    persistent = persistent,
+                    onOutput = { taskId, line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", taskId)
+                            putInt("taskId", taskId)
+                            putString("data", line)
+                            putString("stream", "stdout")
+                        })
+                    },
+                    onError = { taskId, line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", taskId)
+                            putInt("taskId", taskId)
+                            putString("data", line)
+                            putString("stream", "stderr")
+                        })
+                    },
+                    onExit = { taskId, exitCode ->
+                        sendEvent("onProcessExit", Arguments.createMap().apply {
+                            putInt("processId", taskId)
+                            putInt("taskId", taskId)
+                            putInt("exitCode", exitCode)
+                        })
+                    }
+                )
+                withContext(Dispatchers.Main) {
+                    promise.resolve(Arguments.createMap().apply {
+                        putInt("processId", process.id)
+                        putInt("taskId", process.id)
+                        putInt("pid", process.pid)
+                        putString("type", requestedType.name)
+                        putString("command", process.getFullCommand())
+                        putString("cwd", process.workingDirectory)
+                    })
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    promise.reject("TASK_START_ERROR", error.message, error)
+                }
+            }
+        }
+    }
+
+    /**
      * Kill a process
      */
     @ReactMethod
     fun kill(processId: Int, promise: Promise) {
         try {
             val manager = getProcessManager()
-            manager.killProcess(processId)
-            promise.resolve(true)
+            promise.resolve(manager.killProcess(processId))
         } catch (e: Exception) {
             promise.reject("PROCESS_KILL_ERROR", e.message)
         }
@@ -180,6 +262,39 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun getTasks(includeExited: Boolean, promise: Promise) {
+        try {
+            val result = Arguments.createArray()
+            getProcessManager().getTasks(includeExited).forEach {
+                result.pushMap(taskToMap(it))
+            }
+            promise.resolve(result)
+        } catch (error: Exception) {
+            promise.reject("TASK_STATUS_ERROR", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun getTaskLogs(taskId: Int, limit: Int, promise: Promise) {
+        try {
+            val result = Arguments.createArray()
+            getProcessManager().getTaskLogs(taskId, limit).forEach { log ->
+                result.pushMap(Arguments.createMap().apply {
+                    putString("stream", log.stream)
+                    putString("data", log.data)
+                    putDouble("timestamp", log.timestamp.toDouble())
+                })
+            }
+            promise.resolve(result)
+        } catch (error: Exception) {
+            promise.reject("TASK_LOG_ERROR", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun stopTask(taskId: Int, promise: Promise) = kill(taskId, promise)
+
     /**
      * Get active ports
      */
@@ -190,12 +305,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
             val ports = manager.getActivePorts()
             
             val result = Arguments.createArray()
-            ports.forEach { (port, processId) ->
-                result.pushMap(Arguments.createMap().apply {
-                    putInt("port", port)
-                    putInt("processId", processId)
-                })
-            }
+            ports.forEach { result.pushMap(portToMap(it)) }
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("PROCESS_ERROR", e.message)
@@ -242,6 +352,7 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
     }
 
     private fun sendEvent(eventName: String, params: WritableMap) {
+        if (!reactApplicationContext.hasActiveReactInstance()) return
         reactApplicationContext
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
             .emit(eventName, params)
@@ -249,7 +360,46 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
 
     override fun invalidate() {
         super.invalidate()
+        taskRegistry.removePortListener(portListener)
         processManager?.killAllProcesses()
         scope.cancel()
     }
+
+    private fun taskToMap(task: TaskSnapshot): WritableMap =
+        Arguments.createMap().apply {
+            putInt("id", task.id)
+            putInt("taskId", task.id)
+            putInt("pid", task.pid)
+            putInt("processGroupId", task.processGroupId)
+            putString("type", task.type.name)
+            putString("source", task.source.name)
+            putString("command", task.command)
+            putString("cwd", task.cwd)
+            putBoolean("persistent", task.persistent)
+            putDouble("startTime", task.startTime.toDouble())
+            putDouble("uptime", (System.currentTimeMillis() - task.startTime).toDouble())
+            putString("state", task.state.name)
+            putBoolean("isRunning", task.isRunning)
+            task.exitCode?.let { putInt("exitCode", it) } ?: putNull("exitCode")
+            task.failure?.let { putString("failure", it) } ?: putNull("failure")
+            putArray("ports", portsToArray(task.ports))
+        }
+
+    private fun portsToArray(ports: List<VerifiedPort>): WritableArray =
+        Arguments.createArray().apply {
+            ports.forEach { pushMap(portToMap(it)) }
+        }
+
+    private fun portToMap(port: VerifiedPort): WritableMap =
+        Arguments.createMap().apply {
+            putInt("port", port.port)
+            putInt("processId", port.taskId)
+            putInt("taskId", port.taskId)
+            putInt("pid", port.pid)
+            putInt("processGroupId", port.processGroupId)
+            putString("url", port.url)
+            putString("source", port.source)
+            putString("state", port.state)
+            putDouble("verifiedAt", port.verifiedAt.toDouble())
+        }
 }

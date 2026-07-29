@@ -106,6 +106,42 @@ try {
   packagePolicy = { error: error.message };
 }
 
+const nextLauncher =
+  process.env.ADEV_NEXT_LAUNCHER || path.join(prefix, 'lib', 'adev-next.js');
+const serverEvents = path.join(prefix, 'lib', 'adev-server-events.js');
+let nextProject = null;
+try {
+  const nextManifest = require.resolve('next/package.json', { paths: [process.cwd()] });
+  const nextVersion = JSON.parse(fs.readFileSync(nextManifest, 'utf8')).version;
+  const nextCache = path.join(
+    process.env.ADEV_NEXT_CACHE || path.join(prefix, 'cache', 'next-swc'),
+    nextVersion
+  );
+  const wasmManifest = path.join(
+    nextCache,
+    'node_modules',
+    '@next',
+    'swc-wasm-nodejs',
+    'package.json'
+  );
+  nextProject = {
+    installed: true,
+    version: nextVersion,
+    launcherReady: fs.existsSync(nextLauncher),
+    wasmCached: fs.existsSync(wasmManifest),
+    wasmManifest,
+    bundler: 'webpack',
+    projectModifiedByLauncher: false,
+  };
+} catch {
+  nextProject = {
+    installed: false,
+    launcherReady: fs.existsSync(nextLauncher),
+    wasmCached: false,
+    bundler: 'webpack',
+  };
+}
+
 const executionTests = {};
 if (selfTest || verbose) {
   const testDir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'adev-doctor-'));
@@ -160,7 +196,7 @@ const requiredReady = [
 const executionReady = Object.values(executionTests).every(item => item.ready);
 
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   healthy: requiredReady && executionReady && missingLinuxCommands.length === 0,
   app: {
     version: process.env.ADEV_APP_VERSION || null,
@@ -196,6 +232,11 @@ const report = {
       process.env.npm_config_build_from_source ||
       process.env.NPM_CONFIG_BUILD_FROM_SOURCE ||
       null,
+    watchMode: process.env.ADEV_WATCH_MODE || null,
+    chokidarPolling: process.env.CHOKIDAR_USEPOLLING || null,
+    watchpackPolling: process.env.WATCHPACK_POLLING || null,
+    structuredServerEvents:
+      fs.existsSync(serverEvents) && (process.env.NODE_OPTIONS || '').includes(serverEvents),
   },
   compiler: {
     api: process.env.ADEV_NATIVE_BUILD_API || null,
@@ -207,6 +248,14 @@ const report = {
     nodeHeadersReady: fs.existsSync(path.join(prefix, 'include', 'node', 'node.h')),
   },
   packageResolution: packagePolicy,
+  frameworks: {
+    next: nextProject,
+    serverEvents: {
+      ready: fs.existsSync(serverEvents),
+      path: serverEvents,
+      requiresVerifiedLoopbackProbe: true,
+    },
+  },
   linuxCommandSuite: {
     required: requiredLinuxCommands,
     provider: 'busybox with /system/bin fallback',
@@ -233,6 +282,17 @@ if (jsonMode) {
     `Package policy: ${(packagePolicy.resolutionOrder || []).join(' -> ') || 'unavailable'}\n`
   );
   process.stdout.write(`Platform spoof: disabled\n`);
+  process.stdout.write(
+    `Watch mode: ${report.environment.watchMode || 'unknown'} (polling only on shared/FUSE storage)\n`
+  );
+  process.stdout.write(
+    `Server events: ${report.frameworks.serverEvents.ready ? 'ready' : 'missing'}; preview ports require loopback verification\n`
+  );
+  if (nextProject.installed) {
+    process.stdout.write(
+      `Next.js: ${nextProject.version}; webpack launcher ${nextProject.launcherReady ? 'ready' : 'missing'}; WASM ${nextProject.wasmCached ? 'cached' : 'will be cached on first run'}\n`
+    );
+  }
   process.stdout.write(
     `Linux command suite: ${missingLinuxCommands.length === 0 ? 'ready' : `missing ${missingLinuxCommands.join(', ')}`}\n`
   );

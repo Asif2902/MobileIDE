@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import {
   ProcessNativeModule,
   ProcessEventEmitter,
-  ProcessDetails,
+  TaskDetails,
+  TaskType,
   ActivePort,
   PROCESS_EVENTS,
 } from '../native/ProcessNativeModule';
@@ -15,7 +16,7 @@ export interface ProcessLogLine {
 }
 
 interface ProcessState {
-  processes: ProcessDetails[];
+  processes: TaskDetails[];
   ports: ActivePort[];
   logs: ProcessLogLine[];
   isLoading: boolean;
@@ -27,6 +28,13 @@ interface ProcessState {
   appendLog: (line: ProcessLogLine) => void;
   /** Run a shell line in background (Vite/Express demos, builds). */
   runShell: (script: string, cwd?: string | null) => Promise<number | null>;
+  startTask: (
+    type: TaskType,
+    command: string,
+    args?: string[],
+    cwd?: string | null,
+    persistent?: boolean,
+  ) => Promise<number | null>;
 }
 
 const MAX_LOGS = 500;
@@ -42,7 +50,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const [processes, ports] = await Promise.all([
-        ProcessNativeModule.getProcesses(),
+        ProcessNativeModule.getTasks(false),
         ProcessNativeModule.getActivePorts(),
       ]);
       set({ processes: processes || [], ports: ports || [], isLoading: false });
@@ -53,13 +61,18 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   kill: async (processId: number) => {
     try {
-      await ProcessNativeModule.kill(processId);
+      const clean = await ProcessNativeModule.kill(processId);
       get().appendLog({
         processId,
         stream: 'system',
-        data: `[killed process ${processId}]`,
+        data: clean
+          ? `[stopped task ${processId}; ports closed]`
+          : `[task ${processId} stop incomplete; check child processes and ports]`,
         at: Date.now(),
       });
+      if (!clean) {
+        set({ error: `Task ${processId} did not confirm complete process/port cleanup.` });
+      }
       await get().refresh();
     } catch (e) {
       set({ error: (e as Error).message });
@@ -95,6 +108,30 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       return null;
     }
   },
+
+  startTask: async (
+    type,
+    command,
+    args = [],
+    cwd = null,
+    persistent = type === 'NODE' || type === 'EXPRESS' || type === 'VITE' || type === 'NEXT',
+  ) => {
+    try {
+      set({ error: null });
+      const info = await ProcessNativeModule.startTask(type, command, args, cwd, persistent);
+      get().appendLog({
+        processId: info.taskId,
+        stream: 'system',
+        data: `[started ${type.toLowerCase()} task #${info.taskId}] ${command} ${args.join(' ')}`,
+        at: Date.now(),
+      });
+      await get().refresh();
+      return info.taskId;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
 }));
 
 export const setupProcessListeners = () => {
@@ -123,8 +160,16 @@ export const setupProcessListeners = () => {
     },
   );
 
+  const portsSub = ProcessEventEmitter.addListener(
+    PROCESS_EVENTS.PORTS,
+    (event: { ports: ActivePort[] }) => {
+      useProcessStore.setState({ ports: event.ports || [] });
+    },
+  );
+
   return () => {
     outSub.remove();
     exitSub.remove();
+    portsSub.remove();
   };
 };

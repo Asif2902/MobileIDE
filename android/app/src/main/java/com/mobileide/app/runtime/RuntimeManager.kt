@@ -45,7 +45,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.12.0"
+        private const val CURRENT_RUNTIME_VERSION = "1.13.0"
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.
@@ -455,6 +455,8 @@ class RuntimeManager(private val context: Context) {
             val doctor = File(libDir, "adev-doctor.js")
             val packageResolver = File(libDir, "adev-package-resolver.js")
             val phase1Test = File(libDir, "adev-phase1-test.js")
+            val nextLauncher = File(libDir, "adev-next.js")
+            val phase2Test = File(libDir, "adev-phase2-test.js")
             val hasBusybox = File(nativeLibDir, "libbin_busybox.so").exists()
             val hasNode = File(nativeLibDir, "libbin_node.so").exists()
             val hasGit = File(nativeLibDir, "libbin_git.so").exists()
@@ -517,6 +519,9 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine("tsc() { npx --no-install tsc \"\$@\" 2>/dev/null || npx --yes tsc \"\$@\"; }")
                 sb.appendLine("eslint() { npx --no-install eslint \"\$@\" 2>/dev/null || npx --yes eslint \"\$@\"; }")
                 sb.appendLine("vite() { npx --no-install vite \"\$@\" 2>/dev/null || npx --yes vite \"\$@\"; }")
+                if (nextLauncher.exists()) {
+                    sb.appendLine("next() { \"$node\" \"${nextLauncher.absolutePath}\" \"\$@\"; }")
+                }
                 sb.appendLine()
             }
             python?.let {
@@ -584,6 +589,22 @@ class RuntimeManager(private val context: Context) {
             sb.appendLine("}")
             sb.appendLine()
 
+            // Private ext4/f2fs workspaces use native watchers. Android shared
+            // and FUSE paths opt into polling only when the current directory
+            // actually requires it. Interactive shells refresh this after cd.
+            sb.appendLine("adev-update-watch-mode() {")
+            sb.appendLine("  case \"\$PWD/\" in")
+            sb.appendLine("    /storage/*|/sdcard/*|/mnt/media_rw/*)")
+            sb.appendLine("      export ADEV_WATCH_MODE=polling CHOKIDAR_USEPOLLING=true CHOKIDAR_INTERVAL=1000 WATCHPACK_POLLING=true ;;")
+            sb.appendLine("    *)")
+            sb.appendLine("      export ADEV_WATCH_MODE=native")
+            sb.appendLine("      unset CHOKIDAR_USEPOLLING CHOKIDAR_INTERVAL WATCHPACK_POLLING ;;")
+            sb.appendLine("  esac")
+            sb.appendLine("}")
+            sb.appendLine("adev-update-watch-mode")
+            sb.appendLine("cd() { command cd \"\$@\" && adev-update-watch-mode; }")
+            sb.appendLine()
+
             if (hasNode && doctor.exists()) {
                 sb.appendLine("adev-doctor() { \"$node\" \"${doctor.absolutePath}\" \"\$@\"; }")
             }
@@ -594,6 +615,9 @@ class RuntimeManager(private val context: Context) {
             }
             if (hasNode && phase1Test.exists()) {
                 sb.appendLine("adev-phase1-test() { \"$node\" \"${phase1Test.absolutePath}\" \"\$@\"; }")
+            }
+            if (hasNode && phase2Test.exists()) {
+                sb.appendLine("adev-phase2-test() { \"$node\" \"${phase2Test.absolutePath}\" \"\$@\"; }")
             }
 
             val out = File(homeDir, ".adev-wrappers")
@@ -625,8 +649,6 @@ class RuntimeManager(private val context: Context) {
             agentEnv.appendLine("export HOST=0.0.0.0")
             agentEnv.appendLine("export HOSTNAME=0.0.0.0")
             agentEnv.appendLine("export BROWSER=none")
-            agentEnv.appendLine("export CHOKIDAR_USEPOLLING=true")
-            agentEnv.appendLine("export WATCHPACK_POLLING=true")
             agentEnv.appendLine("export npm_config_platform=android")
             agentEnv.appendLine("export npm_config_arch=arm64")
             agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
@@ -634,10 +656,14 @@ class RuntimeManager(private val context: Context) {
             appendToolchainEnvironment(agentEnv, exportPrefix = "export ")
             agentEnv.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
             agentEnv.appendLine("[ -f \"\$HOME/.adev-wrappers\" ] && . \"\$HOME/.adev-wrappers\"")
-            agentEnv.appendLine(
-                "[ -f \"\$PREFIX/lib/adev-runtime-policy.js\" ] && " +
-                    "export NODE_OPTIONS=\"--require \$PREFIX/lib/adev-runtime-policy.js \${'$'}{NODE_OPTIONS:-}\""
-            )
+            agentEnv.appendLine("export ADEV_NEXT_LAUNCHER=\"${nextLauncher.absolutePath}\"")
+            agentEnv.appendLine("export ADEV_NEXT_CACHE=\"${File(cacheDir, "next-swc").absolutePath}\"")
+            agentEnv.appendLine("export ADEV_NPM_CLI=\"${File(libDir, "node_modules/npm/bin/npm-cli.js").absolutePath}\"")
+            agentEnv.appendLine("adev_node_options=\"\${'$'}{NODE_OPTIONS:-}\"")
+            agentEnv.appendLine("case \"\$adev_node_options\" in *adev-server-events.js*) ;; *) [ -f \"\$PREFIX/lib/adev-server-events.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-server-events.js \$adev_node_options\" ;; esac")
+            agentEnv.appendLine("case \"\$adev_node_options\" in *adev-runtime-policy.js*) ;; *) [ -f \"\$PREFIX/lib/adev-runtime-policy.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-runtime-policy.js \$adev_node_options\" ;; esac")
+            agentEnv.appendLine("export NODE_OPTIONS=\"\$adev_node_options\"")
+            agentEnv.appendLine("unset adev_node_options")
             File(homeDir, ".adev-agent-env").writeText(agentEnv.toString())
 
             Log.i(TAG, "Wrote shell wrappers + agent env: ${out.absolutePath}")
@@ -704,6 +730,8 @@ class RuntimeManager(private val context: Context) {
             val doctor = File(libDir, "adev-doctor.js")
             val packageResolver = File(libDir, "adev-package-resolver.js")
             val phase1Test = File(libDir, "adev-phase1-test.js")
+            val nextLauncher = File(libDir, "adev-next.js")
+            val phase2Test = File(libDir, "adev-phase2-test.js")
 
             binDir.setWritable(true, false)
 
@@ -766,6 +794,22 @@ class RuntimeManager(private val context: Context) {
                     writeScript(
                         "adev-phase1-test",
                         "#!/system/bin/sh\nexec \"$n\" \"${phase1Test.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (nextLauncher.exists()) {
+                    writeScript(
+                        "next",
+                        "#!/system/bin/sh\nexec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"\n"
+                    )
+                    writeScript(
+                        "adev-next",
+                        "#!/system/bin/sh\nexec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"\n"
+                    )
+                }
+                if (phase2Test.exists()) {
+                    writeScript(
+                        "adev-phase2-test",
+                        "#!/system/bin/sh\nexec \"$n\" \"${phase2Test.absolutePath}\" \"\$@\"\n"
                     )
                 }
             }
@@ -1402,7 +1446,7 @@ class RuntimeManager(private val context: Context) {
           echo "adev-doctor | projects"
         }
         adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
-        adev-next() { npx next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
+        adev-next() { next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
 
         alias ll='ls -la'
         alias ..='cd ..'
@@ -1468,7 +1512,7 @@ class RuntimeManager(private val context: Context) {
           case "${'$'}1" in
             [0-9]*) p="${'$'}1"; shift ;;
           esac
-          npx next dev -H 0.0.0.0 -p "${'$'}p" "${'$'}@"
+          next dev -H 0.0.0.0 -p "${'$'}p" "${'$'}@"
         }
 
         alias ll='ls -la'
@@ -1512,7 +1556,8 @@ class RuntimeManager(private val context: Context) {
             "git" to File(nativeLibDir, "libbin_git.so").isFile,
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
-            "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile
+            "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile,
+            "next" to File(libDir, "adev-next.js").isFile
         )
         val nativeBuildReady = listOf(
             "node-gyp", "python", "make", "clang", "lld"
@@ -1537,6 +1582,32 @@ class RuntimeManager(private val context: Context) {
                 "unsupported"
             ),
             commands = commandReadiness,
+            packageManagers = linkedMapOf(
+                "npm" to (commandReadiness["npm"] == true),
+                "npx" to (commandReadiness["npx"] == true),
+                "corepack" to File(libDir, "node_modules/corepack/dist/corepack.js").isFile,
+                "pnpm-offline" to false,
+                "yarn-offline" to false,
+                "bun" to false
+            ),
+            toolPacks = linkedMapOf(
+                "native-c-cpp" to nativeBuildReady,
+                "cmake-ninja" to false,
+                "rust-cargo" to false,
+                "java" to false
+            ),
+            filesystems = linkedMapOf(
+                "private-native-watch" to true,
+                "shared-polling-watch" to true,
+                "private-execution" to true,
+                "shared-execution" to false
+            ),
+            frameworks = linkedMapOf(
+                "node-server" to (commandReadiness["node"] == true),
+                "structured-listen-events" to File(libDir, "adev-server-events.js").isFile,
+                "verified-preview" to true,
+                "next-webpack-wasm" to File(libDir, "adev-next.js").isFile
+            ),
             nativeBuildReady = nativeBuildReady,
             npmLifecycleReady = npmShell.isFile,
             termuxExecReady = termuxExec,
@@ -1549,7 +1620,7 @@ class RuntimeManager(private val context: Context) {
     /**
      * Get the environment map for process execution
      */
-    fun getEnvironment(): Map<String, String> {
+    fun getEnvironment(workingDirectory: String? = null): Map<String, String> {
         val globalBin = File(npmGlobalDir, "bin").absolutePath
         val localBin = localBinDir.absolutePath
         // Prefer absolute path to bash ELF in nativeLibraryDir (exec-safe).
@@ -1639,6 +1710,9 @@ class RuntimeManager(private val context: Context) {
             "ADEV_NATIVE_BUILD_API" to NATIVE_BUILD_API.toString(),
             "ADEV_PACKAGE_POLICY_FILE" to File(libDir, "adev-runtime-policy.json").absolutePath,
             "ADEV_PLATFORM_SPOOF" to "disabled",
+            "ADEV_NEXT_LAUNCHER" to File(libDir, "adev-next.js").absolutePath,
+            "ADEV_NEXT_CACHE" to File(cacheDir, "next-swc").absolutePath,
+            "ADEV_NPM_CLI" to File(libDir, "node_modules/npm/bin/npm-cli.js").absolutePath,
             // ---- Dev-server essentials (frontend + backend on device) ----
             // Bind all interfaces so the in-app browser / phone can hit the server.
             "HOST" to "0.0.0.0",
@@ -1646,10 +1720,6 @@ class RuntimeManager(private val context: Context) {
             "HOSTNAME" to "0.0.0.0",
             // Don't try to open a desktop browser from the CLI.
             "BROWSER" to "none",
-            // File watchers on Android/FAT/emulated storage are unreliable; polling is required for HMR.
-            "CHOKIDAR_USEPOLLING" to "true",
-            "CHOKIDAR_INTERVAL" to "1000",
-            "WATCHPACK_POLLING" to "true",
             // Keep npm progress bounded without falsifying TTY/CI behavior.
             "NPM_CONFIG_PROGRESS" to "false",
             "NPM_CONFIG_LOGLEVEL" to "warn",
@@ -1658,6 +1728,16 @@ class RuntimeManager(private val context: Context) {
             // Vite / webpack friendliness
             "VITE_CJS_IGNORE_WARNING" to "true"
         )
+
+        val watchPath = File(workingDirectory ?: workspacesDir.absolutePath)
+        if (requiresPolling(watchPath)) {
+            env["ADEV_WATCH_MODE"] = "polling"
+            env["CHOKIDAR_USEPOLLING"] = "true"
+            env["CHOKIDAR_INTERVAL"] = "1000"
+            env["WATCHPACK_POLLING"] = "true"
+        } else {
+            env["ADEV_WATCH_MODE"] = "native"
+        }
 
         // termux-exec >=2 requires the actual host app/rootfs contract. Without
         // these values it falls back to /data/data/com.termux and cannot repair
@@ -1708,16 +1788,18 @@ class RuntimeManager(private val context: Context) {
 
         // Load capability metadata into Node without changing process.platform.
         val runtimePolicy = File(libDir, "adev-runtime-policy.js")
-        if (runtimePolicy.exists()) {
-            val requireFlag = "--require ${runtimePolicy.absolutePath}"
+        val serverEvents = File(libDir, "adev-server-events.js")
+        val nodePreloads = listOf(runtimePolicy, serverEvents)
+            .filter(File::exists)
+            .map { "--require ${it.absolutePath}" }
+        if (nodePreloads.isNotEmpty()) {
             val existing = env["NODE_OPTIONS"]?.trim().orEmpty()
-            env["NODE_OPTIONS"] = if (existing.isEmpty()) {
-                requireFlag
-            } else if (existing.contains("adev-runtime-policy")) {
-                existing
-            } else {
-                "$requireFlag $existing"
+            val missing = nodePreloads.filter { flag ->
+                !existing.contains(flag.substringAfter("--require "))
             }
+            env["NODE_OPTIONS"] = (missing + existing)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
         }
 
         // npm lifecycle: always use the nativeLibraryDir ELF (not filesDir symlink).
@@ -1753,6 +1835,24 @@ class RuntimeManager(private val context: Context) {
             env["GIT_SSL_CAPATH"] = "/system/etc/security/cacerts"
         }
         return env
+    }
+
+    /**
+     * Emulated/shared Android storage is commonly FUSE-backed and cannot
+     * provide the same recursive native watch guarantees as private storage.
+     */
+    fun requiresPolling(directory: File): Boolean {
+        val path = try {
+            directory.canonicalPath
+        } catch (_: IOException) {
+            directory.absolutePath
+        }
+        return path == "/sdcard" ||
+            path.startsWith("/sdcard/") ||
+            path == "/storage" ||
+            path.startsWith("/storage/") ||
+            path == "/mnt/media_rw" ||
+            path.startsWith("/mnt/media_rw/")
     }
 
     private fun appVersionName(): String =

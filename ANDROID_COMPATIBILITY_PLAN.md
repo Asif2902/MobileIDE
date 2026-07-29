@@ -8,9 +8,9 @@ Audited target: Android ARM64 runtime, `minSdk 29`, `targetSdk 34`
 
 | Phase | Status | Commit | Evidence / next action |
 |---|---|---|---|
-| 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 waits for explicit approval. |
-| 2. Node servers, Next.js, preview, and watching | NOT STARTED | — | Wait for explicit approval after Phase 1. |
-| 3. Git, package managers, optional toolchains, and Bun policy | NOT STARTED | — | Wait for Phase 2. |
+| 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. Run `adev-doctor --self-test --json` and `adev-phase1-test --network` on fresh and upgraded API 29/API 36 ARM64 devices; Phase 2 was authorized separately. |
+| 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | Pending local commit | Host launcher/event/type/build/APK checks pass. Run `adev-phase2-test --network` from Terminal and repeat the Run/Preview matrix on API 29/API 36; Phase 3 waits for explicit approval. |
+| 3. Git, package managers, optional toolchains, and Bun policy | NOT STARTED | — | Wait for explicit approval after the Phase 2 report. |
 | 4. Android 16, ABI, filesystem, and runtime distribution | NOT STARTED | — | Wait for Phase 3. |
 | 5. Automation, security, production release, and final audit | NOT STARTED | — | Wait for Phase 4. |
 
@@ -60,6 +60,30 @@ to be necessary.
 The release APK builds successfully and contains the new toolchain. A physical
 Android device or emulator was not connected to this audit host, so the final
 on-device execution matrix remains a release gate.
+
+Phase 2 now adds the server/framework layer without changing the working
+Phase 1 native-build path:
+
+- One native task registry tracks background tasks and PTY sessions, task
+  types, process/group ownership, bounded logs, exit/failure state, and ports.
+- A Node preload emits structured `listen`, `close`, and listen-error events.
+  Log messages can only suggest a candidate; a preview URL is published only
+  after task ownership and a successful `127.0.0.1` connection probe.
+- `/proc/net/tcp*`, socket-inode ownership, descendants, and process groups
+  discover arbitrary non-Node ports and retain ownership if a shell reparents
+  a child. Stop waits for verified ports to close.
+- Run/Preview exposes task type/source/state and uses the registry's verified
+  URL. Terminal-launched servers share the same registry and continue across
+  ordinary UI navigation.
+- `adev-next` resolves the project's installed Next.js, caches the exact
+  matching `@next/swc-wasm-nodejs` outside the project, and forces Webpack for
+  `dev` and `build`. Direct `next` and simple/compound npm scripts route through
+  the launcher without editing `package.json`, lockfiles, or project modules.
+- Private workspaces use native watchers. Editor watches are recursive,
+  collision-free, symlink-bounded, and recover after inotify overflow. Shared
+  or FUSE paths alone use recursive polling.
+- Runtime 1.13.0 forces upgrade re-extraction of the new launcher, server
+  preload, diagnostics, test harness, wrappers, and watcher policy.
 
 ## Root cause of `spawn node-gyp EACCES`
 
@@ -126,6 +150,19 @@ Relevant platform references:
 - The runtime fetcher now rejects missing required packages, verifies each
   downloaded `.deb` against the repository's SHA-256, and fails on an
   incomplete dependency closure or missing tool.
+- The Phase 2 host suite passed structured Node listen/close events, a real
+  loopback request, exact Next.js version resolution, cache isolation, forced
+  `--webpack` arguments (including removal of `--turbopack`), and no project
+  metadata mutation.
+- npm registry checks confirmed exact `@next/swc-wasm-nodejs` releases for
+  Next.js `15.5.22` and `16.2.12`.
+- TypeScript `--noEmit` passed with a 4 GiB compiler heap.
+- `:app:compileDebugKotlin`, `:app:testReleaseUnitTest`, and
+  `:app:assembleRelease` passed with JDK 17 after the Phase 2 changes.
+- The release APK contains `adev-next.js`, `adev-server-events.js`,
+  `adev-phase2-test.js`, and the rebuilt native npm lifecycle shell. Binary
+  inspection confirms the native shell contains the generic Next launcher
+  dispatch.
 
 ### Not yet verifiable on this host
 
@@ -135,6 +172,9 @@ Relevant platform references:
 - Loading a newly compiled `.node` file, file-watch behavior, PTY signal/job
   control, Git network authentication, and secondary-user/adoptable-storage
   paths require device tests.
+- The Node/Express/Vite/Next.js Terminal and Run/Preview matrices, registry
+  ownership/probe timing, nested HMR edits, and process-tree/port cleanup need
+  `adev-phase2-test --network` plus UI assertions on API 29 and API 36.
 
 ### Existing project checks that fail independently of this fix
 
@@ -180,6 +220,10 @@ Status meanings:
 | Optional dependencies | ⚠️ Policy integrated; device gate | Optional dependencies stay enabled while npm sees Android/ARM64. The global Linux spoof is gone. `adev-resolve-package` permits only Android/Bionic, exact hash-approved static/musl, source-build, or an explicit unsupported decision; the verified static/musl list is intentionally empty until artifacts are tested and locked. |
 | Native addons | ⚠️ Integrated; device gate | Standard C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. Rust, CMake, NASM, Java, and extra system libraries remain Phase 3 tool packs or explicit unsupported capabilities. |
 | `.node` loading | ⚠️ Device gate | Build output will be Android ARM64 and Node-version-matched. A target-34 device test must prove `dlopen()` plus transitive library lookup from a project directory. |
+| Development task registry | ⚠️ Integrated; device gate | Background tasks and PTY sessions share typed task/status/log/port records. PIDs, process groups, descendants, sources, persistence, exit/failure state, and bounded logs are exposed through task APIs. Stop signals the group and waits for verified ports to close; device orphan/process-tree tests remain. |
+| Node / Express / Vite servers | ⚠️ Integrated; device gate | Structured Node listen/close/error events and `/proc` socket ownership discover arbitrary ports. Run/Preview has first-class Node, Express, Vite, Next, build, test, shell, and generic task types. The bundled device harness covers plain Node, Express, and Vite nested edits; it still needs a connected device. |
+| Next.js | ⚠️ Integrated; device gate | `adev-next` resolves the project version, caches exact matching `@next/swc-wasm-nodejs` outside the project, forces `--webpack` for dev/build even when a script requests Turbopack, and routes direct commands plus npm lifecycle scripts without project mutation. Exact packages 15.5.22 and 16.2.12 exist; the App/Pages dev/HMR/build/start device matrix is bundled but not yet executed. |
+| Preview / ports | ⚠️ Integrated; device gate | Console text no longer creates an active port. Structured events and log text create candidates; ownership plus a successful `127.0.0.1` socket probe is required before UI publication. URLs carry task/PID/group/source/state and update through native events. Android timing and OEM `/proc` restrictions remain device gates. |
 | Git core operations | ✅ Fully integrated | JGit 6.7 provides UI operations and native Git 2.55.0 provides CLI behavior. Runtime Git templates and a default branch are configured. |
 | Git HTTPS | ⚠️ Partially integrated | Native `git-remote-http` plus HTTPS/FTP aliases and CA configuration are packaged. Clone/fetch/push through real mobile networks and proxy/custom-CA cases remain untested. |
 | curl | ⚠️ Integrated; device gate | The real Termux ARM64 curl executable is packaged in `nativeLibraryDir`, mapped through PATH/Java/shell wrappers, shares the assembled Android CA bundle, has a verified dependency closure, and is 16 KiB aligned. `adev-doctor --self-test` performs the device HTTPS probe. |
@@ -189,10 +233,10 @@ Status meanings:
 | pnpm | ⚠️ Partially integrated | The command routes through Corepack. The package-manager payload is not bundled, so first use requires network/cache population and current Corepack signatures. |
 | Yarn | ⚠️ Partially integrated | Same state as pnpm; no offline Yarn payload is included. |
 | Bun | ❌ Missing | No Android/Bionic-compatible Bun executable or runtime integration is present. A Linux glibc Bun binary is not an acceptable substitute. |
-| File watching: Node | ⚠️ Manual workaround | Chokidar and Watchpack are globally forced to 1-second polling. This favors reliability on shared storage but costs latency, CPU, and battery even for reliable private storage. |
-| File watching: editor | ⚠️ Partially integrated | `FileObserver` exists but watches only one directory level and uses a path hash as its ID. Recursive project changes and hash collisions are not handled. |
+| File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
+| File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
 | Symlinks | ⚠️ Partially integrated | Runtime symlinks are rebuilt automatically on private app storage. Android shared/external storage does not reliably support symlinks, case sensitivity, modes, or execution; projects using those features must stay in private workspaces. |
-| Environment variables | ⚠️ Partially integrated | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Global `CI`, no-color flags, and Linux spoofing were removed. Polling is still global until Phase 2 makes it filesystem-capability driven; locale assumptions still need a device check. |
+| Environment variables | ⚠️ Integrated; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Working-directory watch mode, structured server preload, and Next launcher/cache paths are inherited by Java, PTY, shell, and npm lifecycle children. Locale and interactive shared-storage transitions still need device checks. |
 | TTY / terminal | ⚠️ Fixed; device gate | Native `forkpty`, resize, process-group signals, and job-control plumbing exist. Close is idempotent, signals TERM/KILL before changing state, always closes the master FD, and starts a child reaper. Repeated-close/job-control behavior remains in the device matrix. |
 | Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. |
 | Android shared filesystem | ⚠️ Manual / restricted | The app has an all-files settings flow, but Android requires the user to grant this special access. Shared storage remains noexec and lacks reliable symlinks/permissions; `Android/data` restrictions still apply. |
@@ -206,7 +250,7 @@ Status meanings:
 | Runtime update cleanup | ⚠️ Partially integrated | Fingerprinting forces device reinitialization when the map changes. The build map and generated JNI source directory merge historical entries, so removed runtime files are not automatically pruned from source control. |
 | APK/install footprint | ⚠️ Partially integrated | Shipping Clang/LLVM and Python removes first-run setup, but the audited release APK is about 200 MB versus the prior 79 MB artifact, and extracted native libraries increase installed size further. |
 | Host Android build toolchain | ⚠️ Partially integrated | Gradle 8.10.2 builds successfully with JDK 17, while the same wrapper fails when it inherits JDK 25.0.3. The supported JDK is not pinned or checked, so success currently depends on the caller's `JAVA_HOME`/PATH. |
-| Test automation | ⚠️ Partially integrated | Phase 1 adds host capability-policy and path-boundary tests plus `adev-doctor --self-test` and an on-device N-API/NAN/V8/prebuild fallback harness. Existing Jest/lint isolation and automated API/ABI device matrices remain Phase 5. |
+| Test automation | ⚠️ Partially integrated | Phase 1 adds host capability-policy/path tests and native-addon device fixtures. Phase 2 adds host server/launcher tests plus an on-device Node/Express/Vite/Next App+Pages dev/HMR/build/start/cleanup matrix. Existing Jest/lint isolation and automated API/ABI device orchestration remain Phase 5. |
 
 ## Prioritized integration plan
 
@@ -231,7 +275,7 @@ Proper integration:
    missing `DT_NEEDED`, or namespace errors.
 
 Acceptance: all commands and addon load pass in a fresh project and after an app
-upgrade that replaces runtime 1.10.x/1.11.x with 1.12.0.
+upgrade that replaces runtime 1.10.x/1.11.x with current runtime 1.13.0.
 
 #### P0.2 Finish whole-APK 16 KiB page support
 
@@ -411,6 +455,13 @@ Proper integration:
 - Warn or copy projects into a private workspace when they require symlinks,
   executable tools, case-sensitive names, or native builds.
 
+Phase 2 result: native recursive editor/Node watching is the default for
+private workspaces. Shared/FUSE projects receive polling only through a
+working-directory capability decision. Editor watcher IDs are UUIDs, newly
+created directories are registered, symlink traversal is bounded, and inotify
+overflow rebuilds the tree. The guided private import/copy flow remains
+Phase 4 because it also governs execution, symlinks, and native-build policy.
+
 #### P1.8 Correct filesystem boundary validation
 
 Proper integration:
@@ -520,8 +571,44 @@ Blocked device evidence:
   TLS network probes, PTY/process-tree stress, and native `.node` load remain
   required before removing the Phase 1 device gate.
 
-Next phase after explicit approval: Phase 2 — Node servers, Next.js, preview,
-port verification, task lifecycle, and filesystem-aware watching.
+## Phase 2 acceptance record
+
+Host evidence on 2026-07-29:
+
+- `npm run test:phase2-host`: pass.
+- `node_modules/.bin/tsc --noEmit` with
+  `NODE_OPTIONS=--max-old-space-size=4096`: pass.
+- `:app:compileDebugKotlin`: pass with JDK 17.
+- `:app:testReleaseUnitTest`: pass with JDK 17.
+- `:app:assembleRelease`: pass with JDK 17.
+- Exact npm packages `@next/swc-wasm-nodejs@15.5.22` and
+  `@next/swc-wasm-nodejs@16.2.12`: available.
+- Release APK content check for the Next launcher, structured server preload,
+  Phase 2 device harness, and rebuilt native npm shell: pass.
+- No APK, signing credential, cache, generated release artifact, or existing
+  `ADevStudio-v1.3.3-arm64.apk` is included in the Phase 2 commit.
+
+Blocked device evidence:
+
+- The Android SDK's `adb` is installed, but `adb devices -l` reports no
+  connected emulator or physical device.
+- Run `adev-phase2-test --network` on fresh and upgraded ARM64 API 29 and API
+  36 installations. It covers plain Node, Express, Vite nested edits, Next.js
+  15.5.22/16.2.12 App+Pages routers, direct and npm-script launch paths,
+  development/HMR, production build/start, and port cleanup.
+- From Run/Preview, assert that arbitrary ports appear only after a successful
+  probe, Terminal-launched servers share ownership/status, crashes are
+  actionable, navigation preserves persistent tasks, and stop leaves no child
+  or listening port.
+
+Framework basis: Next.js documents `--webpack` for both `next dev` and
+`next build`, and documents WebAssembly as the compiler's cross-platform path:
+[Next.js CLI](https://nextjs.org/docs/app/api-reference/cli/next) and
+[Next.js Compiler](https://nextjs.org/docs/architecture/nextjs-compiler).
+
+Next phase after explicit approval: Phase 3 — Git credentials/SSH/HTTPS,
+offline Corepack/pnpm/Yarn payloads, optional tool packs, and the Bun
+capability boundary.
 
 ## Definition of done for Android-native npm installs
 
