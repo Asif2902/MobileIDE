@@ -28,7 +28,7 @@ behavior still needs an API 29/36 device run before release certification.
 
 | Update | Status | Commit | Evidence / remaining gate |
 |---|---|---|---|
-| Terminal startup-loop fix and OpenCode Android CLI | **IMPLEMENTED — ARM64 DEVICE GATE** | Pending local commit | Terminal store tests pass; OpenCode archive/component hashes, Bionic linker, PIE, dependency shape, and 16 KiB alignment pass. Build and connected ARM64 API 29/36 TUI/provider/tool/PTY checks remain before production certification. |
+| Terminal startup-loop fix and OpenCode Android CLI | **IMPLEMENTED — ARM64 DEVICE GATE** | `9c8cf13` | Terminal store tests pass; OpenCode archive/component hashes, Bionic linker, PIE, dependency shape, and 16 KiB alignment pass. Build and connected ARM64 API 29/36 TUI/provider/tool/PTY checks remain before production certification. |
 
 ## Executive result
 
