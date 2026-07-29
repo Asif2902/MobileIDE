@@ -1,37 +1,38 @@
-# A Dev Studio 1.3.5
+# A Dev Studio 1.3.6
 
-This release adds an Android-native OpenCode CLI path and fixes the terminal
-startup loop.
+This phone-test release fixes the reported `node-gyp` Python failure, makes
+OpenCode discoverable as a real terminal command, and improves phone-terminal
+output and copying.
 
 Phone-test package:
 
-- A standalone `1.3.5-phone-test` APK bundles the JavaScript application and
+- A standalone `1.3.6-phone-test` APK bundles the JavaScript application and
   runtime, so it runs without Metro.
 - It installs beside the production app under `com.mobileide.app.phonetest`
   and is Android-debug-key signed solely for direct device testing.
-- The corrected package restores React Native's required New Architecture
-  `libappmodules.so` and generated/autolinked component registrations. This
-  fixes the immediate `PlatformConstants` crash in the first test package.
-- Android SDK CMake 3.31.6 and shortened, clone-specific native staging make
-  the complete generated ARM64/x86_64 graph build on Windows.
+- Installing over the prior phone-test package upgrades runtime 1.16.0 to
+  1.16.1 and automatically re-extracts the corrected files. Clearing data,
+  `chmod`, `npm rebuild`, or another manual recovery step is not required.
 
 Highlights:
 
-- The terminal no longer retries a failed native session forever. A failed
-  shell/PTY startup now ends the spinner, displays the native error, and offers
-  one explicit retry.
-- Native shell validation has a five-second timeout and forced cleanup, so a
-  blocked shell probe cannot leave the terminal loading indefinitely.
-- Concurrent terminal opens are deduplicated, existing native sessions regain
-  an active tab, and output emitted before session creation resolves is kept.
-- OpenCode 1.17.9 is packaged as a verified ARM64 Android/Bionic runtime. Its
-  native launcher works from terminal and task command resolution without
-  `chmod`, Termux paths, a glibc loader, or global Linux platform spoofing.
-- The OpenCode archive and component hashes, Android port source commit,
-  upstream OpenCode commit, licenses, PIE/linker requirements, and 16 KiB ELF
-  alignment are recorded in the signed runtime lock.
-- `adev-doctor` reports OpenCode version/readiness and the x86_64 capability
-  boundary. Runtime 1.16.0 refreshes shell wrappers on upgrade.
+- Android's default asset rules were removing Python's `zipfile/_path`, most
+  modular libc++ headers, pnpm `.bin` commands, and other functional runtime
+  files. The APK now retains all underscore and dot-prefixed runtime entries.
+- The final APK is compared file-for-file with the runtime source tree; a
+  future silently omitted Python/compiler/package-manager asset fails the
+  release gate.
+- `node-gyp` can import the complete Python 3.14 standard library instead of
+  failing at `ModuleNotFoundError: zipfile._path`.
+- `opencode` now has a real `$PREFIX/bin/opencode` PATH trampoline in addition
+  to its interactive wrapper, making it resolvable by terminals and child
+  processes without using the unsupported official Android installer.
+- The fallback shell prompt now expands the working-directory name instead of
+  printing `adev:${PWD##*/}$` literally.
+- Narrow phones use a slightly smaller terminal font, and copied output joins
+  xterm visual wraps instead of inserting artificial newlines into npm logs.
+- The APK passed complete runtime-asset, signed-lock, ARM64/x86_64 content,
+  native dependency, API 36, 16 KiB ZIP, and 16 KiB ELF checks.
 
 Known capability boundaries:
 

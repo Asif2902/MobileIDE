@@ -1,7 +1,7 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-07-30
-Application: A Dev Studio / `com.mobileide.app` 1.3.5
+Application: A Dev Studio / `com.mobileide.app` 1.3.6
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -29,6 +29,7 @@ behavior still needs an API 29/36 device run before release certification.
 | Update | Status | Commit | Evidence / remaining gate |
 |---|---|---|---|
 | Terminal startup-loop fix and OpenCode Android CLI | **IMPLEMENTED — ARM64 DEVICE GATE** | `9c8cf13` | Terminal store tests pass; OpenCode archive/component hashes, Bionic linker, PIE, dependency shape, and 16 KiB alignment pass. Build and connected ARM64 API 29/36 TUI/provider/tool/PTY checks remain before production certification. |
+| Runtime asset completeness, OpenCode PATH, and terminal usability | **FIXED — ARM64 DEVICE RETEST** | `5f89545` | The reported Python traceback proved AAPT had omitted 1,977 underscore-path assets and 12 functional dot entries. Version 1.3.6/runtime 1.16.1 retains every runtime source asset, adds a real `bin/opencode` PATH trampoline, fixes the fallback-shell prompt, preserves logical lines when copying wrapped terminal output, and passes the complete APK/ELF/signature gate. Re-run `npm install`, `node-gyp`, and `opencode` on the connected phone. |
 
 ## Executive result
 
@@ -65,7 +66,7 @@ The platform-wide fix is now implemented:
 - Filesystem access now uses canonical segment-aware containment, rejects
   sibling-prefix/traversal escapes, removes broad `/data` and `/mnt` grants,
   and makes `/system`/`/apex` read-only.
-- Gradle, npm package metadata, and diagnostics now agree on app version 1.3.5.
+- Gradle, npm package metadata, and diagnostics now agree on app version 1.3.6.
 
 This is not an individual-package workaround. It applies to packages using
 `node-gyp`, npm's lifecycle runner, shell shims, and native C/C++ compilation.
@@ -160,7 +161,7 @@ runtime behavior:
   incorrectly advertised or glibc-backed runtime.
 - An Ed25519-signed runtime lock inventories 204 ARM64 runtime/app-native
   payloads and three packaged x86_64 helpers by hash, size, runtime path, and
-  owner. Runtime 1.16.0 forces upgrade re-extraction and `adev-doctor` verifies
+  owner. Runtime 1.16.1 forces upgrade re-extraction and `adev-doctor` verifies
   and reports the lock.
 - Shared/FUSE workspaces are assessed before native work. A guided import stages
   them under app-private storage, rejects symlinks and containment escapes, and
@@ -172,7 +173,7 @@ runtime behavior:
 
 ## Root cause of `spawn node-gyp EACCES`
 
-There were two consecutive failures.
+There were three consecutive failures.
 
 1. npm prepends its private `node-gyp-bin` directory to lifecycle `PATH`. Its
    `node-gyp` entry is a small POSIX shell script under writable app data:
@@ -192,9 +193,19 @@ There were two consecutive failures.
    falls back to paths compiled for `com.termux`, so it could not translate the
    npm shim for `com.mobileide.app`.
 
-After removing that execution failure, the runtime also lacked Python, Make,
-Clang, a linker, sysroot files, and Node headers. A successful spawn would
-therefore only have exposed the next `node-gyp` failure.
+3. After the toolchain was added, Android's default AAPT asset-ignore pattern
+   silently removed underscore-prefixed directories. The repository contained
+   Python's `zipfile/_path`, but the APK did not, producing the observed
+   `ModuleNotFoundError: No module named 'zipfile._path'`. The same rule omitted
+   most modular libc++ headers, and the dot-entry rule omitted package-manager
+   `.bin` commands and `.npmrc`. Version 1.3.6 removes both unsafe exclusions,
+   bumps the runtime so upgrades re-extract automatically, and compares every
+   runtime source file with the final APK.
+
+Before the Phase 1 integration, the runtime also lacked Python, Make, Clang, a
+linker, sysroot files, and Node headers. Those tools are now bundled; the final
+APK completeness gate prevents their support trees from being partially
+packaged again.
 
 Relevant platform references:
 
@@ -215,7 +226,7 @@ Relevant platform references:
   native path map.
 - Packaged tool executables include Node, Python 3.14, Make, Clang 21, LLD,
   `llvm-ar`, `pkg-config`, and the native npm lifecycle shell.
-- The APK includes 122 Node header files, 557 Python standard-library files,
+- The APK includes 122 Node header files, 589 Python standard-library files,
   and 313 Clang resource files.
 - Independent ELF inspection found zero unresolved non-system `DT_NEEDED`
   names after applying the runtime symlink map.
@@ -318,12 +329,12 @@ Status meanings:
 |---|---|---|
 | Node.js | ✅ Fully integrated | Termux Node 26.4.0 is packaged as an ARM64 ELF in `nativeLibraryDir`; headers match 26.4.0. Runtime wrappers use the absolute executable path. |
 | npm / npx | ✅ Fully integrated | npm 11.16.0 and both JS entrypoints are bundled and launched through the native Node executable. Cache, prefix, user config, optional dependency, and noninteractive settings are app-scoped. |
-| node-gyp | ⚠️ Fixed; device gate | node-gyp 12.3.0 is bundled. Direct PATH/Java/lifecycle dispatch, generic `termux-exec`, Python, Make, Clang, LLD, Node headers, `npm_config_node_gyp`, and `npm_config_nodedir` are integrated. `adev-phase1-test` covers install/rebuild/direct build/load/uninstall/reinstall; the original device reproduction is still required. |
-| Python | ⚠️ Integrated; device gate | Python 3.14.6, its standard library, native modules, `PYTHONHOME`, `PYTHONPATH`, `PYTHON`, `NODE_GYP_FORCE_PYTHON`, and `npm_config_python` are packaged/configured. Relocation must be smoke-tested on-device. |
+| node-gyp | ⚠️ Fixed; device retest | node-gyp 12.3.0 is bundled. Direct PATH/Java/lifecycle dispatch, generic `termux-exec`, Python, Make, Clang, LLD, Node headers, `npm_config_node_gyp`, and `npm_config_nodedir` are integrated. The copied device log exposed AAPT's removal of `zipfile/_path`; version 1.3.6 fixes the global asset rule and the final APK contains every runtime source asset. Re-run the original install/rebuild fixture on-device. |
+| Python | ⚠️ Fixed; device retest | Python 3.14.6, all 589 standard-library files including `zipfile/_path`, native modules, `PYTHONHOME`, `PYTHONPATH`, `PYTHON`, `NODE_GYP_FORCE_PYTHON`, and `npm_config_python` are packaged/configured. The APK verifier now fails on any missing runtime source asset; execution remains to be retested on-device. |
 | Clang / Make / build tools | ⚠️ Integrated; device gate | Clang/LLVM 21.1.8, Make 4.4.1, LLD, `llvm-ar`, `pkg-config`, compiler resources, development headers, CRT objects, and libraries are present. A real addon compile/link/load is the acceptance test. |
 | Build target | ✅ Fully integrated | Generated native addons target `aarch64-linux-android29`, matching `minSdk`, rather than the SDK level of the phone doing the build. |
 | 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. `test:phase4-apk` checks the final APK with `zipalign -P 16` and scans every packaged ELF: all 225 loadable files have `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
-| PATH resolution | ⚠️ Integrated; device gate | System tools are first; executable APK libraries and app trampolines follow. Java spawns resolve Node/npm/npx/node-gyp, Python, Make, Clang, LLVM, Git, curl, Bash, and BusyBox to executable APK paths. Generic npm `.bin` and shebang resolution uses the corrected `termux-exec` contract and needs the device matrix. |
+| PATH resolution | ⚠️ Integrated; device retest | System tools are first; executable APK libraries and app trampolines follow. Java spawns resolve Node/npm/npx/node-gyp, Python, Make, Clang, LLVM, Git, curl, Bash, BusyBox, and OpenCode to executable APK paths. `opencode` now has a real `bin/opencode` trampoline in addition to its interactive wrapper. Generic npm `.bin` and shebang resolution uses the corrected `termux-exec` contract and needs the device matrix. |
 | Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. |
 | Child process: Java spawn | ⚠️ Integrated; device gate | `ProcessManager` clears inherited host state, installs the runtime environment, resolves core/runtime/build commands, launches each task under `setsid`, obtains the PID from the child instead of reflection, streams output, and terminates the process group with a `/proc` descendant fallback. Device process-tree tests remain. |
 | Child process: Node `spawn` / `exec` / `fork` | ⚠️ Integrated; automated device gate | The preload and complete Termux variables are inherited by Node children. Literal npm shims and `#!/usr/bin/env` scripts translate through the native shell/`termux-exec`; the Phase 5 ARM64 API matrix runs `spawn`, `execFile`, `exec`, and `fork` fixtures before release. Connected runner evidence is still required. |
@@ -343,16 +354,16 @@ Status meanings:
 | Git credentials | ⚠️ Integrated; device gate | HTTPS credentials, SSH private keys, and passphrases are Keystore-encrypted. The native ARM64 credential helper talks to an app-private loopback broker; commands/logs are redacted and JavaScript receives metadata only. Persistence/process-death and live rejection tests remain in the device matrix. |
 | Git LFS | ⚠️ Explicit feature boundary | LFS use is detected and reports the missing signed `git-lfs` feature pack instead of silently failing. The signed index defines the capability, dependency, version, and diagnostics; ABI payload delivery is part of Phase 4 runtime distribution. |
 | Corepack | ✅ Fully integrated | Corepack 0.35.0 is pinned and bundled. Runtime selection reports whether the version came from an exact offline payload, project `packageManager` declaration, warmed Corepack cache, or network; integrity/source metadata is committed. |
-| pnpm | ⚠️ Integrated; device gate | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures from an empty network cache on the host; Android execution remains in the Phase 3 device gate. |
+| pnpm | ⚠️ Integrated; device retest | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Version 1.3.6 retains its previously AAPT-omitted `.bin` commands and `.package-map.json`; the final APK contains the complete source payload. Android execution remains in the Phase 3 device gate. |
 | Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
 | Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
-| OpenCode CLI | ⚠️ Integrated on ARM64; device/security/x86_64 gate | OpenCode 1.17.9 uses the independently source-built Android/Bionic port pinned to port commit `f63664e` and upstream OpenCode commit `5c23e88`. The real PIE runtime, OpenTUI library, pointer-tag compatibility library, and an app-built launcher are APK-native executables with exact hashes in the signed runtime lock; they require no `chmod`, Termux prefix, writable executable, glibc loader, or Linux spoof. `opencode` is resolved through terminal/task/doctor paths. The official npm package still has no Android artifact, the port does not publish a signed release, ARM64 API 29/36 TUI/provider/prompt/tool/PTY tests remain a device gate, and x86_64 reports an explicit unsupported payload boundary. The private patched engine is not exposed as general Bun support. |
+| OpenCode CLI | ⚠️ Fixed on ARM64; device/security/x86_64 gate | OpenCode 1.17.9 uses the independently source-built Android/Bionic port pinned to port commit `f63664e` and upstream OpenCode commit `5c23e88`. The PIE runtime, OpenTUI library, pointer-tag compatibility library, and app-built launcher are APK-native executables with exact hashes in the signed runtime lock. Version 1.3.6 adds a real PATH trampoline so interactive and noninteractive shells can resolve `opencode` without installation, `chmod`, a glibc loader, or Linux spoofing. The official npm package still has no Android artifact, ARM64 TUI/provider/prompt/tool/PTY tests remain a device gate, and x86_64 reports an explicit unsupported payload boundary. |
 | Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production ABI feature payloads are not yet present, so the resolver returns an actionable unavailable capability instead of installing into noexec app data. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
 | Symlinks | ✅ Integrated with explicit Android boundary | Runtime symlinks are rebuilt automatically on private app storage. Shared/FUSE/SAF cannot faithfully represent Unix symlinks, case sensitivity, modes, or execution, so the guided copy refuses links/escapes; developers must clone or extract the source directly into private storage when project symlinks must be preserved. No unsafe dereference fallback is offered. |
 | Environment variables | ⚠️ Integrated; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Working-directory watch mode, structured server preload, and Next launcher/cache paths are inherited by Java, PTY, shell, and npm lifecycle children. Locale and interactive shared-storage transitions still need device checks. |
-| TTY / terminal | ⚠️ Fixed; device gate | Native `forkpty`, resize, process-group signals, and job-control plumbing exist. Close is idempotent, signals TERM/KILL before changing state, always closes the master FD, and starts a child reaper. Terminal creation is now deduplicated; failed auto-start is not retried in a render loop, the error/retry action is visible, early PTY output is preserved, existing native sessions regain an active tab, and the Bash usability probe times out and reaps after five seconds. Repeated-close/job-control and the reported startup path remain in the API 29/36 device matrix. |
+| TTY / terminal | ⚠️ Fixed; device retest | Native `forkpty`, resize, process-group signals, and job-control plumbing exist. Close is idempotent, failed auto-start is not retried forever, and native Bash validation is bounded. Version 1.3.6 fixes the fallback prompt that displayed `adev:${PWD##*/}$`, uses a smaller phone font for more columns, and joins xterm visual wraps when copying so long npm errors are not corrupted with artificial newlines. Repeated-close/job-control and the corrected prompt/copy behavior remain in the device matrix. |
 | Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. |
 | Android shared filesystem | ⚠️ Restricted by Android; guided import integrated | The app reports shared-storage capability limits and can atomically copy a project into the private execution workspace without shell commands. Android still requires the user to grant all-files access; shared storage remains noexec and `Android/data` restrictions still apply. |
 | Filesystem path sandbox | ✅ Fully integrated | Canonical `Path` containment is segment-aware. Traversal and sibling-prefix escapes are rejected, `/data/data`, `/data/user`, and broad `/mnt` access are removed, runtime bin/lib writes are protected, system/APEX paths are read-only, and explicit user-visible storage roots are bounded. Private imports also reject source symlinks/escapes and clean failed staging directories. |
