@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "versionSource": "version.json",
+  "applicationId": "com.mobileide.app",
+  "minSdk": 29,
+  "compileSdk": 36,
+  "targetSdk": 36,
+  "buildToolsVersion": "36.0.0",
+  "ndkVersion": "29.0.14206865",
+  "jdkMajor": 17,
+  "abis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "pageAlignment": 16384,
+  "artifactNames": {
+    "apk": "ADevStudio-v{versionName}-arm64-x86_64.apk",
+    "aab": "ADevStudio-v{versionName}-arm64-x86_64.aab"
+  },
+  "sizeBudgetsBytes": {
+    "apk": 285000000,
+    "aab": 285000000
+  },
+  "security": {
+    "productionAuditMaximum": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    },
+    "developmentAuditBoundary": "release/development-audit-boundary.json",
+    "forbidDebugReleaseCertificate": true,
+    "forbidRepositoryKeystore": true
+  },
+  "requiredApkEntries": [
+    "assets/runtime/runtime-lock.json",
+    "assets/runtime/runtime-lock.pub.pem",
+    "assets/runtime/runtime-lock.sig",
+    "assets/runtime/lib/adev-phase1-test.js",
+    "assets/runtime/lib/adev-phase2-test.js",
+    "assets/runtime/lib/adev-phase3-test.js",
+    "assets/runtime/lib/adev-phase4-test.js",
+    "assets/runtime/lib/adev-phase5-test.js",
+    "lib/arm64-v8a/libbin_adev_npm_shell.so",
+    "lib/arm64-v8a/libbin_adev_git_credential.so",
+    "lib/x86_64/libbin_adev_npm_shell.so",
+    "lib/x86_64/libbin_adev_git_credential.so"
+  ]
+}

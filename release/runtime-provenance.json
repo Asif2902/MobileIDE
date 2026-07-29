@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "runtimeLock": "android/app/src/main/assets/runtime/runtime-lock.json",
+  "runtimeLockSignature": "Ed25519",
+  "platform": "android-bionic",
+  "abi": "arm64-v8a",
+  "sources": [
+    {
+      "id": "termux-main",
+      "index": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+      "artifactHashSource": "SHA256 field in the signed/reviewed package index",
+      "licenses": "per-package Debian copyright metadata; Apache-2.0/GPL/LGPL/BSD/MIT and compatible notices",
+      "ownership": "scripts/fetch-runtime-libs.ps1 records each staged runtime path to its resolving package and runtime-lock.json hashes the final packaged ELF"
+    },
+    {
+      "id": "node-distribution",
+      "urlTemplate": "https://nodejs.org/dist/{version}/node-{version}-linux-arm64.tar.xz",
+      "license": "MIT plus bundled dependency notices",
+      "ownership": "Node/npm/Corepack runtime payload"
+    },
+    {
+      "id": "busybox",
+      "url": "https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv8l",
+      "license": "GPL-2.0-only",
+      "ownership": "fallback Linux command suite"
+    }
+  ],
+  "releaseRequirement": "Runtime regeneration must retain the reviewed package index, package versions, artifact URLs, package hashes, license metadata, runtime-path ownership, and SONAME closure as CI evidence before an externally signed runtime lock is accepted."
+}

@@ -73,6 +73,7 @@ const required = [
   'assets/runtime/runtime-lock.pub.pem',
   'assets/runtime/runtime-lock.sig',
   'assets/runtime/lib/adev-phase4-test.js',
+  'assets/runtime/lib/adev-phase5-test.js',
 ];
 for (const entry of required) {
   assert.ok(entries.includes(entry), `APK entry is missing: ${entry}`);
@@ -103,6 +104,7 @@ try {
       'assets/runtime/runtime-lock.json',
       'assets/runtime/runtime-lock.pub.pem',
       'assets/runtime/runtime-lock.sig',
+      'assets/runtime/native-map.json',
     ],
     {cwd: temp},
   );
@@ -133,6 +135,7 @@ try {
   let relocatableObjects = 0;
   let minimumAlignment = Number.MAX_SAFE_INTEGER;
   const failures = [];
+  const dynamicEntries = [];
   for (const file of nativeFiles) {
     const output = run(readelf, ['-hlW', file]);
     const alignments = output
@@ -154,8 +157,61 @@ try {
         `${path.basename(file)}: LOAD alignment 0x${fileMinimum.toString(16)}`,
       );
     }
+    dynamicEntries.push({file, dynamic: run(readelf, ['-dW', file])});
   }
   assert.deepEqual(failures, []);
+
+  const availableLibraries = new Set(
+    nativeFiles.map(file => path.basename(file)),
+  );
+  const nativeMap = JSON.parse(
+    fs.readFileSync(path.join(runtime, 'native-map.json'), 'utf8'),
+  );
+  const packagedNames = new Set(
+    nativeFiles.map(file => path.basename(file)),
+  );
+  for (const [runtimePath, packagedName] of Object.entries(nativeMap)) {
+    if (packagedNames.has(packagedName)) {
+      availableLibraries.add(path.posix.basename(runtimePath));
+    }
+  }
+  for (const {dynamic} of dynamicEntries) {
+    const soname = dynamic.match(/\(SONAME\).*\[([^\]]+)\]/)?.[1];
+    if (soname) availableLibraries.add(soname);
+  }
+  const androidSystemLibraries = new Set([
+    'libEGL.so',
+    'libGLESv2.so',
+    'libOpenSLES.so',
+    'libaaudio.so',
+    'libandroid.so',
+    'libc.so',
+    'libdl.so',
+    'libjnigraphics.so',
+    'liblog.so',
+    'libm.so',
+    'libmediandk.so',
+    'libnativewindow.so',
+    'libvulkan.so',
+    'libz.so',
+  ]);
+  const missingDependencies = [];
+  for (const {file, dynamic} of dynamicEntries) {
+    for (const match of dynamic.matchAll(/\(NEEDED\).*\[([^\]]+)\]/g)) {
+      const needed = match[1];
+      if (
+        !availableLibraries.has(needed) &&
+        !androidSystemLibraries.has(needed)
+      ) {
+        missingDependencies.push(`${path.basename(file)} -> ${needed}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    missingDependencies,
+    [],
+    'Packaged ELF dependency closure is incomplete',
+  );
 
   const bytes = fs.statSync(apk).size;
   const sha256 = crypto

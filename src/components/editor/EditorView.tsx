@@ -92,7 +92,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
     try {
       // Native WebView must own focus before Android will open the IME.
       webViewRef.current?.requestFocus?.();
-    } catch (_e) {}
+    } catch {}
     post({ type: 'focus' });
     // Retry once after layout settles
     setTimeout(() => post({ type: 'focus' }), 80);
@@ -279,7 +279,7 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
         onTouchStart={() => {
           try {
             webViewRef.current?.requestFocus?.();
-          } catch (_e) {}
+          } catch {}
         }}
       />
       {loadState === 'loading' && (

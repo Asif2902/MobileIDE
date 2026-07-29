@@ -1,0 +1,214 @@
+name: Android compatibility and release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+  NODE_VERSION: "22.13.1"
+  ANDROID_API: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_NDK: "29.0.14206865"
+  BUNDLETOOL_VERSION: "1.18.3"
+  BUNDLETOOL_SHA256: "A099CFA1543F55593BC2ED16A70A7C67FE54B1747BB7301F37FDFD6D91028E29"
+
+jobs:
+  host-gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - run: git lfs pull && git lfs fsck
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK
+        run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+      - run: npm ci
+      - run: npm run release:check
+      - run: npm audit --omit=dev --audit-level=low
+      - name: Preserve full development audit evidence
+        if: always()
+        run: npm run audit:development > development-audit.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-audit
+          path: development-audit.json
+      - name: Unit, instrumentation compile, and debug APK
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug
+      - run: npm run test:phase4-apk
+
+  x86-app-smoke:
+    needs: host-gates
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 34, 35, 36]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - run: git lfs pull
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+      - run: npm ci
+      - working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: default
+          script: bash scripts/device-matrix.sh app-smoke
+
+  arm64-runtime-matrix:
+    needs: host-gates
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 34, 35, 36]
+        install: [fresh, upgrade]
+    runs-on: [self-hosted, linux, android-arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          lfs: true
+      - run: git lfs pull && git lfs fsck
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - run: npm ci
+      - working-directory: android
+        run: ./gradlew --no-daemon assembleDebug connectedDebugAndroidTest
+      - name: Run full runtime/device matrix
+        env:
+          ADEV_NETWORK_TESTS: "1"
+          ADEV_EXPECTED_API: ${{ matrix.api }}
+        run: bash scripts/device-matrix.sh ${{ matrix.install }}
+
+  strict-16k:
+    needs: host-gates
+    runs-on: [self-hosted, linux, android-arm64, pagesize-16k]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          lfs: true
+      - run: git lfs pull && git lfs fsck
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - run: npm ci
+      - working-directory: android
+        run: ./gradlew --no-daemon assembleDebug connectedDebugAndroidTest
+      - env:
+          ADEV_REQUIRE_16K: "1"
+          ADEV_NETWORK_TESTS: "1"
+        run: bash scripts/device-matrix.sh full
+
+  production-release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [host-gates, x86-app-smoke, arm64-runtime-matrix, strict-16k]
+    runs-on: ubuntu-24.04
+    env:
+      ADEV_RELEASE_STORE_PASSWORD: ${{ secrets.ADEV_RELEASE_STORE_PASSWORD }}
+      ADEV_RELEASE_KEY_ALIAS: ${{ secrets.ADEV_RELEASE_KEY_ALIAS }}
+      ADEV_RELEASE_KEY_PASSWORD: ${{ secrets.ADEV_RELEASE_KEY_PASSWORD }}
+      ADEV_RELEASE_CERT_SHA256: ${{ secrets.ADEV_RELEASE_CERT_SHA256 }}
+      ADEV_RELEASE_KEYSTORE_B64: ${{ secrets.ADEV_RELEASE_KEYSTORE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+          lfs: true
+      - run: git lfs pull && git lfs fsck
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" "cmake;3.22.1"
+      - run: npm ci
+      - run: npm run release:check
+      - name: Prepare external release tools and keystore
+        shell: bash
+        run: |
+          test -n "$ADEV_RELEASE_KEYSTORE_B64"
+          printf '%s' "$ADEV_RELEASE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/adev-release.keystore"
+          curl -fsSLo "$RUNNER_TEMP/bundletool.jar" \
+            "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+          echo "${BUNDLETOOL_SHA256}  $RUNNER_TEMP/bundletool.jar" | sha256sum --check
+      - name: Build production-signed AAB and APK
+        working-directory: android
+        env:
+          ADEV_RELEASE_STORE_FILE: ${{ runner.temp }}/adev-release.keystore
+        run: ./gradlew --no-daemon clean assembleRelease bundleRelease
+      - name: Verify and name release artifacts
+        env:
+          ADEV_RELEASE_STORE_FILE: ${{ runner.temp }}/adev-release.keystore
+          BUNDLETOOL_JAR: ${{ runner.temp }}/bundletool.jar
+        run: npm run package:release
+      - name: Record first clean release
+        shell: bash
+        run: sha256sum release/out/* > "$RUNNER_TEMP/release-first.sha256"
+      - name: Rebuild from clean outputs
+        working-directory: android
+        env:
+          ADEV_RELEASE_STORE_FILE: ${{ runner.temp }}/adev-release.keystore
+        run: ./gradlew --no-daemon clean assembleRelease bundleRelease
+      - name: Verify reproducible second release
+        env:
+          ADEV_RELEASE_STORE_FILE: ${{ runner.temp }}/adev-release.keystore
+          BUNDLETOOL_JAR: ${{ runner.temp }}/bundletool.jar
+        shell: bash
+        run: |
+          npm run package:release
+          sha256sum --check "$RUNNER_TEMP/release-first.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-release
+          path: release/out/*
+          if-no-files-found: error

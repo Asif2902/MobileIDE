@@ -18,7 +18,7 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 export const FileTreeItem: React.FC<FileTreeItemProps> = ({ entry, depth }) => {
-  const [isRenaming, setIsRenaming] = useState(false);
+  const [_isRenaming, setIsRenaming] = useState(false);
   const { fileTree, expandedFolders, toggleFolder, loadDirectory } = useFileStore();
   const { openFile } = useEditorStore();
   const { setActiveView } = useUIStore();

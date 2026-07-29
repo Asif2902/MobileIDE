@@ -474,65 +474,6 @@ export const GitPanel: React.FC = () => {
     );
   }
 
-  function renderCommitTab() {
-    return (
-      <View>
-        {/* Commit form */}
-        <View style={styles.commitForm}>
-          <TextInput
-            style={[styles.input, styles.commitInput]}
-            placeholder="Commit message..."
-            placeholderTextColor="#666"
-            value={commitMsg}
-            onChangeText={setCommitMsg}
-            multiline
-            numberOfLines={3}
-          />
-          <View style={styles.authorRow}>
-            <TextInput
-              style={[styles.input, styles.halfInput]}
-              placeholder="Name"
-              placeholderTextColor="#666"
-              value={authorName}
-              onChangeText={setAuthorName}
-            />
-            <TextInput
-              style={[styles.input, styles.halfInput]}
-              placeholder="Email"
-              placeholderTextColor="#666"
-              value={authorEmail}
-              onChangeText={setAuthorEmail}
-              autoCapitalize="none"
-            />
-          </View>
-          <TouchableOpacity style={styles.commitBtn} onPress={handleCommit} disabled={isLoading}>
-            <Text style={styles.commitBtnText}>Commit</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Recent commits */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Commits</Text>
-          {commits.length === 0 ? (
-            <Text style={styles.emptySub}>No commits yet</Text>
-          ) : (
-            commits.slice(0, 15).map((commit, idx) => (
-              <View key={idx} style={styles.commitRow}>
-                <Text style={styles.commitHash}>{commit.shortId}</Text>
-                <View style={styles.commitInfo}>
-                  <Text style={styles.commitMessage} numberOfLines={1}>{commit.message}</Text>
-                  <Text style={styles.commitMeta}>
-                    {commit.author || ''}{commit.time ? ` • ${formatTime(commit.time)}` : ''}
-                  </Text>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
-      </View>
-    );
-  }
-
   function renderBranches() {
     return (
       <View>
@@ -705,20 +646,6 @@ function getStatusColor(status: string) {
     case 'removed': return { color: '#f14c4c' };
     default: return { color: '#ccc' };
   }
-}
-
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
 }
 
 const styles = StyleSheet.create({

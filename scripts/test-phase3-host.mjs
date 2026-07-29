@@ -285,7 +285,10 @@ try {
   assert.match(runtimeManager, /libbin_adev_git_credential\.so/);
   assert.match(runtimeManager, /adev-package-manager\.js/);
   assert.match(runtimeManager, /adev-bun\.js/);
-  assert.match(runtimeManager, /CURRENT_RUNTIME_VERSION = "1\.15\.0"/);
+  assert.match(
+    runtimeManager,
+    /CURRENT_RUNTIME_VERSION = BuildConfig\.ADEV_RUNTIME_VERSION/,
+  );
   const credentialBrokerSource = fs.readFileSync(
     path.join(
       root,

@@ -51,7 +51,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   // highlight the modifier while it waits for the next key.
   const [ctrlArmed, setCtrlArmed] = useState(false);
   const [altArmed, setAltArmed] = useState(false);
-  const [fontSize, setFontSize] = useState(() => fontForWidth(windowWidth));
+  const [, setFontSize] = useState(() => fontForWidth(windowWidth));
 
   // Selection modal state for finger text selection
   const [isSelectModalVisible, setIsSelectModalVisible] = useState(false);
@@ -75,7 +75,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         selectInputRef.current?.setNativeProps?.({
           selection: { start: len, end: len },
         });
-      } catch (_e) {}
+      } catch {}
     }, 120);
     return () => clearTimeout(t);
   }, [isSelectModalVisible, selectModalText]);

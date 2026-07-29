@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -59,6 +61,38 @@ react {
  */
 def enableProguardInReleaseBuilds = false
 
+def versionFile = rootProject.file("../version.json")
+if (!versionFile.isFile()) {
+    throw new GradleException("Missing ${versionFile}; version.json is the release version authority.")
+}
+def releaseVersion = new JsonSlurper().parse(versionFile)
+def releaseSigningEnvironment = [
+    storeFile: System.getenv("ADEV_RELEASE_STORE_FILE"),
+    storePassword: System.getenv("ADEV_RELEASE_STORE_PASSWORD"),
+    keyAlias: System.getenv("ADEV_RELEASE_KEY_ALIAS"),
+    keyPassword: System.getenv("ADEV_RELEASE_KEY_PASSWORD")
+]
+def configuredSigningValues = releaseSigningEnvironment.values().count { it != null && !it.isBlank() }
+if (configuredSigningValues > 0 && configuredSigningValues < releaseSigningEnvironment.size()) {
+    throw new GradleException(
+        "Partial Android release signing configuration. Set all ADEV_RELEASE_STORE_FILE, " +
+        "ADEV_RELEASE_STORE_PASSWORD, ADEV_RELEASE_KEY_ALIAS, and ADEV_RELEASE_KEY_PASSWORD values."
+    )
+}
+def releaseSigningReady = configuredSigningValues == releaseSigningEnvironment.size()
+def releaseStoreFile = releaseSigningReady ? file(releaseSigningEnvironment.storeFile).canonicalFile : null
+if (releaseSigningReady) {
+    def repositoryRoot = rootProject.projectDir.parentFile.canonicalFile.toPath()
+    if (!releaseStoreFile.isFile()) {
+        throw new GradleException("ADEV_RELEASE_STORE_FILE does not exist: ${releaseStoreFile}")
+    }
+    if (releaseStoreFile.toPath().startsWith(repositoryRoot)) {
+        throw new GradleException(
+            "The production keystore must stay outside the Git repository: ${releaseStoreFile}"
+        )
+    }
+}
+
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
@@ -82,8 +116,10 @@ android {
         applicationId "com.mobileide.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.3.4"
+        versionCode (releaseVersion.versionCode as Integer)
+        versionName releaseVersion.versionName as String
+        buildConfigField "String", "ADEV_RUNTIME_VERSION", "\"${releaseVersion.runtimeVersion}\""
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters "arm64-v8a", "x86_64"
         }
@@ -107,15 +143,26 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseSigningReady) {
+            release {
+                storeFile releaseStoreFile
+                storePassword releaseSigningEnvironment.storePassword
+                keyAlias releaseSigningEnvironment.keyAlias
+                keyPassword releaseSigningEnvironment.keyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -237,7 +284,7 @@ task sanitizeRuntimeNpmAssets {
 
 task prepareRuntimeNativeLibs {
     description = "Relocate ELF runtime binaries from assets into jniLibs as lib*.so"
-    dependsOn sanitizeRuntimeNpmAssets
+    dependsOn sanitizeRuntimeNpmAssets, "pruneRuntimeNativeLibs"
     doLast {
         if (!runtimeAssetsDir.exists()) {
             logger.lifecycle("[runtime] no runtime assets dir; skipping relocation")
@@ -345,6 +392,25 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
     }
 }
 
+tasks.register("pruneRuntimeNativeLibs", Exec) {
+    description = "Prune only stale JNI/map outputs owned by the signed runtime lock"
+    workingDir rootProject.projectDir.parentFile
+    commandLine "node", "scripts/prune-runtime-owned.mjs", "--apply"
+}
+
+gradle.taskGraph.whenReady { graph ->
+    def productionArtifactRequested =
+        graph.hasTask("${project.path}:assembleRelease") ||
+        graph.hasTask("${project.path}:bundleRelease")
+    if (productionArtifactRequested && !releaseSigningReady) {
+        throw new GradleException(
+            "Production release signing is not configured. Keep credentials outside Git and set " +
+            "ADEV_RELEASE_STORE_FILE, ADEV_RELEASE_STORE_PASSWORD, ADEV_RELEASE_KEY_ALIAS, " +
+            "and ADEV_RELEASE_KEY_PASSWORD. Debug signing is never used for release artifacts."
+        )
+    }
+}
+
 registerAdevNativeHelpersSync("debug", "Debug")
 registerAdevNativeHelpersSync("release", "RelWithDebInfo")
 
@@ -356,6 +422,8 @@ dependencies {
     implementation("org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r")
     implementation("org.slf4j:slf4j-nop:1.7.36")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

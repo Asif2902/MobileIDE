@@ -73,10 +73,10 @@ export const useUIStore = create<UIState>((set) => ({
   },
 
   setBottomPanelView: (view: BottomPanelView) => {
-    set(state => ({
+    set({
       activeBottomPanelView: view,
       isBottomPanelVisible: true,
-    }));
+    });
   },
 
   setBottomPanelHeight: (height: number) => {

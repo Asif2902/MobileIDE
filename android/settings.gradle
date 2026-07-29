@@ -9,6 +9,12 @@ pluginManagement {
     includeBuild("../node_modules/@react-native/gradle-plugin")
 }
 plugins { id("com.facebook.react.settings") }
+if (JavaVersion.current() != JavaVersion.VERSION_17) {
+    throw new GradleException(
+        "MobileIDE Android builds require JDK 17; detected ${JavaVersion.current()}. " +
+        "Set JAVA_HOME to a JDK 17 installation before running Gradle."
+    )
+}
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'MobileIDE'
 include ':app'

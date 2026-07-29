@@ -6,6 +6,7 @@ import android.os.Build
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import com.mobileide.app.BuildConfig
 import com.mobileide.app.git.GitCredentialBroker
 import org.json.JSONObject
 import java.io.File
@@ -52,7 +53,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_DIR = "runtime"
         private const val RUNTIME_VERSION_FILE = ".runtime_version"
         // Bump whenever bundled runtime assets change so devices re-extract.
-        private const val CURRENT_RUNTIME_VERSION = "1.15.0"
+        private val CURRENT_RUNTIME_VERSION = BuildConfig.ADEV_RUNTIME_VERSION
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.

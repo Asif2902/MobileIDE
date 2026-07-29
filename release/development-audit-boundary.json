@@ -1,0 +1,21 @@
+{
+  "reviewedAt": "2026-07-30",
+  "expiresAt": "2026-10-30",
+  "scope": "npm development and build-time dependencies only",
+  "observed": {
+    "moderate": 7,
+    "high": 33,
+    "total": 40
+  },
+  "releaseDecision": "allowed only while npm audit --omit=dev reports zero findings",
+  "rationale": [
+    "The findings are in the React Native, Jest, ESLint, and CLI build/test graph, not the packaged production dependency graph.",
+    "npm audit's suggested remediations include incompatible React Native/Jest changes or a CLI version outside the pinned React Native 0.86.2 template stack.",
+    "Unsafe automatic npm audit fix is forbidden. The full graph remains visible in CI and this exception expires for re-review."
+  ],
+  "requiredControls": [
+    "npm audit --omit=dev --audit-level=low must pass",
+    "the full npm audit report must be uploaded by CI",
+    "release artifacts must pass the APK/AAB content, signature, ABI, alignment, and dependency-closure gates"
+  ]
+}

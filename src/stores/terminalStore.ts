@@ -45,7 +45,7 @@ export const clearOutputBuffer = (sessionId: number): void => {
   outputBuffers.delete(sessionId);
 };
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+export const useTerminalStore = create<TerminalState>((set, _get) => ({
   sessions: [],
   activeSessionId: null,
   isCreating: false,
