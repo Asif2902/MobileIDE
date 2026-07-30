@@ -1,7 +1,7 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-07-30
-Application: A Dev Studio / `com.mobileide.app` 1.3.6
+Application: A Dev Studio / `com.mobileide.app` 1.3.7
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -30,6 +30,7 @@ behavior still needs an API 29/36 device run before release certification.
 |---|---|---|---|
 | Terminal startup-loop fix and OpenCode Android CLI | **IMPLEMENTED — ARM64 DEVICE GATE** | `9c8cf13` | Terminal store tests pass; OpenCode archive/component hashes, Bionic linker, PIE, dependency shape, and 16 KiB alignment pass. Build and connected ARM64 API 29/36 TUI/provider/tool/PTY checks remain before production certification. |
 | Runtime asset completeness, OpenCode PATH, and terminal usability | **FIXED — ARM64 DEVICE RETEST** | `5f89545` | The reported Python traceback proved AAPT had omitted 1,977 underscore-path assets and 12 functional dot entries. Version 1.3.6/runtime 1.16.1 retains every runtime source asset, adds a real `bin/opencode` PATH trampoline, fixes the fallback-shell prompt, preserves logical lines when copying wrapped terminal output, and passes the complete APK/ELF/signature gate. Re-run `npm install`, `node-gyp`, and `opencode` on the connected phone. |
+| OpenCode writable temp and native Make shell bridge | **FIXED — ARM64 DEVICE RETEST** | `cf4afc7` | The 1.3.6 phone log proved two remaining upstream Android assumptions: the patched Bun/OpenCode payload created `/tmp`, while Termux Make had `/data/data/com.termux/files/usr/bin/sh` compiled as its default shell. Runtime 1.16.2 maps Bun/SQLite temp paths to the writable app-private temp directory and routes all direct, npm, recursive, and node-gyp Make invocations through an APK-native launcher that supplies the bundled Bash as `SHELL`. Deprecated npm 11 config injection was removed. The 1.3.7 APK passes host, build, lock, dependency, and 16 KiB gates; repeat `opencode` and the original `npm install` on ARM64. |
 
 ## Executive result
 
@@ -66,7 +67,7 @@ The platform-wide fix is now implemented:
 - Filesystem access now uses canonical segment-aware containment, rejects
   sibling-prefix/traversal escapes, removes broad `/data` and `/mnt` grants,
   and makes `/system`/`/apex` read-only.
-- Gradle, npm package metadata, and diagnostics now agree on app version 1.3.6.
+- Gradle, npm package metadata, and diagnostics now agree on app version 1.3.7.
 
 This is not an individual-package workaround. It applies to packages using
 `node-gyp`, npm's lifecycle runner, shell shims, and native C/C++ compilation.
@@ -159,15 +160,15 @@ runtime behavior:
   The ARM64 developer runtime stays in the base APK; the x86_64 developer
   runtime is an explicit signed feature-pack capability instead of an
   incorrectly advertised or glibc-backed runtime.
-- An Ed25519-signed runtime lock inventories 204 ARM64 runtime/app-native
-  payloads and three packaged x86_64 helpers by hash, size, runtime path, and
-  owner. Runtime 1.16.1 forces upgrade re-extraction and `adev-doctor` verifies
+- An Ed25519-signed runtime lock inventories 205 ARM64 runtime/app-native
+  payloads and four packaged x86_64 helpers by hash, size, runtime path, and
+  owner. Runtime 1.16.2 forces upgrade re-extraction and `adev-doctor` verifies
   and reports the lock.
 - Shared/FUSE workspaces are assessed before native work. A guided import stages
   them under app-private storage, rejects symlinks and containment escapes, and
   finalizes atomically so failed imports do not leave partial projects.
 - The produced APK targets API 36, contains only ARM64/x86_64, passes Android's
-  16 KiB ZIP check, and has 225 loadable ELF files with a minimum `PT_LOAD`
+  16 KiB ZIP check, and has 237 loadable ELF files with a minimum `PT_LOAD`
   alignment of `0x4000`; six packaged compiler relocatable objects have no load
   segments and are checked separately.
 
@@ -329,17 +330,17 @@ Status meanings:
 |---|---|---|
 | Node.js | ✅ Fully integrated | Termux Node 26.4.0 is packaged as an ARM64 ELF in `nativeLibraryDir`; headers match 26.4.0. Runtime wrappers use the absolute executable path. |
 | npm / npx | ✅ Fully integrated | npm 11.16.0 and both JS entrypoints are bundled and launched through the native Node executable. Cache, prefix, user config, optional dependency, and noninteractive settings are app-scoped. |
-| node-gyp | ⚠️ Fixed; device retest | node-gyp 12.3.0 is bundled. Direct PATH/Java/lifecycle dispatch, generic `termux-exec`, Python, Make, Clang, LLD, Node headers, `npm_config_node_gyp`, and `npm_config_nodedir` are integrated. The copied device log exposed AAPT's removal of `zipfile/_path`; version 1.3.6 fixes the global asset rule and the final APK contains every runtime source asset. Re-run the original install/rebuild fixture on-device. |
-| Python | ⚠️ Fixed; device retest | Python 3.14.6, all 589 standard-library files including `zipfile/_path`, native modules, `PYTHONHOME`, `PYTHONPATH`, `PYTHON`, `NODE_GYP_FORCE_PYTHON`, and `npm_config_python` are packaged/configured. The APK verifier now fails on any missing runtime source asset; execution remains to be retested on-device. |
-| Clang / Make / build tools | ⚠️ Integrated; device gate | Clang/LLVM 21.1.8, Make 4.4.1, LLD, `llvm-ar`, `pkg-config`, compiler resources, development headers, CRT objects, and libraries are present. A real addon compile/link/load is the acceptance test. |
+| node-gyp | ⚠️ Fixed; device retest | node-gyp 12.3.0 is bundled. Direct PATH/Java/lifecycle dispatch, generic `termux-exec`, Python, Clang, LLD, Node headers, and npm 11's supported `npm_package_config_node_gyp_*` configuration are integrated. The copied 1.3.6 device log proved Python was fixed and then exposed Termux Make's compiled `com.termux` shell path; 1.3.7 routes every Make entry through the APK-native shell bridge. Re-run the original install/rebuild fixture on-device. |
+| Python | ⚠️ Fixed; device retest | Python 3.14.6, all 589 standard-library files including `zipfile/_path`, native modules, `PYTHONHOME`, `PYTHONPATH`, `PYTHON`, `NODE_GYP_FORCE_PYTHON`, and `npm_package_config_node_gyp_python` are packaged/configured. The APK verifier now fails on any missing runtime source asset; execution remains to be retested on-device. |
+| Clang / Make / build tools | ⚠️ Fixed; device retest | Clang/LLVM 21.1.8, Make 4.4.1, LLD, `llvm-ar`, `pkg-config`, compiler resources, development headers, CRT objects, and libraries are present. The native `adev_make` launcher overrides Make's compiled Termux shell with the APK-native Bash and propagates it to recursive builds. A real addon compile/link/load remains the device acceptance test. |
 | Build target | ✅ Fully integrated | Generated native addons target `aarch64-linux-android29`, matching `minSdk`, rather than the SDK level of the phone doing the build. |
-| 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. `test:phase4-apk` checks the final APK with `zipalign -P 16` and scans every packaged ELF: all 225 loadable files have `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
+| 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. The 1.3.7 phone-test verifier checks the final APK with `zipalign -P 16` and scans every packaged ELF: all 237 loadable files have `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
 | PATH resolution | ⚠️ Integrated; device retest | System tools are first; executable APK libraries and app trampolines follow. Java spawns resolve Node/npm/npx/node-gyp, Python, Make, Clang, LLVM, Git, curl, Bash, BusyBox, and OpenCode to executable APK paths. `opencode` now has a real `bin/opencode` trampoline in addition to its interactive wrapper. Generic npm `.bin` and shebang resolution uses the corrected `termux-exec` contract and needs the device matrix. |
 | Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. |
 | Child process: Java spawn | ⚠️ Integrated; device gate | `ProcessManager` clears inherited host state, installs the runtime environment, resolves core/runtime/build commands, launches each task under `setsid`, obtains the PID from the child instead of reflection, streams output, and terminates the process group with a `/proc` descendant fallback. Device process-tree tests remain. |
 | Child process: Node `spawn` / `exec` / `fork` | ⚠️ Integrated; automated device gate | The preload and complete Termux variables are inherited by Node children. Literal npm shims and `#!/usr/bin/env` scripts translate through the native shell/`termux-exec`; the Phase 5 ARM64 API matrix runs `spawn`, `execFile`, `exec`, and `fork` fixtures before release. Connected runner evidence is still required. |
 | Shell execution | ⚠️ Integrated; automated device gate | Native Bash is preferred; `/system/bin/sh` is the fallback. `BASH_ENV` loads noninteractive wrappers, compound lifecycle commands use bundled Bash, and nested/shebang tests are in the Phase 5 device harness. Connected runner evidence is still required. |
-| npm lifecycle scripts | ⚠️ Fixed; device gate | `NPM_CONFIG_SCRIPT_SHELL` points to the APK-installed `adev-npm-shell`; direct JS and `node-gyp` scripts bypass app-data execution. Complex commands fall back to Bash plus `termux-exec`. |
+| npm lifecycle scripts | ⚠️ Fixed; device retest | `NPM_CONFIG_SCRIPT_SHELL` points to the APK-installed `adev-npm-shell`; direct JS and `node-gyp` scripts bypass app-data execution. Complex commands fall back to Bash plus `termux-exec`, and native builds enter Make through `adev_make`. Unsupported npm 11 `optional`, platform, architecture, Python, nodedir, target, and ldflags config injection was removed in favor of real host identity, normal environment variables, and supported node-gyp package config. |
 | Optional dependencies | ⚠️ Policy integrated; device gate | Optional dependencies stay enabled while npm sees Android/ARM64. The global Linux spoof is gone. `adev-resolve-package` permits only Android/Bionic, exact hash-approved static/musl, source-build, or an explicit unsupported decision; the verified static/musl list is intentionally empty until artifacts are tested and locked. |
 | Native addons | ⚠️ Integrated; device/feature gate | Standard ARM64 C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. Optional tool packs and the full x86_64 developer runtime have signed capability boundaries but still require production feature payloads. |
 | `.node` loading | ⚠️ Device gate | ARM64 build output is Android/Bionic and Node-version-matched. API 29/34/35/36 device tests must prove `dlopen()` plus transitive library lookup from private projects; x86_64 addon builds wait for the signed x86_64 developer-runtime feature. |
@@ -357,7 +358,7 @@ Status meanings:
 | pnpm | ⚠️ Integrated; device retest | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Version 1.3.6 retains its previously AAPT-omitted `.bin` commands and `.package-map.json`; the final APK contains the complete source payload. Android execution remains in the Phase 3 device gate. |
 | Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
 | Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
-| OpenCode CLI | ⚠️ Fixed on ARM64; device/security/x86_64 gate | OpenCode 1.17.9 uses the independently source-built Android/Bionic port pinned to port commit `f63664e` and upstream OpenCode commit `5c23e88`. The PIE runtime, OpenTUI library, pointer-tag compatibility library, and app-built launcher are APK-native executables with exact hashes in the signed runtime lock. Version 1.3.6 adds a real PATH trampoline so interactive and noninteractive shells can resolve `opencode` without installation, `chmod`, a glibc loader, or Linux spoofing. The official npm package still has no Android artifact, ARM64 TUI/provider/prompt/tool/PTY tests remain a device gate, and x86_64 reports an explicit unsupported payload boundary. |
+| OpenCode CLI | ⚠️ Fixed on ARM64; device/security/x86_64 gate | OpenCode 1.17.9 uses the independently source-built Android/Bionic port pinned to port commit `f63664e` and upstream OpenCode commit `5c23e88`. The PIE runtime, OpenTUI library, pointer-tag compatibility library, and app-built launcher are APK-native executables with exact hashes in the signed runtime lock. Version 1.3.6 added the PATH trampoline; version 1.3.7 additionally maps `BUN_TMPDIR`, `SQLITE_TMPDIR`, `TMPDIR`, `TMP`, and `TEMP` to verified writable app-private storage so the private Bun runtime cannot fall back to read-only `/tmp`. The official npm package still has no Android artifact, ARM64 TUI/provider/prompt/tool/PTY tests remain a device gate, and x86_64 reports an explicit unsupported payload boundary. |
 | Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production ABI feature payloads are not yet present, so the resolver returns an actionable unavailable capability instead of installing into noexec app data. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
@@ -372,7 +373,7 @@ Status meanings:
 | CPU architectures | ⚠️ App integrated; x86_64 runtime feature boundary | Gradle, React Native, Hermes, PTY, npm lifecycle shell, and Git credential helper build/package for `arm64-v8a` and `x86_64`; obsolete 32-bit ABIs are intentionally excluded. The full developer runtime/compiler sysroot remains ARM64, and x86_64 reports the required signed runtime feature rather than pretending native builds work. |
 | Android 16 / Play targeting | ⚠️ Integrated; automated device/release gate | The project compiles and targets API 36 with RN 0.86.2, Gradle 9.3.1, NDK r29, new architecture, Hermes, and edge-to-edge enabled. APK manifest checks pass; CI now requires API 35/36 and strict 16 KiB device jobs plus bundletool validation before production release. |
 | Release signing | ⚠️ Integrated; external credential gate | Release never uses `signingConfigs.debug`. Gradle fails closed unless all four external keystore values exist, rejects repository-local keystores, and the artifact gate rejects the Android debug certificate and requires the approved SHA-256 signer identity. No production key was supplied locally, so the production APK/AAB is intentionally a CI/owner gate. |
-| Runtime supply-chain reproducibility | ⚠️ Integrated; external provenance/signing gate | The Ed25519-signed runtime 1.15 lock records ABI/API/page policy, each native payload hash/size/path/owner, and package-manager/tool-pack hashes. Reviewed source/license/ownership policy is recorded in `release/runtime-provenance.json`; LFS integrity is mandatory. Regeneration and a changed lock require the external release key and retained package-index/version/URL/license/SONAME evidence. |
+| Runtime supply-chain reproducibility | ⚠️ Integrated; external provenance/signing gate | The Ed25519-signed runtime 1.16.2 lock records ABI/API/page policy, each native payload hash/size/path/owner, and package-manager/tool-pack hashes. Reviewed source/license/ownership policy is recorded in `release/runtime-provenance.json`; LFS integrity is mandatory. Regeneration and a changed lock require the external release key and retained package-index/version/URL/license/SONAME evidence. |
 | Runtime update cleanup | ✅ Fully integrated | Runtime fingerprinting forces device reinitialization on map changes. Before relocation, Gradle verifies the Ed25519 runtime-lock signature and prunes only stale `libbin_`/`liblib_` JNI outputs and map entries absent from that signed ownership manifest; unrelated files cannot be removed. |
 | APK/install footprint | ✅ Policy integrated | The Phase 5 debug APK is 257,619,039 bytes and remains below the enforced 285,000,000-byte APK/AAB budget. Size is rechecked for both production artifacts; optional large toolchains remain signed feature capabilities rather than unsafe writable-storage installs. |
 | Host Android build toolchain | ⚠️ Integrated; external release-host gate | Gradle 9.3.1, AGP 8.12.0, exact JDK 17, Kotlin 2.1.20, API/build tools 36, and NDK 29.0.14206865 build tests/instrumentation/debug successfully. Gradle rejects this host's default JDK 25. The Windows Device Guard Hermes restriction is routed to the clean Ubuntu release job, which must execute twice. |
@@ -425,8 +426,8 @@ Acceptance: all 209 (or replacement) APK native libraries have `PT_LOAD`
 alignment of at least `0x4000`.
 
 Phase 4 result: implemented for the packaged artifact. React Native 0.86.2 and
-NDK r29 replace the 4 KiB-aligned dependencies. `test:phase4-apk` inspected 231
-packaged ELF files: all 225 loadable files have a minimum alignment of
+NDK r29 replace the 4 KiB-aligned dependencies. The 1.3.7 phone-test gate
+inspected 243 packaged ELF files: all 237 loadable files have a minimum alignment of
 `0x4000`; the other six are compiler `ET_REL` inputs with no load segments.
 Execution on a strict 16 KiB device remains the acceptance gate.
 
@@ -944,6 +945,15 @@ Host evidence on 2026-07-30:
   Android 11/API 30, a cold launch remained alive and resumed with an empty
   crash buffer; the terminal rendered and produced a working prompt. The APK
   remains intentionally test-signed and is not a production/Play artifact.
+- Version 1.3.7/runtime 1.16.2 phone-test APK: 360,951,889 bytes, SHA-256
+  `5D979BB9495815820F11B95F878C67F17533827D836CF8EA771BBC6D68C24FDE`.
+  The copied 1.3.6 phone log showed OpenCode attempting a read-only `/tmp` and
+  Make invoking `/data/data/com.termux/files/usr/bin/sh`. Commit `cf4afc7`
+  fixes both in APK-native launchers for all OpenCode and native-addon
+  invocations, not for an individual npm dependency. Host policy, OpenCode,
+  TypeScript, Jest, ESLint, secret, signed-lock, dual-ABI, dependency-closure,
+  and 16 KiB gates pass. No ADB device was connected during this rebuild, so
+  the two reported commands remain the explicit ARM64 upgrade-device retest.
 - The signed ownership check reports zero stale JNI/map outputs. Gradle invokes
   the signature-verifying pruner automatically and can delete only manifest-
   owned generated names.
