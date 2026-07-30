@@ -62,6 +62,9 @@ assert.match(launcher, /execv\(runtime\.c_str\(\)/);
 assert.match(launcher, /\/system\/bin\/linker64|ANDROID_ROOT/);
 assert.match(launcher, /LD_PRELOAD/);
 assert.match(launcher, /OPENTUI_LIB_PATH/);
+assert.match(launcher, /BUN_TMPDIR/);
+assert.match(launcher, /SQLITE_TMPDIR/);
+assert.match(launcher, /access\(inherited_tmp, W_OK\)/);
 assert.match(launcher, /Linux\/glibc binary will not be substituted/);
 const runtimeManager = text(
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',

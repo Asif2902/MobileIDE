@@ -369,8 +369,8 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 /**
- * CMake builds the npm shell, Git credential helper, and OpenCode launcher as
- * executable lib*.so files.
+ * CMake builds the npm shell, Make shell bridge, Git credential helper, and
+ * OpenCode launcher as executable lib*.so files.
  * AGP only auto-packages SHARED libraries. Its assemble graph invokes
  * buildCMake<Variant> directly (not externalNativeBuild<Variant>), so make the
  * JNI merge explicitly depend on a variant-specific copy of the fresh output.
@@ -384,6 +384,7 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
             def abis = ["arm64-v8a", "x86_64"]
             def helperNames = [
                 "libbin_adev_npm_shell.so",
+                "libbin_adev_make.so",
                 "libbin_adev_git_credential.so",
                 "libbin_opencode.so"
             ]

@@ -1,0 +1,59 @@
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <unistd.h>
+#include <vector>
+
+namespace {
+
+std::string executable_directory() {
+    std::vector<char> buffer(4096);
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (length <= 0) {
+        return {};
+    }
+    buffer[static_cast<size_t>(length)] = '\0';
+    std::string path(buffer.data());
+    const auto separator = path.find_last_of('/');
+    return separator == std::string::npos ? std::string{} : path.substr(0, separator);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    const std::string native_dir = executable_directory();
+    if (native_dir.empty()) {
+        std::fprintf(stderr, "make: cannot resolve APK native library directory: %s\n",
+                     std::strerror(errno));
+        return 71;
+    }
+
+    const std::string runtime = native_dir + "/libbin_make.so";
+    if (access(runtime.c_str(), X_OK) != 0) {
+        std::fprintf(stderr, "make: Android runtime payload is unavailable: %s\n",
+                     std::strerror(errno));
+        return 69;
+    }
+
+    // Termux GNU Make has /data/data/com.termux/files/usr/bin/sh compiled as
+    // its default SHELL. Command-line variables override that build-time path
+    // for the top-level make and every recursive $(MAKE) invocation.
+    const std::string bundled_bash = native_dir + "/libbin_bash.so";
+    const std::string shell =
+        access(bundled_bash.c_str(), X_OK) == 0 ? bundled_bash : "/system/bin/sh";
+    const std::string shell_assignment = "SHELL=" + shell;
+
+    std::vector<char*> forwarded;
+    forwarded.reserve(static_cast<size_t>(argc) + 2);
+    forwarded.push_back(const_cast<char*>(runtime.c_str()));
+    forwarded.push_back(const_cast<char*>(shell_assignment.c_str()));
+    for (int index = 1; index < argc; ++index) {
+        forwarded.push_back(argv[index]);
+    }
+    forwarded.push_back(nullptr);
+
+    execv(runtime.c_str(), forwarded.data());
+    std::fprintf(stderr, "make: failed to launch Android runtime: %s\n", std::strerror(errno));
+    return errno == EACCES ? 126 : 71;
+}

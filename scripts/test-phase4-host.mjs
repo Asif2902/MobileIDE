@@ -59,6 +59,8 @@ assert.equal(
 const build = text('android/build.gradle');
 const appBuild = text('android/app/build.gradle');
 const appCmake = text('android/app/src/main/jni/CMakeLists.txt');
+const helperCmake = text('android/app/src/main/cpp/CMakeLists.txt');
+const makeLauncher = text('android/app/src/main/cpp/adev_make.cpp');
 const assetIgnorePattern =
   appBuild.match(/ignoreAssetsPattern\s*=\s*"([^"]+)"/)?.[1] ?? '';
 assert.match(build, /compileSdkVersion = 36/);
@@ -81,6 +83,10 @@ assert.match(
   /include\(\$\{REACT_ANDROID_DIR\}\/cmake-utils\/ReactNative-application\.cmake\)/,
 );
 assert.match(appCmake, /add_subdirectory\([^)]*cpp/);
+assert.match(helperCmake, /add_executable\(adev_make adev_make\.cpp\)/);
+assert.match(makeLauncher, /SHELL=/);
+assert.match(makeLauncher, /libbin_make\.so/);
+assert.match(makeLauncher, /libbin_bash\.so/);
 assert.match(
   text('scripts/verify-phase4-apk.mjs'),
   /lib\/arm64-v8a\/libappmodules\.so/,

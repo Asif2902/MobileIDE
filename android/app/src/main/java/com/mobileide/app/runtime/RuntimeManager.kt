@@ -453,7 +453,7 @@ class RuntimeManager(private val context: Context) {
             val busybox = File(nativeLibDir, "libbin_busybox.so").absolutePath
             val npmShell = File(nativeLibDir, "libbin_adev_npm_shell.so").absolutePath
             val python = findNativeTool("libbin_python", ".so")
-            val make = findNativeTool("libbin_make", ".so")
+            val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
             val lld = findNativeTool("libbin_lld", ".so")
@@ -679,8 +679,6 @@ class RuntimeManager(private val context: Context) {
             agentEnv.appendLine("export HOST=0.0.0.0")
             agentEnv.appendLine("export HOSTNAME=0.0.0.0")
             agentEnv.appendLine("export BROWSER=none")
-            agentEnv.appendLine("export npm_config_platform=android")
-            agentEnv.appendLine("export npm_config_arch=arm64")
             agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
             agentEnv.appendLine("export ADEV_PACKAGE_MANAGER_LOCK=\"${File(libDir, "adev-package-managers.json").absolutePath}\"")
             agentEnv.appendLine("export COREPACK_HOME=\"${File(cacheDir, "corepack").absolutePath}\"")
@@ -748,7 +746,7 @@ class RuntimeManager(private val context: Context) {
             val bash = File(nativeLibDir, "libbin_bash.so")
             val busybox = File(nativeLibDir, "libbin_busybox.so")
             val python = findNativeTool("libbin_python", ".so")
-            val make = findNativeTool("libbin_make", ".so")
+            val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
             val lld = findNativeTool("libbin_lld", ".so")
@@ -958,6 +956,16 @@ class RuntimeManager(private val context: Context) {
             ?.sortedBy { it.name }
             ?.firstOrNull()
 
+    /**
+     * Prefer the APK-native bridge that replaces GNU Make's compiled Termux
+     * shell path. The raw Make ELF remains the fallback for capability reports
+     * from older/partial packages.
+     */
+    private fun findMakeCommand(): File? {
+        val launcher = File(nativeLibDir, "libbin_adev_make.so")
+        return launcher.takeIf { it.isFile } ?: findNativeTool("libbin_make", ".so")
+    }
+
     private fun findClangResourceDir(): File? =
         File(libDir, "clang").listFiles()
             ?.filter { it.isDirectory }
@@ -988,7 +996,7 @@ class RuntimeManager(private val context: Context) {
      */
     private fun appendToolchainEnvironment(out: StringBuilder, exportPrefix: String) {
         val python = findNativeTool("libbin_python", ".so")
-        val make = findNativeTool("libbin_make", ".so")
+        val make = findMakeCommand()
         val clang = findNativeTool("libbin_clang_", ".so")
         val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
         val lld = findNativeTool("libbin_lld", ".so")
@@ -996,7 +1004,7 @@ class RuntimeManager(private val context: Context) {
         python?.let {
             out.appendLine("${exportPrefix}PYTHON=\"${it.absolutePath}\"")
             out.appendLine("${exportPrefix}NODE_GYP_FORCE_PYTHON=\"${it.absolutePath}\"")
-            out.appendLine("${exportPrefix}npm_config_python=\"${it.absolutePath}\"")
+            out.appendLine("${exportPrefix}npm_package_config_node_gyp_python=\"${it.absolutePath}\"")
             out.appendLine("${exportPrefix}PYTHONHOME=\"${runtimeRoot.absolutePath}\"")
             findPythonLibDir()?.let { py ->
                 out.appendLine("${exportPrefix}PYTHONPATH=\"${py.absolutePath}\"")
@@ -1010,9 +1018,8 @@ class RuntimeManager(private val context: Context) {
         llvmAr?.let { out.appendLine("${exportPrefix}AR=\"${it.absolutePath}\"") }
         lld?.let { out.appendLine("${exportPrefix}LD=\"${it.absolutePath}\"") }
         out.appendLine("${exportPrefix}LDFLAGS=\"$NATIVE_LINK_FLAGS\"")
-        out.appendLine("${exportPrefix}npm_config_ldflags=\"$NATIVE_LINK_FLAGS\"")
         if (File(runtimeRoot, "include/node").isDirectory) {
-            out.appendLine("${exportPrefix}npm_config_nodedir=\"${runtimeRoot.absolutePath}\"")
+            out.appendLine("${exportPrefix}npm_package_config_node_gyp_nodedir=\"${runtimeRoot.absolutePath}\"")
         }
         out.appendLine("${exportPrefix}PKG_CONFIG_PATH=\"${libDir.absolutePath}/pkgconfig:${runtimeRoot.absolutePath}/share/pkgconfig\"")
     }
@@ -1157,13 +1164,6 @@ class RuntimeManager(private val context: Context) {
                 update-notifier=false
                 # Run lifecycle scripts through our noexec-safe trampoline.
                 script-shell=${scriptShell}
-                # Keep the true Android/Bionic identity. Native packages use a
-                # verified Android artifact or compile through the bundled stack.
-                platform=android
-                arch=arm64
-                # Allow optionalDependencies (needed for platform binary packages).
-                # Unsupported optional binaries may fail without aborting install.
-                optional=true
                 fetch-retries=3
                 fetch-retry-mintimeout=20000
                 fetch-retry-maxtimeout=120000
@@ -1835,16 +1835,6 @@ class RuntimeManager(private val context: Context) {
             "NPM_CONFIG_UPDATE_NOTIFIER" to "false",
             "NPM_CONFIG_FUND" to "false",
             "NPM_CONFIG_AUDIT" to "false",
-            // Allow optionalDependencies. Installers can try an Android artifact
-            // before falling through to the bundled source-build stack.
-            "NPM_CONFIG_OPTIONAL" to "true",
-            // Preserve the real Android/Bionic host. Never globally spoof Linux.
-            "npm_config_platform" to "android",
-            "npm_config_arch" to "arm64",
-            "npm_config_target_platform" to "android",
-            "npm_config_target_arch" to "arm64",
-            "NPM_CONFIG_PLATFORM" to "android",
-            "NPM_CONFIG_ARCH" to "arm64",
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
@@ -1875,6 +1865,7 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_NODE" to File(nativeLibDir, "libbin_node.so").absolutePath,
             "MOBILEIDE_GIT" to File(nativeLibDir, "libbin_git.so").absolutePath,
             "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
+            "MOBILEIDE_MAKE" to File(nativeLibDir, "libbin_adev_make.so").absolutePath,
             "MOBILEIDE_BUSYBOX" to File(nativeLibDir, "libbin_busybox.so").absolutePath,
             "MOBILEIDE_CURL" to File(nativeLibDir, "libbin_curl.so").absolutePath,
             "MOBILEIDE_OPENCODE" to File(nativeLibDir, "libbin_opencode.so").absolutePath,
@@ -1961,13 +1952,13 @@ class RuntimeManager(private val context: Context) {
         findNativeTool("libbin_python", ".so")?.let {
             env["PYTHON"] = it.absolutePath
             env["NODE_GYP_FORCE_PYTHON"] = it.absolutePath
-            env["npm_config_python"] = it.absolutePath
+            env["npm_package_config_node_gyp_python"] = it.absolutePath
             env["PYTHONHOME"] = runtimeRoot.absolutePath
             findPythonLibDir()?.let { py ->
                 env["PYTHONPATH"] = py.absolutePath
             }
         }
-        findNativeTool("libbin_make", ".so")?.let { env["MAKE"] = it.absolutePath }
+        findMakeCommand()?.let { env["MAKE"] = it.absolutePath }
         findNativeTool("libbin_clang_", ".so")?.let {
             val flags = clangDriverFlags()
             env["CC"] = "${it.absolutePath} $flags"
@@ -1976,9 +1967,8 @@ class RuntimeManager(private val context: Context) {
         findNativeTool("libbin_llvm_ar", ".so")?.let { env["AR"] = it.absolutePath }
         findNativeTool("libbin_lld", ".so")?.let { env["LD"] = it.absolutePath }
         env["LDFLAGS"] = NATIVE_LINK_FLAGS
-        env["npm_config_ldflags"] = NATIVE_LINK_FLAGS
         if (File(runtimeRoot, "include/node").isDirectory) {
-            env["npm_config_nodedir"] = runtimeRoot.absolutePath
+            env["npm_package_config_node_gyp_nodedir"] = runtimeRoot.absolutePath
         }
         val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
         if (nodeGyp.isFile) {

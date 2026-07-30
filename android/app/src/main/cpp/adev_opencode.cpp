@@ -65,6 +65,23 @@ int main(int argc, char** argv) {
     setenv("OPENCODE_DISABLE_TUI_AUDIO", "1", 0);
     setenv("OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER", "true", 0);
     setenv("OPENTUI_LIB_PATH", opentui.c_str(), 1);
+
+    // Android has no writable FHS /tmp. Bun uses BUN_TMPDIR for its native
+    // startup/cache path; setting only TMPDIR is insufficient for this port.
+    const char* inherited_tmp = std::getenv("TMPDIR");
+    if (inherited_tmp == nullptr || inherited_tmp[0] == '\0') {
+        inherited_tmp = std::getenv("TERMUX__PREFIX__TMP_DIR");
+    }
+    if (inherited_tmp == nullptr || inherited_tmp[0] == '\0' ||
+        access(inherited_tmp, W_OK) != 0) {
+        return unavailable("a writable app-private temporary directory is unavailable.");
+    }
+    setenv("BUN_TMPDIR", inherited_tmp, 1);
+    setenv("SQLITE_TMPDIR", inherited_tmp, 1);
+    setenv("TMPDIR", inherited_tmp, 1);
+    setenv("TMP", inherited_tmp, 1);
+    setenv("TEMP", inherited_tmp, 1);
+
     prepend_environment("LD_LIBRARY_PATH", native_dir);
     prepend_environment("LD_PRELOAD", tagfix);
 
