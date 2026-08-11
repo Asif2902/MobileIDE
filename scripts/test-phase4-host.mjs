@@ -61,6 +61,7 @@ const appBuild = text('android/app/build.gradle');
 const appCmake = text('android/app/src/main/jni/CMakeLists.txt');
 const helperCmake = text('android/app/src/main/cpp/CMakeLists.txt');
 const makeLauncher = text('android/app/src/main/cpp/adev_make.cpp');
+const busyboxLauncher = text('android/app/src/main/cpp/adev_busybox.cpp');
 const assetIgnorePattern =
   appBuild.match(/ignoreAssetsPattern\s*=\s*"([^"]+)"/)?.[1] ?? '';
 assert.match(build, /compileSdkVersion = 36/);
@@ -84,9 +85,18 @@ assert.match(
 );
 assert.match(appCmake, /add_subdirectory\([^)]*cpp/);
 assert.match(helperCmake, /add_executable\(adev_make adev_make\.cpp\)/);
+assert.match(helperCmake, /add_executable\(adev_busybox adev_busybox\.cpp\)/);
+assert.match(busyboxLauncher, /control_mode/);
+assert.match(
+  busyboxLauncher,
+  /control_mode \? "busybox" : \(android_w \? "uptime" : argv\[1\]\)/,
+);
+assert.match(appBuild, /libbin_adev_busybox\.so/);
 assert.match(makeLauncher, /SHELL=/);
 assert.match(makeLauncher, /libbin_make\.so/);
-assert.match(makeLauncher, /libbin_bash\.so/);
+assert.match(makeLauncher, /\/system\/bin\/sh/);
+assert.match(makeLauncher, /CONFIG_SHELL/);
+assert.doesNotMatch(makeLauncher, /const std::string bundled_bash/);
 assert.match(
   text('scripts/verify-phase4-apk.mjs'),
   /lib\/arm64-v8a\/libappmodules\.so/,
@@ -95,7 +105,7 @@ assert.match(text('android/gradle.properties'), /arm64-v8a,x86_64/);
 assert.match(text('package.json'), /"react-native": "0\.86\.2"/);
 assert.match(
   text('android/app/src/main/assets/terminal/index.html'),
-  /if \(line\.isWrapped\)/,
+  /if \(line\.isWrapped && logicalLine !== null\)/,
 );
 assert.doesNotMatch(
   text(

@@ -57,7 +57,8 @@ interface FileState {
   
   // Actions
   loadWorkspaces: () => Promise<void>;
-  openWorkspace: (path: string) => Promise<void>;
+  /** Returns true only after the folder was listed and its real path resolved. */
+  openWorkspace: (path: string) => Promise<boolean>;
   initWorkspace: () => Promise<void>;
   requestStorageAccess: () => Promise<boolean>;
   openFolderFromDevice: () => Promise<ExternalRoot[]>;
@@ -100,25 +101,38 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   openWorkspace: async (path: string) => {
-    set({ currentWorkspace: path, isLoading: true, error: null });
+    set({ isLoading: true, error: null });
     try {
-      await get().loadDirectory(path);
-      set(state => ({
-        expandedFolders: new Set(state.expandedFolders).add(path)
-      }));
+      // Listing is the actual openability check. Do it directly here because
+      // background tree refreshes intentionally swallow transient failures.
+      const entries = await FileSystemNativeModule.listDir(path);
+
       // Resolve to a real filesystem path so the terminal can chdir into it.
-      let realPath = path;
-      try {
-        realPath = await MobileIDENativeModule.resolvePath(path);
-      } catch {
-        // resolvePath is a no-op for already-real paths.
-      }
-      set({ currentWorkspaceRealPath: realPath });
-      persistWorkspace(path);
+      // Native resolution is a no-op for already-real paths. A failed virtual
+      // resolution means the terminal cannot safely chdir, so opening fails.
+      const realPath = await MobileIDENativeModule.resolvePath(path);
+
+      set(state => {
+        const fileTree = new Map(state.fileTree);
+        fileTree.set(path, entries);
+        return {
+          currentWorkspace: path,
+          currentWorkspaceRealPath: realPath,
+          fileTree,
+          expandedFolders: new Set(state.expandedFolders).add(path),
+          isLoading: false,
+          error: null,
+        };
+      });
+      await persistWorkspace(path);
+      return true;
     } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
+      // Keep the previously opened workspace and its resolved path together.
+      set({
+        isLoading: false,
+        error: (error as Error).message || 'Workspace could not be opened',
+      });
+      return false;
     }
   },
 
@@ -144,16 +158,19 @@ export const useFileStore = create<FileState>((set, get) => ({
           stillExists = false;
         }
         if (stillExists) {
-          await get().openWorkspace(persisted);
-          return;
+          if (await get().openWorkspace(persisted)) return;
         }
       }
 
       // Fall back to the default runtime workspace.
+      let openedDefault = false;
       try {
         const vpaths = await MobileIDENativeModule.getVirtualPaths();
-        await get().openWorkspace(`${vpaths.workspaces}/my-project`);
+        openedDefault = await get().openWorkspace(`${vpaths.workspaces}/my-project`);
       } catch {
+        openedDefault = false;
+      }
+      if (!openedDefault) {
         await get().loadWorkspaces();
         const first = get().workspaces[0];
         if (first) await get().openWorkspace(first.path);

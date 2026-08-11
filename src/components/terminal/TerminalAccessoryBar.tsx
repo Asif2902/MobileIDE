@@ -84,11 +84,14 @@ const KeyButton: React.FC<{
   onPress: () => void;
   active?: boolean;
   wide?: boolean;
-}> = ({ label, onPress, active, wide }) => (
+  accessibilityLabel?: string;
+}> = ({ label, onPress, active, wide, accessibilityLabel }) => (
   <TouchableOpacity
     style={[styles.key, wide && styles.keyWide, active && styles.keyActive]}
     onPress={onPress}
     activeOpacity={0.6}
+    accessibilityRole="button"
+    accessibilityLabel={accessibilityLabel || `${label} terminal key`}
   >
     <Text style={[styles.keyText, active && styles.keyTextActive]} numberOfLines={1}>
       {label}
@@ -139,10 +142,22 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
         {onSelectText && <KeyButton label="SELECT" onPress={onSelectText} wide />}
         {onFontSmaller && <KeyButton label="A-" onPress={onFontSmaller} />}
         {onFontLarger && <KeyButton label="A+" onPress={onFontLarger} />}
-        <TouchableOpacity style={[styles.key, styles.keyWide]} onPress={onCopy} activeOpacity={0.6}>
+        <TouchableOpacity
+          style={[styles.key, styles.keyWide]}
+          onPress={onCopy}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="Copy terminal selection"
+        >
           <Icon name="copy" size={15} color="#d4d4d4" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.key, styles.keyWide]} onPress={onPaste} activeOpacity={0.6}>
+        <TouchableOpacity
+          style={[styles.key, styles.keyWide]}
+          onPress={onPaste}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="Paste into terminal"
+        >
           <Text style={styles.keyText}>PASTE</Text>
         </TouchableOpacity>
       </ScrollView>

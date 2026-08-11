@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { useFileStore, useRuntimeStore } from '../../stores';
+import { useEditorStore, useFileStore, useRuntimeStore, useUIStore } from '../../stores';
 import { FileSystemNativeModule, FileEntry } from '../../native';
 import { FileTreeItem } from './FileTreeItem';
 
@@ -17,8 +17,11 @@ export const FileExplorer: React.FC = () => {
     createFolder,
   } = useFileStore();
   const { isReady } = useRuntimeStore();
+  const openEditorFile = useEditorStore(state => state.openFile);
+  const setActiveView = useUIStore(state => state.setActiveView);
   const hasAutoOpened = useRef(false);
   const [inputModal, setInputModal] = useState<{ visible: boolean; type: 'file' | 'folder'; value: string }>({ visible: false, type: 'file', value: '' });
+  const [projectPickerVisible, setProjectPickerVisible] = useState(false);
   const [folderPickerVisible, setFolderPickerVisible] = useState(false);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [browseDirs, setBrowseDirs] = useState<FileEntry[]>([]);
@@ -84,6 +87,47 @@ export const FileExplorer: React.FC = () => {
     }
   }, [openFolderFromDevice]);
 
+  const handleShowProjects = useCallback(async () => {
+    try {
+      await loadWorkspaces();
+      setProjectPickerVisible(true);
+    } catch (e) {
+      Alert.alert('Projects unavailable', (e as Error)?.message || String(e));
+    }
+  }, [loadWorkspaces]);
+
+  const handleOpenEnv = useCallback(async () => {
+    if (!currentWorkspace) {
+      Alert.alert('No Project', 'Open a private project first.');
+      return;
+    }
+    const envPath = `${currentWorkspace}/.env`;
+    try {
+      if (!(await FileSystemNativeModule.exists(envPath))) {
+        await FileSystemNativeModule.touch(envPath);
+        await useFileStore.getState().refreshDirectory(currentWorkspace);
+      }
+      await openEditorFile(envPath);
+      setActiveView('editor');
+    } catch (e) {
+      Alert.alert('Could not open .env', (e as Error)?.message || String(e));
+    }
+  }, [currentWorkspace, openEditorFile, setActiveView]);
+
+  const handleSwitchProject = useCallback(async (path: string) => {
+    setProjectPickerVisible(false);
+    try {
+      const opened = await openWorkspace(path);
+      if (!opened) {
+        throw new Error(
+          useFileStore.getState().error || 'The selected project could not be opened.',
+        );
+      }
+    } catch (e) {
+      setError('Failed to open project: ' + ((e as Error)?.message || String(e)));
+    }
+  }, [openWorkspace]);
+
   // Browse into a directory, listing only its subfolders so the user can drill
   // down and pick any folder on the device (not just the preset roots).
   const navigateTo = useCallback(async (path: string) => {
@@ -126,6 +170,9 @@ export const FileExplorer: React.FC = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>EXPLORER</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.textButton} onPress={handleShowProjects}>
+            <Text style={styles.textButtonLabel}>Projects</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.textButton} onPress={handleOpenFolder}>
             <Text style={styles.textButtonLabel}>Open</Text>
           </TouchableOpacity>
@@ -140,7 +187,16 @@ export const FileExplorer: React.FC = () => {
       
       {/* Workspace name */}
       <View style={styles.workspaceHeader}>
-        <Text style={styles.workspaceName}>{workspaceName}</Text>
+        <View style={styles.workspaceHeaderInfo}>
+          <Text style={styles.workspaceName}>{workspaceName}</Text>
+          <Text style={styles.workspacePath} numberOfLines={1} ellipsizeMode="middle">
+            {currentWorkspace || 'No project selected'}
+          </Text>
+          <Text style={styles.dotfilesVisible}>Dotfiles visible in the file tree</Text>
+        </View>
+        <TouchableOpacity style={styles.envButton} onPress={handleOpenEnv}>
+          <Text style={styles.envButtonText}>Open .env</Text>
+        </TouchableOpacity>
       </View>
       
       {/* Error display */}
@@ -190,6 +246,50 @@ export const FileExplorer: React.FC = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* App-private project picker. Git clones are registered here automatically. */}
+      <Modal
+        visible={projectPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProjectPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Private Projects</Text>
+            <Text style={styles.pickerHint}>
+              Git clones appear here and open directly in Files and Terminal.
+            </Text>
+            <ScrollView style={styles.pickerList}>
+              {workspaces.length > 0 ? workspaces.map((workspace) => {
+                const selected = workspace.path === currentWorkspace;
+                return (
+                  <TouchableOpacity
+                    key={workspace.path}
+                    style={[styles.workspaceItem, selected && styles.workspaceItemSelected]}
+                    onPress={() => handleSwitchProject(workspace.path)}
+                  >
+                    <Text style={styles.workspaceItemText}>
+                      {selected ? '●  ' : '○  '}{workspace.name}
+                    </Text>
+                    <Text style={styles.pickerPath}>{workspace.path}</Text>
+                  </TouchableOpacity>
+                );
+              }) : (
+                <Text style={styles.pickerHint}>No private projects found.</Text>
+              )}
+            </ScrollView>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => setProjectPickerVisible(false)}
+              >
+                <Text style={styles.modalButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Input Modal for new file/folder */}
       <Modal
@@ -346,14 +446,41 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   workspaceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: '#2d2d2d',
+  },
+  workspaceHeaderInfo: {
+    flex: 1,
   },
   workspaceName: {
     fontSize: 13,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  workspacePath: {
+    marginTop: 2,
+    fontSize: 10,
+    color: '#999999',
+  },
+  dotfilesVisible: {
+    marginTop: 3,
+    fontSize: 10,
+    color: '#73c991',
+  },
+  envButton: {
+    backgroundColor: '#3f3f46',
+    borderRadius: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  envButtonText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '600',
   },
   errorBanner: {
     backgroundColor: '#4d1f1f',
@@ -396,6 +523,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#ffffff',
     fontWeight: '500',
+  },
+  workspaceItemSelected: {
+    borderColor: '#8b5cf6',
+    backgroundColor: '#312e45',
   },
   pickerList: {
     maxHeight: 320,

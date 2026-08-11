@@ -13,6 +13,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 import java.net.URI
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
@@ -88,7 +89,19 @@ class RuntimeManager(private val context: Context) {
     private val nativeLibDir: File by lazy { File(context.applicationInfo.nativeLibraryDir) }
     private val selinuxProcessContext: String? by lazy {
         try {
-            File("/proc/self/attr/current").readText().trim().takeIf { it.isNotEmpty() }
+            // Some Android 11 kernels expose a NUL-terminated security context
+            // followed by non-text bytes. File.readText() preserved those bytes
+            // as replacement characters; ProcessBuilder then rejected the whole
+            // environment and the terminal silently fell back from Bash to sh.
+            val raw = File("/proc/self/attr/current").readBytes()
+            val end = raw.indexOf(0).let { if (it >= 0) it else raw.size }
+            String(raw, 0, end, StandardCharsets.US_ASCII)
+                .trim()
+                .takeIf { value ->
+                    value.isNotEmpty() && value.all { ch ->
+                        ch.isLetterOrDigit() || ch in "_:,.-"
+                    }
+                }
         } catch (_: Exception) {
             null
         }
@@ -171,6 +184,7 @@ class RuntimeManager(private val context: Context) {
 
         onProgress?.invoke("Configuring environment...", 0.93f)
         setupEnvironment()
+        setupNanoConfiguration()
         setupRuntimePolicy()
         setupShellWrappers()
         setupNpmrc()
@@ -430,11 +444,16 @@ class RuntimeManager(private val context: Context) {
                 if (link.exists() || isSymlink(link)) link.delete()
             } catch (_: Exception) { }
         }
+        val busyboxDispatcher = File(nativeLibDir, "libbin_adev_busybox.so")
         try {
             val link = File(binDir, "busybox")
             if (link.exists() || isSymlink(link)) link.delete()
-            Os.symlink(busyboxLib.absolutePath, link.absolutePath)
-            Log.i(TAG, "busybox binary linked (applets via shell wrappers)")
+            if (busyboxDispatcher.isFile) {
+                Os.symlink(busyboxDispatcher.absolutePath, link.absolutePath)
+                Log.i(TAG, "busybox argv0 dispatcher linked")
+            } else {
+                Log.w(TAG, "busybox dispatcher missing; applets remain unavailable")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "busybox self-link failed", e)
         }
@@ -450,7 +469,8 @@ class RuntimeManager(private val context: Context) {
             val node = File(nativeLibDir, "libbin_node.so").absolutePath
             val git = File(nativeLibDir, "libbin_git.so").absolutePath
             val bash = File(nativeLibDir, "libbin_bash.so").absolutePath
-            val busybox = File(nativeLibDir, "libbin_busybox.so").absolutePath
+            val busyboxDispatcher =
+                File(nativeLibDir, "libbin_adev_busybox.so").absolutePath
             val npmShell = File(nativeLibDir, "libbin_adev_npm_shell.so").absolutePath
             val python = findNativeTool("libbin_python", ".so")
             val make = findMakeCommand()
@@ -459,6 +479,7 @@ class RuntimeManager(private val context: Context) {
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
+            val nano = File(nativeLibDir, "libbin_nano.so")
             val openCode = File(nativeLibDir, "libbin_opencode.so")
             val clangResourceDir = findClangResourceDir()
             val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
@@ -472,7 +493,9 @@ class RuntimeManager(private val context: Context) {
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val phase3Test = File(libDir, "adev-phase3-test.js")
-            val hasBusybox = File(nativeLibDir, "libbin_busybox.so").exists()
+            val hasBusybox =
+                File(nativeLibDir, "libbin_busybox.so").exists() &&
+                    File(nativeLibDir, "libbin_adev_busybox.so").exists()
             val hasNode = File(nativeLibDir, "libbin_node.so").exists()
             val hasGit = File(nativeLibDir, "libbin_git.so").exists()
 
@@ -506,7 +529,7 @@ class RuntimeManager(private val context: Context) {
                 // checksums / archive
                 "md5sum", "sha256sum", "base64", "tar", "gzip", "gunzip", "xz", "zcat",
                 // process / system (no time/type — reserved)
-                "ps", "killall", "pgrep", "pkill", "du", "df", "id", "whoami",
+                "ps", "killall", "pgrep", "pkill", "du", "df", "id", "whoami", "w",
                 "env", "printenv", "clear", "sleep", "date", "timeout", "nohup",
                 // network / editors
                 "wget", "nc", "ping", "vi", "less", "more"
@@ -568,6 +591,9 @@ class RuntimeManager(private val context: Context) {
             if (curl.exists()) {
                 sb.appendLine("curl() { \"${curl.absolutePath}\" \"\$@\"; }")
             }
+            if (nano.exists()) {
+                sb.appendLine("nano() { \"${nano.absolutePath}\" \"\$@\"; }")
+            }
             if (openCode.exists()) {
                 sb.appendLine("opencode() { \"${openCode.absolutePath}\" \"\$@\"; }")
             }
@@ -586,10 +612,10 @@ class RuntimeManager(private val context: Context) {
             }
 
             if (hasBusybox) {
-                sb.appendLine("busybox() { \"$busybox\" \"\$@\"; }")
+                sb.appendLine("busybox() { \"$busyboxDispatcher\" \"\$@\"; }")
                 applets.forEach { ap ->
                     sb.appendLine(
-                        "$ap() { \"$busybox\" $ap \"\$@\" 2>/dev/null || /system/bin/$ap \"\$@\" 2>/dev/null || /system/xbin/$ap \"\$@\"; }"
+                        "$ap() { \"$busyboxDispatcher\" $ap \"\$@\" 2>/dev/null || /system/bin/$ap \"\$@\" 2>/dev/null || /system/xbin/$ap \"\$@\"; }"
                     )
                 }
                 sb.appendLine()
@@ -671,11 +697,16 @@ class RuntimeManager(private val context: Context) {
                 agentEnv.appendLine("export MOBILEIDE_BASH=\"$bash\"")
             }
             if (hasBusybox) {
-                agentEnv.appendLine("export MOBILEIDE_BUSYBOX=\"$busybox\"")
+                agentEnv.appendLine("export MOBILEIDE_BUSYBOX=\"$busyboxDispatcher\"")
             }
             if (curl.exists()) {
                 agentEnv.appendLine("export MOBILEIDE_CURL=\"${curl.absolutePath}\"")
             }
+            if (nano.exists()) {
+                agentEnv.appendLine("export MOBILEIDE_NANO=\"${nano.absolutePath}\"")
+            }
+            agentEnv.appendLine("export TERMINFO=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
+            agentEnv.appendLine("export TERMINFO_DIRS=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
             agentEnv.appendLine("export HOST=0.0.0.0")
             agentEnv.appendLine("export HOSTNAME=0.0.0.0")
             agentEnv.appendLine("export BROWSER=none")
@@ -744,7 +775,8 @@ class RuntimeManager(private val context: Context) {
             val node = File(nativeLibDir, "libbin_node.so")
             val git = File(nativeLibDir, "libbin_git.so")
             val bash = File(nativeLibDir, "libbin_bash.so")
-            val busybox = File(nativeLibDir, "libbin_busybox.so")
+            val busyboxRuntime = File(nativeLibDir, "libbin_busybox.so")
+            val busyboxDispatcher = File(nativeLibDir, "libbin_adev_busybox.so")
             val python = findNativeTool("libbin_python", ".so")
             val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
@@ -752,6 +784,7 @@ class RuntimeManager(private val context: Context) {
             val lld = findNativeTool("libbin_lld", ".so")
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
+            val nano = File(nativeLibDir, "libbin_nano.so")
             val openCode = File(nativeLibDir, "libbin_opencode.so")
             val clangResourceDir = findClangResourceDir()
             val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
@@ -884,8 +917,8 @@ class RuntimeManager(private val context: Context) {
             // termux-exec translates #!/bin/sh to $PREFIX/bin/sh. Keep this
             // explicit bridge even though /system/bin is earlier on normal PATH.
             writeScript("sh", "#!/system/bin/sh\nexec /system/bin/sh \"\$@\"\n")
-            if (busybox.exists()) {
-                val bb = busybox.absolutePath
+            if (busyboxRuntime.exists() && busyboxDispatcher.exists()) {
+                val bb = busyboxDispatcher.absolutePath
                 writeScript("busybox", "#!/system/bin/sh\nexec \"$bb\" \"\$@\"\n")
                 // termux-exec rewrites #!/usr/bin/env to $PREFIX/bin/env. The
                 // npm/node ecosystem overwhelmingly uses that shebang, so this
@@ -893,8 +926,12 @@ class RuntimeManager(private val context: Context) {
                 writeScript("env", "#!/system/bin/sh\nexec \"$bb\" env \"\$@\"\n")
                 // High-value applets agents call by name (prefer busybox when present)
                 listOf(
-                    "tar", "gzip", "gunzip", "xz", "wget", "find", "xargs",
-                    "sed", "awk", "diff", "patch", "md5sum", "sha256sum", "base64"
+                    "tar", "gzip", "gunzip", "xz", "zcat", "wget", "nc", "ping",
+                    "find", "xargs", "sed", "awk", "grep", "head", "tail", "wc",
+                    "sort", "uniq", "tr", "cut", "tee", "diff", "patch", "md5sum",
+                    "sha256sum", "base64", "mktemp", "realpath", "dirname", "basename",
+                    "readlink", "stat", "timeout", "nohup", "killall", "pgrep", "pkill",
+                    "du", "df", "w", "vi", "less", "more"
                 ).forEach { ap ->
                     writeScript(ap, "#!/system/bin/sh\nexec \"$bb\" $ap \"\$@\"\n")
                 }
@@ -928,6 +965,9 @@ class RuntimeManager(private val context: Context) {
             }
             if (curl.exists()) {
                 writeScript("curl", "#!/system/bin/sh\nexec \"${curl.absolutePath}\" \"\$@\"\n")
+            }
+            if (nano.exists()) {
+                writeScript("nano", "#!/system/bin/sh\nexec \"${nano.absolutePath}\" \"\$@\"\n")
             }
             if (openCode.exists()) {
                 // OpenCode must be discoverable through PATH by non-interactive
@@ -1081,6 +1121,8 @@ class RuntimeManager(private val context: Context) {
      */
     private fun setupEnvironment() {
         gitTemplateDir.mkdirs()
+        val preferredEditor =
+            if (File(nativeLibDir, "libbin_nano.so").isFile) "nano" else "vi"
 
         // Create .profile (sourced by mksh on Android)
         val profile = File(homeDir, ".profile")
@@ -1109,10 +1151,45 @@ class RuntimeManager(private val context: Context) {
                     name = A Dev Studio User
                     email = user@adevstudio.local
                 [core]
-                    editor = vi
+                    editor = $preferredEditor
                 [init]
                     defaultBranch = main
             """.trimIndent())
+        }
+    }
+
+    /**
+     * Nano's Termux package is compiled with a fixed Termux prefix. The native
+     * executable honors HOME and TERMINFO, but its packaged nanorc contains an
+     * absolute /data/data/com.termux include. Keep that file as source evidence,
+     * generate a prefix-correct runtime copy, and never overwrite user config.
+     */
+    private fun setupNanoConfiguration() {
+        val nano = File(nativeLibDir, "libbin_nano.so")
+        if (!nano.isFile) return
+
+        val packagedNanorc = File(etcDir, "nanorc.termux")
+        val syntaxDir = File(runtimeRoot, "share/nano")
+        val terminfoEntry = File(runtimeRoot, "share/terminfo/x/xterm-256color")
+        if (!packagedNanorc.isFile || !syntaxDir.isDirectory || !terminfoEntry.isFile) {
+            Log.w(TAG, "Nano payload is incomplete; config/terminfo setup skipped")
+            return
+        }
+
+        try {
+            val portableNanorc = packagedNanorc.readText().replace(
+                "/data/data/com.termux/files/usr/share/nano",
+                syntaxDir.absolutePath
+            )
+            File(etcDir, "nanorc").writeText(portableNanorc)
+
+            val userNanorc = File(homeDir, ".nanorc")
+            if (!userNanorc.exists()) {
+                userNanorc.writeText(portableNanorc)
+            }
+            Log.i(TAG, "Nano config ready; existing user .nanorc preserved")
+        } catch (e: Exception) {
+            Log.w(TAG, "Nano config setup failed: ${e.message}")
         }
     }
 
@@ -1565,10 +1642,14 @@ class RuntimeManager(private val context: Context) {
     private fun getMkshrcContent(): String = """
         # A Dev Studio - mksh (short prompt for phone screens)
         export PS1='adev:${'$'}{PWD##*/}${'$'} '
-        export EDITOR=vi
         export PROMPT_DIRTRIM=1
 
         [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers" 2>/dev/null
+        if command -v nano >/dev/null 2>&1; then
+          export EDITOR=nano VISUAL=nano
+        else
+          export EDITOR=vi VISUAL=vi
+        fi
 
         uname() {
           case "${'$'}1" in
@@ -1587,10 +1668,23 @@ class RuntimeManager(private val context: Context) {
           echo "adev-run-web  Vite demo :5173"
           echo "adev-run-api  Express   :3000"
           echo "adev-dev      npm run dev in current folder"
-          echo "adev-doctor | projects"
+          echo "adev-doctor | projects | cproj <folder>"
         }
         adev-vite() { npx vite --host 0.0.0.0 --port 5173 "${'$'}@"; }
         adev-next() { next dev -H 0.0.0.0 -p 3000 "${'$'}@"; }
+        cproj() {
+          case "${'$'}1" in
+            ""|*/*|*\\*|*\**|*\?*|*\[*|*\]*)
+              echo "usage: cproj <exact-folder-name>" >&2
+              return 64 ;;
+          esac
+          target="${'$'}(find "${workspacesDir.absolutePath}" -mindepth 1 -maxdepth 4 -type d -name "${'$'}1" -print -quit 2>/dev/null)"
+          if [ -z "${'$'}target" ]; then
+            echo "adev: project folder not found: ${'$'}1" >&2
+            return 1
+          fi
+          cd "${'$'}target"
+        }
 
         alias ll='ls -la'
         alias ..='cd ..'
@@ -1600,11 +1694,15 @@ class RuntimeManager(private val context: Context) {
     private fun getBashrcContent(): String = """
         # A Dev Studio - bash (short prompt: folder name only — fits phones)
         export PS1='\[\033[32m\]adev\[\033[0m\]:\[\033[34m\]\W\[\033[0m\]${'$'} '
-        export EDITOR=vi
         export LANG=en_US.UTF-8
         export PROMPT_DIRTRIM=1
 
         [ -f "${'$'}HOME/.adev-wrappers" ] && . "${'$'}HOME/.adev-wrappers" 2>/dev/null
+        if command -v nano >/dev/null 2>&1; then
+          export EDITOR=nano VISUAL=nano
+        else
+          export EDITOR=vi VISUAL=vi
+        fi
 
         uname() {
           case "${'$'}1" in
@@ -1642,7 +1740,7 @@ class RuntimeManager(private val context: Context) {
           echo "adev-run-api  Express   :3000"
           echo "adev-dev      npm run dev here"
           echo "adev-next     Next.js  :3000"
-          echo "adev-doctor | projects"
+          echo "adev-doctor | projects | cproj <folder>"
         }
         adev-vite() {
           local p=5173
@@ -1657,6 +1755,20 @@ class RuntimeManager(private val context: Context) {
             [0-9]*) p="${'$'}1"; shift ;;
           esac
           next dev -H 0.0.0.0 -p "${'$'}p" "${'$'}@"
+        }
+        cproj() {
+          case "${'$'}1" in
+            ""|*/*|*\\*|*\**|*\?*|*\[*|*\]*)
+              echo "usage: cproj <exact-folder-name>" >&2
+              return 64 ;;
+          esac
+          local target
+          target="${'$'}(find "${workspacesDir.absolutePath}" -mindepth 1 -maxdepth 4 -type d -name "${'$'}1" -print -quit 2>/dev/null)"
+          if [ -z "${'$'}target" ]; then
+            echo "adev: project folder not found: ${'$'}1" >&2
+            return 1
+          fi
+          cd "${'$'}target"
         }
 
         alias ll='ls -la'
@@ -1685,6 +1797,8 @@ class RuntimeManager(private val context: Context) {
     fun getNativeLibDir(): String = context.applicationInfo.nativeLibraryDir
 
     fun getCapabilities(): RuntimeCapabilities {
+        val makeLauncher = File(nativeLibDir, "libbin_adev_make.so")
+        val makeRuntime = findNativeTool("libbin_make", ".so")
         val commandReadiness = linkedMapOf(
             "node" to File(nativeLibDir, "libbin_node.so").isFile,
             "npm" to File(libDir, "node_modules/npm/bin/npm-cli.js").isFile,
@@ -1694,13 +1808,20 @@ class RuntimeManager(private val context: Context) {
                 "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
             ).isFile,
             "python" to (findNativeTool("libbin_python", ".so") != null),
-            "make" to (findNativeTool("libbin_make", ".so") != null),
+            // Raw Termux Make is not a usable Android integration by itself:
+            // its compiled shell points at com.termux. Both the payload and
+            // the APK-native /system/bin/sh bridge are required.
+            "make" to (makeLauncher.isFile && makeRuntime != null),
             "clang" to (findNativeTool("libbin_clang_", ".so") != null),
             "lld" to (findNativeTool("libbin_lld", ".so") != null),
             "git" to File(nativeLibDir, "libbin_git.so").isFile,
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
-            "busybox" to File(nativeLibDir, "libbin_busybox.so").isFile,
+            "nano" to File(nativeLibDir, "libbin_nano.so").isFile,
+            "busybox" to (
+                File(nativeLibDir, "libbin_busybox.so").isFile &&
+                    File(nativeLibDir, "libbin_adev_busybox.so").isFile
+                ),
             "opencode" to (
                 File(nativeLibDir, "libbin_opencode.so").isFile &&
                     File(nativeLibDir, "libbin_opencode_runtime.so").isFile
@@ -1775,7 +1896,13 @@ class RuntimeManager(private val context: Context) {
                 "structured-listen-events" to File(libDir, "adev-server-events.js").isFile,
                 "verified-preview" to true,
                 "next-webpack-wasm" to File(libDir, "adev-next.js").isFile,
-                "opencode-cli-arm64" to (commandReadiness["opencode"] == true)
+                "opencode-diagnostics-arm64" to (commandReadiness["opencode"] == true),
+                // The command is installed and exposes version/help/path
+                // diagnostics, but real TUI/run/server modes abort inside the
+                // available upstream Android Bun/OpenTUI payloads on-device.
+                "opencode-interactive" to false,
+                "opencode-agent-run" to false,
+                "opencode-server" to false
             ),
             nativeBuildReady = nativeBuildReady,
             npmLifecycleReady = npmShell.isFile,
@@ -1799,6 +1926,9 @@ class RuntimeManager(private val context: Context) {
             File(binDir, "bash").exists() -> File(binDir, "bash").absolutePath
             else -> "/system/bin/sh"
         }
+        val nanoNative = File(nativeLibDir, "libbin_nano.so")
+        val preferredEditor =
+            if (nanoNative.isFile) nanoNative.absolutePath else "vi"
 
         // PATH order (Android 10+ noexec on filesDir):
         // 1) /system/bin first — working toybox ls/cat/… (do NOT shadow with broken
@@ -1821,6 +1951,17 @@ class RuntimeManager(private val context: Context) {
             "TMPDIR" to tmpDir.absolutePath,
             "TEMP" to tmpDir.absolutePath,
             "TMP" to tmpDir.absolutePath,
+            // Android has no writable FHS /tmp. Keep every native/JS spelling
+            // on the same app-private directory before any child process starts.
+            "BUN_TMPDIR" to tmpDir.absolutePath,
+            "SQLITE_TMPDIR" to tmpDir.absolutePath,
+            "XDG_RUNTIME_DIR" to tmpDir.absolutePath,
+            // nativeForkPty intentionally clears the inherited zygote
+            // environment. Restore Android identity variables explicitly so
+            // Android-aware CLIs do not mis-detect this process as desktop Linux.
+            "ANDROID_ROOT" to "/system",
+            "ANDROID_DATA" to "/data",
+            "TERMUX_VERSION" to "ADevStudio",
             "PREFIX" to runtimeRoot.absolutePath,
             "LD_LIBRARY_PATH" to "${libDir.absolutePath}:${nativeLibDir.absolutePath}",
             // Prefer the bundled npm tree for requires; global modules second.
@@ -1838,12 +1979,16 @@ class RuntimeManager(private val context: Context) {
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
+            "EDITOR" to preferredEditor,
+            "VISUAL" to preferredEditor,
             // Interactive mksh/dash load ENV; non-interactive bash loads BASH_ENV.
             "ENV" to "${homeDir.absolutePath}/.mkshrc",
             "BASH_ENV" to "${homeDir.absolutePath}/.adev-agent-env",
             "ADEV_AGENT_ENV" to "${homeDir.absolutePath}/.adev-agent-env",
             "ADEV_WRAPPERS" to "${homeDir.absolutePath}/.adev-wrappers",
             "TERM" to "xterm-256color",
+            "TERMINFO" to File(runtimeRoot, "share/terminfo").absolutePath,
+            "TERMINFO_DIRS" to File(runtimeRoot, "share/terminfo").absolutePath,
             "COLORTERM" to "truecolor",
             "LANG" to "en_US.UTF-8",
             "LC_ALL" to "en_US.UTF-8",
@@ -1866,8 +2011,12 @@ class RuntimeManager(private val context: Context) {
             "MOBILEIDE_GIT" to File(nativeLibDir, "libbin_git.so").absolutePath,
             "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
             "MOBILEIDE_MAKE" to File(nativeLibDir, "libbin_adev_make.so").absolutePath,
-            "MOBILEIDE_BUSYBOX" to File(nativeLibDir, "libbin_busybox.so").absolutePath,
+            "MOBILEIDE_BUSYBOX" to
+                File(nativeLibDir, "libbin_adev_busybox.so").absolutePath,
+            "MOBILEIDE_BUSYBOX_RUNTIME" to
+                File(nativeLibDir, "libbin_busybox.so").absolutePath,
             "MOBILEIDE_CURL" to File(nativeLibDir, "libbin_curl.so").absolutePath,
+            "MOBILEIDE_NANO" to File(nativeLibDir, "libbin_nano.so").absolutePath,
             "MOBILEIDE_OPENCODE" to File(nativeLibDir, "libbin_opencode.so").absolutePath,
             "ADEV_RUNTIME_VERSION" to CURRENT_RUNTIME_VERSION,
             "ADEV_APP_VERSION" to appVersionName(),

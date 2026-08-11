@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import { GitNative, GitStatus, GitCommitInfo, GitBranch, GitRemote, GitDiffEntry } from '../native/GitNativeModule';
+import {
+  GitNative,
+  GitStatus,
+  GitCommitInfo,
+  GitBranch,
+  GitRemote,
+  GitDiffEntry,
+  GitPullRequestResult,
+} from '../native/GitNativeModule';
 
 interface GitState {
   // State
@@ -31,12 +39,25 @@ interface GitState {
   pushChanges: (repoPath: string, remote?: string, branch?: string) => Promise<void>;
   pullChanges: (repoPath: string, remote?: string, branch?: string) => Promise<void>;
   fetchRemote: (repoPath: string, remote?: string) => Promise<void>;
+  createPullRequest: (
+    repoPath: string,
+    title: string,
+    body: string,
+    base?: string,
+    head?: string,
+    remote?: string,
+  ) => Promise<GitPullRequestResult | null>;
   loadLog: (repoPath: string) => Promise<void>;
   loadBranches: (repoPath: string) => Promise<void>;
   loadRemotes: (repoPath: string) => Promise<void>;
-  checkoutBranch: (repoPath: string, branch: string, create?: boolean) => Promise<void>;
+  checkoutBranch: (
+    repoPath: string,
+    branch: string,
+    create?: boolean,
+    remote?: boolean,
+  ) => Promise<void>;
   addRemote: (repoPath: string, name: string, url: string) => Promise<void>;
-  setCredentials: (username: string, token: string) => void;
+  setCredentials: (username: string, token: string) => Promise<boolean>;
   clearError: () => void;
   clearSuccess: () => void;
 }
@@ -59,9 +80,13 @@ export const useGitStore = create<GitState>((set, get) => ({
   checkRepo: async (repoPath: string) => {
     try {
       const credentials = await GitNative.listCredentials();
-      const httpsCredential = credentials.find(item => item.kind === 'https');
+      const httpsCredential = credentials.find(
+        item =>
+          item.kind === 'https' &&
+          item.host.trim().replace(/\.$/, '').toLowerCase() === 'github.com',
+      );
       set({
-        isAuthenticated: credentials.length > 0,
+        isAuthenticated: !!httpsCredential,
         username: httpsCredential?.username || '',
       });
     } catch {
@@ -159,12 +184,15 @@ export const useGitStore = create<GitState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await GitNative.clone(url, destPath);
-      set({ isRepo: true, isLoading: false, successMessage: 'Repository cloned successfully' });
-      await get().refreshStatus(destPath);
-      await get().loadBranches(destPath);
-      await get().loadRemotes(destPath);
+      // Cloning and opening are separate operations. Keep the currently open
+      // repository state intact until FileStore confirms the new workspace.
+      set({ isLoading: false, error: null });
     } catch (e: any) {
-      set({ isLoading: false, error: 'Clone failed: ' + e.message });
+      set({
+        isLoading: false,
+        error: 'Clone failed: ' + (e?.message || 'unknown clone error'),
+      });
+      throw e;
     }
   },
 
@@ -296,6 +324,9 @@ export const useGitStore = create<GitState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await GitNative.fetch(repoPath, remote);
+      await get().loadBranches(repoPath);
+      await get().loadRemotes(repoPath);
+      await get().refreshStatus(repoPath);
       set({ isLoading: false, successMessage: 'Fetched from remote' });
     } catch (e: any) {
       set({ isLoading: false, error: 'Fetch failed: ' + e.message });
@@ -333,13 +364,27 @@ export const useGitStore = create<GitState>((set, get) => ({
     }
   },
 
-  checkoutBranch: async (repoPath: string, branch: string, create = false) => {
+  checkoutBranch: async (
+    repoPath: string,
+    branch: string,
+    shouldCreate = false,
+    remote = false,
+  ) => {
     set({ isLoading: true, error: null });
     try {
-      await GitNative.checkout(repoPath, branch, create);
+      const checkedOutBranch = await GitNative.checkout(
+        repoPath,
+        branch,
+        shouldCreate,
+        remote,
+      );
       await get().refreshStatus(repoPath);
       await get().loadBranches(repoPath);
-      set({ isLoading: false, branch, successMessage: `Switched to ${branch}` });
+      set({
+        isLoading: false,
+        branch: checkedOutBranch,
+        successMessage: `Switched to ${checkedOutBranch}`,
+      });
     } catch (e: any) {
       set({ isLoading: false, error: e.message });
     }
@@ -356,11 +401,63 @@ export const useGitStore = create<GitState>((set, get) => ({
     }
   },
 
-  setCredentials: (username: string, token: string) => {
-    // Native code immediately encrypts the secret with Android Keystore. No
-    // API exists to read the stored token back into React Native.
-    GitNative.setCredentials(username, token);
-    set({ isAuthenticated: true, username });
+  setCredentials: async (username: string, token: string) => {
+    try {
+      // No API exists to read the stored token back into React Native. Await
+      // this write so a Keystore failure can never produce a false Connected UI.
+      const metadata = await GitNative.setCredentials(username, token);
+      set({
+        isAuthenticated: true,
+        username: metadata.username || username,
+        error: null,
+      });
+      return true;
+    } catch (e: any) {
+      set({
+        error: 'Could not store GitHub credential: ' +
+          (e?.message || 'Android Keystore is unavailable'),
+      });
+      return false;
+    }
+  },
+
+  createPullRequest: async (
+    repoPath: string,
+    title: string,
+    body: string,
+    base = 'main',
+    head?: string,
+    remote = 'origin',
+  ) => {
+    set({ isLoading: true, error: null });
+    try {
+      if ((get().remotes || []).length === 0) {
+        set({
+          isLoading: false,
+          error: 'Add a GitHub remote before creating a pull request.',
+        });
+        return null;
+      }
+      const result = await GitNative.createPullRequest(
+        repoPath,
+        remote,
+        base,
+        head || get().branch || 'main',
+        title,
+        body,
+      );
+      set({
+        isLoading: false,
+        successMessage: `Pull request #${result.number} created`,
+      });
+      return result;
+    } catch (e: any) {
+      set({
+        isLoading: false,
+        error: 'Pull request failed: ' + (e?.message || 'unknown error'),
+      });
+      return null;
+    }
   },
 
   clearError: () => set({ error: null }),

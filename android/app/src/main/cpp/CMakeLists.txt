@@ -54,6 +54,30 @@ set_target_properties(adev_npm_shell PROPERTIES
     SUFFIX ".so"
 )
 
+# BusyBox argv[0] dispatcher. The payload is renamed to libbin_busybox.so by
+# Android packaging, but that BusyBox build chooses its applet from argv[0].
+# This APK-native bridge restores normal `busybox <applet>` semantics for all
+# shell wrappers without copying executables into Android's noexec filesDir.
+add_executable(adev_busybox adev_busybox.cpp)
+
+target_link_options(adev_busybox PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_busybox PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_busybox PRIVATE NDEBUG)
+
+set_target_properties(adev_busybox PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_busybox"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Android-native GNU Make entrypoint. The Termux Make ELF has its original
 # package's shell path compiled in; this launcher supplies the app's APK-native
 # Bash as a command-line SHELL override for node-gyp and direct Make builds.

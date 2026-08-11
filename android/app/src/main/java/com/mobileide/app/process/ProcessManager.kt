@@ -37,7 +37,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "cksum", "split", "csplit", "install", "sync", "truncate", "dd",
             "readlink", "basename", "dirname", "mktemp", "mkfifo", "mknod",
             "chgrp", "touch", "pwd", "uname", "uptime", "free", "nproc", "getconf",
-            "logger", "logname", "tty", "stty", "time", "timeout", "nice", "nohup",
+            "logger", "logname", "tty", "stty", "time", "timeout", "nice", "nohup", "w",
             "ionice", "renice", "flock", "setsid", "chroot", "mount", "umount",
             "losetup", "swapon", "swapoff", "fdisk", "blkid", "lsblk", "lsof",
             "nc", "netstat", "ifconfig", "ip", "ping", "traceroute", "route",
@@ -96,10 +96,11 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         }
         // Put each managed task in its own process group. This lets stop/close
         // terminate nested shells and native-addon compiler children together.
-        val busybox = File(runtimeManager.getNativeLibDir(), "libbin_busybox.so")
+        val busybox = File(runtimeManager.getNativeLibDir(), "libbin_adev_busybox.so")
+        val busyboxPayload = File(runtimeManager.getNativeLibDir(), "libbin_busybox.so")
         val pidFile = File(runtimeManager.getTmpDir(), ".process-$taskId.pid")
         if (pidFile.exists()) pidFile.delete()
-        val launchCommand = if (busybox.isFile) {
+        val launchCommand = if (busybox.isFile && busyboxPayload.isFile) {
             ArrayList<String>().apply {
                 add(busybox.absolutePath)
                 add("sh")
@@ -230,7 +231,9 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val base = command.substringAfterLast('/').substringAfterLast('\\')
         val node = File(native, "libbin_node.so")
         val git = File(native, "libbin_git.so")
-        val busybox = File(native, "libbin_busybox.so")
+        val busybox = File(native, "libbin_adev_busybox.so")
+        val busyboxPayload = File(native, "libbin_busybox.so")
+        val busyboxReady = busybox.isFile && busyboxPayload.isFile
         val bash = File(native, "libbin_bash.so")
         val npmCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npm-cli.js")
         val npxCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npx-cli.js")
@@ -238,7 +241,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val nextLauncher = File(runtimeManager.getLibDir(), "adev-next.js")
         val directTools = mapOf(
             "curl" to "libbin_curl.so",
-            "make" to "libbin_make.so",
+            "nano" to "libbin_nano.so",
+            "make" to "libbin_adev_make.so",
             "llvm-ar" to "libbin_llvm_ar.so",
             "ar" to "libbin_llvm_ar.so",
             "lld" to "libbin_lld.so",
@@ -257,7 +261,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "node" -> if (node.exists()) node.absolutePath to args else command to args
             "git" -> if (git.exists()) git.absolutePath to args else command to args
             "bash" -> if (bash.exists()) bash.absolutePath to args else command to args
-            "busybox" -> if (busybox.exists()) busybox.absolutePath to args else command to args
+            "busybox" -> if (busyboxReady) busybox.absolutePath to args else command to args
             "node-gyp" -> {
                 val nodeGyp = File(
                     runtimeManager.getLibDir(),
@@ -297,7 +301,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
                 }
                 if (nativeTool != null) {
                     nativeTool.absolutePath to args
-                } else if (BUSYBOX_APPLETS.contains(base) && busybox.exists()) {
+                } else if (BUSYBOX_APPLETS.contains(base) && busyboxReady) {
                     busybox.absolutePath to listOf(base) + args
                 } else if (File(command).isFile) {
                     // Absolute path provided

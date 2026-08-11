@@ -25,6 +25,8 @@ export interface GitCommitInfo {
 
 export interface GitBranch {
   name: string;
+  fullName?: string;
+  isRemote?: boolean;
   isCurrent: boolean;
 }
 
@@ -36,6 +38,12 @@ export interface GitRemote {
 export interface GitDiffEntry {
   path: string;
   status: 'modified' | 'added' | 'untracked' | 'removed';
+}
+
+export interface GitPullRequestResult {
+  number: number;
+  url: string;
+  state: string;
 }
 
 export interface GitCredentialMetadata {
@@ -55,8 +63,15 @@ export interface GitKnownHost {
 
 export const GitNative = {
   // Auth
-  setCredentials(username: string, token: string): void {
-    GitNativeModule.setCredentials(username, token);
+  setCredentials(username: string, token: string): Promise<GitCredentialMetadata> {
+    // Use the promise-based bridge so the UI only reports authentication after
+    // Android Keystore encryption and persistence have actually succeeded.
+    return GitNativeModule.storeHttpsCredential(
+      'github-default',
+      'github.com',
+      username,
+      token,
+    );
   },
   clearCredentials(): void {
     GitNativeModule.clearCredentials();
@@ -177,6 +192,23 @@ export const GitNative = {
   fetch(repoPath: string, remote: string): Promise<string> {
     return GitNativeModule.gitFetch(repoPath, remote);
   },
+  createPullRequest(
+    repoPath: string,
+    remote: string,
+    base: string,
+    head: string,
+    title: string,
+    body: string,
+  ): Promise<GitPullRequestResult> {
+    return GitNativeModule.gitCreatePullRequest(
+      repoPath,
+      remote,
+      base,
+      head,
+      title,
+      body,
+    );
+  },
   updateSubmodules(repoPath: string, recursive: boolean = true): Promise<string> {
     return GitNativeModule.gitSubmoduleUpdate(repoPath, recursive);
   },
@@ -193,8 +225,13 @@ export const GitNative = {
   branches(repoPath: string): Promise<GitBranch[]> {
     return GitNativeModule.gitBranches(repoPath);
   },
-  checkout(repoPath: string, branch: string, create: boolean = false): Promise<boolean> {
-    return GitNativeModule.gitCheckout(repoPath, branch, create);
+  checkout(
+    repoPath: string,
+    branch: string,
+    create: boolean = false,
+    remote: boolean = false,
+  ): Promise<string> {
+    return GitNativeModule.gitCheckout(repoPath, branch, create, remote);
   },
 
   // Remotes

@@ -1,6 +1,6 @@
 {
   "name": "mobileide",
-  "version": "1.3.7",
+  "version": "1.3.8",
   "private": true,
   "description": "MobileIDE - A desktop-class JavaScript development environment for Android",
   "license": "GPL-3.0-only",
@@ -10,6 +10,7 @@
   },
   "scripts": {
     "android": "react-native run-android",
+    "postinstall": "node scripts/apply-image-size-security-patch.mjs",
     "ios": "react-native run-ios",
     "lint": "node scripts/run-eslint.mjs",
     "start": "react-native start",
@@ -20,7 +21,8 @@
     "licenses:check": "npm run licenses && git diff --exit-code -- release/third-party-licenses.json",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:runtime-ownership": "node scripts/prune-runtime-owned.mjs",
-    "audit:production": "npm audit --omit=dev --audit-level=low",
+    "check:build-tool-security": "node scripts/verify-build-tool-security.mjs",
+    "audit:production": "node scripts/audit-production.mjs",
     "audit:development": "npm audit --json",
     "clean": "cd android && ./gradlew clean && cd ..",
     "build:apk": "cd android && ./gradlew assembleRelease && cd ..",
@@ -32,9 +34,10 @@
     "test:phase4-apk": "node scripts/verify-phase4-apk.mjs",
     "test:phase5-host": "node scripts/test-phase5-host.mjs",
     "test:opencode-android": "node scripts/test-opencode-android-host.mjs",
+    "test:nano-android": "node scripts/test-nano-android-host.mjs",
     "verify:release": "node scripts/verify-release-artifacts.mjs",
     "package:release": "node scripts/package-release-artifacts.mjs",
-    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run test:runtime-policy && npm run test:phase2-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run audit:production"
+    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:phase2-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run audit:production"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",
@@ -55,9 +58,9 @@
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "20.1.0",
-    "@react-native-community/cli-platform-android": "20.1.0",
-    "@react-native-community/cli-platform-ios": "20.1.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native-community/cli-platform-ios": "20.2.0",
     "@react-native/babel-preset": "0.86.2",
     "@react-native/eslint-config": "0.86.2",
     "@react-native/jest-preset": "0.86.2",
@@ -75,5 +78,12 @@
   },
   "engines": {
     "node": ">=22.13.0"
+  },
+  "overrides": {
+    "brace-expansion@<2.0.0": "1.1.18",
+    "brace-expansion@5.0.8": "5.0.9",
+    "js-yaml@<4.0.0": "3.15.1",
+    "js-yaml@>=4.0.0 <5.0.0": "4.3.1",
+    "nanoid": "3.3.18"
   }
 }

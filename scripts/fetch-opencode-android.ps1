@@ -144,6 +144,16 @@ try {
             globalLinuxSpoof = $false
             fileWatcher = "disabled for the bundled host-only @parcel/watcher binding"
         }
+        capabilities = [ordered]@{
+            version = "verified on ARM64 Android API 30"
+            help = "provided by the APK-native capability launcher"
+            debugPaths = "verified on ARM64 Android API 30"
+            interactiveTui = "unsupported: the available Android Bun/OpenTUI payloads abort in native code on a real Bionic device"
+            agentRun = "unsupported: the available Android Bun payloads abort on real command execution"
+            serve = "unsupported: startup aborts before a verified HTTP response"
+            web = "unsupported: startup aborts before a verified HTTP response"
+            policy = "unsafe modes fail with an actionable capability boundary; no Linux/glibc binary is substituted"
+        }
         components = @(
             [ordered]@{
                 packagedName = "libbin_opencode_runtime.so"
@@ -164,7 +174,7 @@ try {
                 license = "MIT"
             }
         )
-        deviceGate = "Run --version, TUI startup, provider auth, prompt, tool execution, PTY, and clean exit on an ARM64 API 29/36 device."
+        deviceGate = "API 30 ARM64 completed for version, help, paths, TUI, run, serve, and web. Retest the explicit capability boundary on API 29 and API 36."
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ManifestPath) | Out-Null
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -NoNewline $ManifestPath

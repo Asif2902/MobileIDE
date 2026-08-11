@@ -44,6 +44,14 @@ function run(label, command, args, cwd) {
 
 try {
   run('doctor', process.execPath, [path.join(prefix, 'lib', 'adev-doctor.js'), '--json'], prefix);
+  if (network) {
+    run(
+      'doctor network self-test',
+      process.execPath,
+      [path.join(prefix, 'lib', 'adev-doctor.js'), '--json', '--self-test'],
+      prefix,
+    );
+  }
   for (const name of fixtures) {
     const source = path.join(fixturesRoot, name);
     const target = path.join(workRoot, name);
@@ -66,6 +74,84 @@ try {
     run(`${name}: consumer install`, process.execPath, [npmCli, 'install', target], consumer);
     run(`${name}: consumer uninstall`, process.execPath, [npmCli, 'uninstall', fixturePackage.name], consumer);
     run(`${name}: consumer reinstall`, process.execPath, [npmCli, 'install', target], consumer);
+  }
+
+  if (network) {
+    // Exact packages from the connected-phone failure report. Keep this at the
+    // platform layer: both packages must follow the same generic npm/node-gyp
+    // path as every other native addon, with no package-specific workaround.
+    const websocketNative = path.join(workRoot, 'websocket-native-dependencies');
+    fs.mkdirSync(websocketNative);
+    fs.writeFileSync(
+      path.join(websocketNative, 'package.json'),
+      JSON.stringify({
+        name: 'adev-websocket-native-dependencies',
+        private: true,
+        version: '1.0.0',
+        dependencies: {
+          bufferutil: '4.1.0',
+          'utf-8-validate': '5.0.10',
+        },
+      }),
+    );
+    const loadNativeDependencies = [
+      '-e',
+      "require('bufferutil');require('utf-8-validate');process.stdout.write('websocket-native-ok\\n')",
+    ];
+    run(
+      'websocket native dependencies: npm install',
+      process.execPath,
+      [npmCli, 'install', '--foreground-scripts'],
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: load after install',
+      process.execPath,
+      loadNativeDependencies,
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: npm rebuild',
+      process.execPath,
+      [
+        npmCli,
+        'rebuild',
+        'bufferutil',
+        'utf-8-validate',
+        '--foreground-scripts',
+      ],
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: load after rebuild',
+      process.execPath,
+      loadNativeDependencies,
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: uninstall',
+      process.execPath,
+      [npmCli, 'uninstall', 'bufferutil', 'utf-8-validate'],
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: reinstall',
+      process.execPath,
+      [
+        npmCli,
+        'install',
+        'bufferutil@4.1.0',
+        'utf-8-validate@5.0.10',
+        '--foreground-scripts',
+      ],
+      websocketNative,
+    );
+    run(
+      'websocket native dependencies: load after reinstall',
+      process.execPath,
+      loadNativeDependencies,
+      websocketNative,
+    );
   }
 
   process.stdout.write(`${JSON.stringify({ok: true, network, results}, null, 2)}\n`);

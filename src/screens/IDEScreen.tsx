@@ -157,7 +157,12 @@ export const IDEScreen: React.FC = () => {
       {!(isLandscape && keyboardVisible && activeView === 'editor') && <MobileTopBar />}
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // Android 15+ edge-to-edge windows can leave adjustResize reporting the
+        // IME without actually reducing the React root. "height" uses the
+        // reported keyboard frame when needed, and computes a zero adjustment
+        // when the OS has already resized us. This keeps terminal accessories
+        // immediately above the keyboard instead of underneath it.
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
         <View style={styles.mobileContent}>{renderMobileView()}</View>

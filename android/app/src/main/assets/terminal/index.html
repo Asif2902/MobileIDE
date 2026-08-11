@@ -13,14 +13,15 @@
       height: 100%;
       overflow: hidden;
       background: #1e1e1e;
-      /* Safe areas (notch / home indicator) */
-      padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
-               env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+      /* React Native's SafeAreaView already applies the device insets. Applying
+         viewport safe-area values again inside this WebView pushed row 1 well
+         below the top of the terminal on cutout devices. */
+      padding: 0;
     }
     #terminal {
       width: 100%;
       height: 100%;
-      padding: 4px 6px;
+      padding: 2px 6px 0;
       overflow: hidden;
     }
     .xterm { height: 100% !important; width: 100% !important; padding: 0 !important; }
@@ -181,6 +182,35 @@
       return out;
     }
 
+    let lastXtermInput = '';
+    let lastXtermInputAt = 0;
+
+    function isMirroredXtermInput(data, now) {
+      if (data && data === lastXtermInput && now - lastXtermInputAt < 120) {
+        lastXtermInput = '';
+        lastXtermInputAt = 0;
+        return true;
+      }
+      return false;
+    }
+
+    function compositionPatch(previous, next) {
+      const before = Array.from(previous || '');
+      const after = Array.from(next || '');
+      let shared = 0;
+      while (
+        shared < before.length &&
+        shared < after.length &&
+        before[shared] === after[shared]
+      ) {
+        shared++;
+      }
+      return {
+        erase: before.length - shared,
+        insert: after.slice(shared).join('')
+      };
+    }
+
     function hardenAndroidInput() {
       const ta = document.querySelector('.xterm-helper-textarea');
       if (!ta) return;
@@ -189,26 +219,103 @@
       ta.setAttribute('autocomplete', 'off');
       ta.setAttribute('spellcheck', 'false');
       ta.setAttribute('enterkeyhint', 'send');
+
+      let composing = false;
+      let compositionText = '';
+
+      function stopNativeEdit(e) {
+        if (e.cancelable) e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+
+      function reconcileComposition(nextText) {
+        const next = nextText || '';
+        const patch = compositionPatch(compositionText, next);
+        if (patch.erase > 0) sendInput('\x7f'.repeat(patch.erase));
+        if (patch.insert) sendInput(applyModifiers(patch.insert));
+        compositionText = next;
+      }
+
+      // Android WebView can report an entire `adb input text` operation as a
+      // stream of keyCode 229 events. xterm's delayed textarea diff then sees
+      // overlapping values and emits duplicated fragments (pri-ri-int...). Let
+      // beforeinput/composition below own only those IME events; normal hardware
+      // key events still follow xterm's proven VT key mapping.
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          event.type === 'keydown' &&
+          (event.keyCode === 229 || event.which === 229 || event.key === 'Unidentified')
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      // Capture composition before xterm's listeners. Reconcile incremental
+      // text so Gboard/autocorrect can replace a composing suffix without ever
+      // sending the same prefix twice.
+      ta.addEventListener('compositionstart', (e) => {
+        composing = true;
+        compositionText = '';
+        ta.value = '';
+        e.stopImmediatePropagation();
+      }, true);
+      ta.addEventListener('compositionupdate', (e) => {
+        reconcileComposition(e.data || '');
+        e.stopImmediatePropagation();
+      }, true);
+      ta.addEventListener('compositionend', (e) => {
+        reconcileComposition(e.data || compositionText);
+        composing = false;
+        compositionText = '';
+        ta.value = '';
+        e.stopImmediatePropagation();
+      }, true);
+
       ta.addEventListener('beforeinput', (e) => {
         const t = e.inputType;
-        if (t === 'deleteContentBackward') {
-          e.preventDefault();
-          sendInput('\x7f');
+        let data = null;
+
+        if (t === 'insertText' || t === 'insertReplacementText') {
+          data = e.data || '';
+        } else if (t === 'insertCompositionText' || t === 'insertFromComposition') {
+          stopNativeEdit(e);
+          if (!composing) composing = true;
+          reconcileComposition(e.data || compositionText);
+          if (t === 'insertFromComposition') composing = false;
+          ta.value = '';
+          return;
+        } else if (t === 'deleteCompositionText') {
+          stopNativeEdit(e);
+          reconcileComposition('');
+          ta.value = '';
+          return;
+        } else if (t === 'deleteContentBackward') {
+          data = '\x7f';
         } else if (t === 'deleteContentForward') {
-          e.preventDefault();
-          sendInput('\x1b[3~');
+          data = '\x1b[3~';
         } else if (t === 'deleteWordBackward') {
-          e.preventDefault();
-          sendInput('\x17');
+          data = '\x17';
         } else if (t === 'insertLineBreak' || t === 'insertParagraph') {
-          e.preventDefault();
-          sendInput('\r');
+          data = '\r';
         }
-      });
+
+        if (data !== null) {
+          stopNativeEdit(e);
+          if (data && !isMirroredXtermInput(data, Date.now())) {
+            sendInput(applyModifiers(data));
+          }
+          ta.value = '';
+        }
+      }, true);
     }
     hardenAndroidInput();
 
-    term.onData((data) => { sendInput(applyModifiers(data)); });
+    term.onData((data) => {
+      lastXtermInput = data;
+      lastXtermInputAt = Date.now();
+      sendInput(applyModifiers(data));
+    });
     term.onResize(function () { /* fit posts resize; avoid double-fire */ });
 
     function copyToNative(text) {
@@ -221,21 +328,32 @@
     function getBufferText() {
       try {
         const buf = term.buffer.active;
-        const lines = [];
-        let logicalLine = '';
+        const logicalLines = [];
+        let logicalLine = null;
         for (let i = 0; i < buf.length; i++) {
           const line = buf.getLine(i);
           if (!line) continue;
           const text = line.translateToString(true);
-          if (line.isWrapped) {
+
+          // isWrapped belongs to the current physical row: it means this row
+          // continues the preceding logical line. Join only those soft wraps;
+          // every ordinary PTY newline remains a newline in the clipboard.
+          if (line.isWrapped && logicalLine !== null) {
             logicalLine += text;
           } else {
-            if (i > 0) lines.push(logicalLine);
+            if (logicalLine !== null) logicalLines.push(logicalLine);
             logicalLine = text;
           }
         }
-        lines.push(logicalLine);
-        return lines.join('\n').replace(/\n+$/, '');
+        if (logicalLine !== null) logicalLines.push(logicalLine);
+
+        // The active buffer includes unused viewport rows after the cursor.
+        // Remove those synthetic rows without removing intentional blank lines
+        // in the middle of command output.
+        while (logicalLines.length > 0 && logicalLines[logicalLines.length - 1] === '') {
+          logicalLines.pop();
+        }
+        return logicalLines.join('\n');
       } catch (e) {
         return '';
       }

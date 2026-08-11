@@ -1,7 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "runtimeLock": "android/app/src/main/assets/runtime/runtime-lock.json",
   "runtimeLockSignature": "Ed25519",
+  "busyboxManifest": "android/app/src/main/assets/runtime/lib/adev-busybox.json",
+  "nanoManifest": "android/app/src/main/assets/runtime/lib/adev-nano.json",
   "platform": "android-bionic",
   "abi": "arm64-v8a",
   "sources": [
@@ -10,7 +12,7 @@
       "index": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
       "artifactHashSource": "SHA256 field in the signed/reviewed package index",
       "licenses": "per-package Debian copyright metadata; Apache-2.0/GPL/LGPL/BSD/MIT and compatible notices",
-      "ownership": "scripts/fetch-runtime-libs.ps1 records each staged runtime path to its resolving package and runtime-lock.json hashes the final packaged ELF"
+      "ownership": "scripts/fetch-runtime-libs.ps1 builds a transient runtime-path-to-package map and runtime-lock.json retains the final runtime path, packaged name, size, and ELF hash. The historical staged package map was not persisted, so package/version/license provenance is incomplete except for the exact artifacts listed below."
     },
     {
       "id": "node-distribution",
@@ -19,11 +21,107 @@
       "ownership": "Node/npm/Corepack runtime payload"
     },
     {
-      "id": "busybox",
-      "url": "https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv8l",
+      "id": "termux-busybox-aarch64",
+      "package": "busybox",
+      "version": "1.38.0-1",
+      "index": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+      "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/b/busybox/busybox_1.38.0-1_aarch64.deb",
+      "archiveSha256": "1bb7f1d4c00cadd0e1117b6dd7110311b8bf749ef00b486e96cfdc11c98f8fd9",
+      "architecture": "ELF64 AArch64",
+      "platform": "android-bionic (Termux prefix)",
       "license": "GPL-2.0-only",
-      "ownership": "fallback Linux command suite"
+      "ownership": "libbin_busybox.so and liblib_libbusybox_so_1_38_0.so. Both SHA-256 values exactly match the executable and libbusybox.so.1.38.0 extracted from the same pinned Termux archive."
+    },
+    {
+      "id": "termux-nano-aarch64",
+      "package": "nano",
+      "version": "9.2",
+      "index": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz",
+      "signedManifest": "https://packages.termux.dev/apt/termux-main/dists/stable/InRelease",
+      "signingKeyFingerprint": "CC72CF8BA7DBFA0182877D045A897D96E57CF20C",
+      "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/nano/nano_9.2_aarch64.deb",
+      "archiveSha256": "59de33ebd2774625d8d8fd7855307a2d9e0bfdea45b9f5b1e95e78d8a5801fb4",
+      "architecture": "ELF64 AArch64",
+      "platform": "android-bionic (Termux prefix)",
+      "license": "GPL-3.0-only",
+      "ownership": "libbin_nano.so, the unmodified package nanorc, and 44 Nano syntax definitions; all are verified by exact file or deterministic tree hashes."
+    },
+    {
+      "id": "termux-ncurses-nano-data-aarch64",
+      "package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses/ncurses_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "archiveSha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "license": "MIT",
+      "ownership": "40 terminfo entries (105154 bytes, tree SHA-256 2f91f3649f9d2a1bb73b32b976d256268b2c55eb085c49d39ffb6ec27a4c317f) plus the exact ncurses copyright notice."
     }
   ],
-  "releaseRequirement": "Runtime regeneration must retain the reviewed package index, package versions, artifact URLs, package hashes, license metadata, runtime-path ownership, and SONAME closure as CI evidence before an externally signed runtime lock is accepted."
+  "artifacts": [
+    {
+      "abi": "arm64-v8a",
+      "packagedName": "libbin_busybox.so",
+      "package": "busybox",
+      "version": "1.38.0-1",
+      "license": "GPL-2.0-only",
+      "source": "https://packages.termux.dev/apt/termux-main/pool/main/b/busybox/busybox_1.38.0-1_aarch64.deb",
+      "archiveSha256": "1bb7f1d4c00cadd0e1117b6dd7110311b8bf749ef00b486e96cfdc11c98f8fd9",
+      "sha256": "db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058",
+      "bytes": 4320,
+      "architecture": "ELF64 AArch64",
+      "platform": "android-bionic (Termux prefix)",
+      "interpreter": "/system/bin/linker64",
+      "needed": [
+        "libbusybox.so.1.38.0",
+        "libc.so"
+      ],
+      "minimumLoadAlignment": 16384,
+      "metadataStatus": "exact"
+    },
+    {
+      "abi": "arm64-v8a",
+      "packagedName": "liblib_libbusybox_so_1_38_0.so",
+      "package": "busybox",
+      "version": "1.38.0-1",
+      "license": "GPL-2.0-only",
+      "source": "https://packages.termux.dev/apt/termux-main/pool/main/b/busybox/busybox_1.38.0-1_aarch64.deb",
+      "archiveSha256": "1bb7f1d4c00cadd0e1117b6dd7110311b8bf749ef00b486e96cfdc11c98f8fd9",
+      "sha256": "b8153ac191754afcd6dd1896f961c7ecf3965cafd727a2690f648fdd9ba57cc1",
+      "bytes": 876576,
+      "architecture": "ELF64 AArch64",
+      "platform": "android-bionic (Termux prefix)",
+      "soname": "libbusybox.so.1.38.0",
+      "needed": [
+        "libandroid-selinux.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "minimumLoadAlignment": 16384,
+      "metadataStatus": "exact"
+    },
+    {
+      "abi": "arm64-v8a",
+      "packagedName": "libbin_nano.so",
+      "package": "nano",
+      "version": "9.2",
+      "license": "GPL-3.0-only",
+      "source": "https://packages.termux.dev/apt/termux-main/pool/main/n/nano/nano_9.2_aarch64.deb",
+      "archiveSha256": "59de33ebd2774625d8d8fd7855307a2d9e0bfdea45b9f5b1e95e78d8a5801fb4",
+      "sha256": "ee689aa27847d10a91a596e90590070c046b4f829f875a4e4ec71a25f8ad7682",
+      "bytes": 432008,
+      "architecture": "ELF64 AArch64",
+      "platform": "android-bionic (Termux prefix)",
+      "interpreter": "/system/bin/linker64",
+      "needed": [
+        "libandroid-support.so",
+        "libncursesw.so.6",
+        "libc.so"
+      ],
+      "minimumLoadAlignment": 16384,
+      "metadataStatus": "exact"
+    }
+  ],
+  "knownBlockers": [
+    "The historical Termux staging run did not persist its per-path package/version/license map. Hash and runtime-path ownership remain signed, but exact package/license metadata for the other Termux-derived payloads must be regenerated and retained before a production provenance claim is complete."
+  ],
+  "releaseRequirement": "Runtime regeneration must retain the reviewed package index, package versions, artifact URLs, package hashes, license metadata, runtime-path ownership, architecture, and SONAME closure as CI evidence before an externally signed runtime lock is accepted."
 }

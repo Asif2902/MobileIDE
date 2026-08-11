@@ -104,6 +104,24 @@ try {
     run('npm-registry', node, [npmCli, 'view', 'is-number@7.0.0', 'version'], {
       timeout: 180_000,
     });
+    const publicClone = path.join(root, 'github-public-clone');
+    run(
+      'git-https-clone',
+      git,
+      [
+        'clone',
+        '--depth',
+        '1',
+        '--',
+        'https://github.com/octocat/Hello-World.git',
+        publicClone,
+      ],
+      {timeout: 180_000},
+    );
+    run('git-https-fetch', git, ['fetch', '--prune', '--', 'origin'], {
+      cwd: publicClone,
+      timeout: 180_000,
+    });
   }
 } catch (error) {
   record('harness', false, error.stack || error.message);

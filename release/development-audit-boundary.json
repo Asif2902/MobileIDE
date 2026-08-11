@@ -1,20 +1,32 @@
 {
-  "reviewedAt": "2026-07-30",
-  "expiresAt": "2026-10-30",
-  "scope": "npm development and build-time dependencies only",
+  "reviewedAt": "2026-08-11",
+  "expiresAt": "2026-09-11",
+  "scope": "npm production, development, and build-time dependency reports",
   "observed": {
-    "moderate": 7,
-    "high": 33,
-    "total": 40
+    "moderate": 0,
+    "high": 8,
+    "total": 8
   },
-  "releaseDecision": "allowed only while npm audit --omit=dev reports zero findings",
+  "releaseDecision": "allowed only when the production audit contains no advisory except the two exact image-size advisories mitigated and regression-tested by the version-pinned local source patch",
+  "productionException": {
+    "package": "image-size",
+    "version": "1.2.1",
+    "advisories": [
+      "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+      "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr"
+    ],
+    "mitigation": "scripts/apply-image-size-security-patch.mjs",
+    "verification": "scripts/verify-build-tool-security.mjs",
+    "expiresAt": "2026-09-11"
+  },
   "rationale": [
-    "The findings are in the React Native, Jest, ESLint, and CLI build/test graph, not the packaged production dependency graph.",
-    "npm audit's suggested remediations include incompatible React Native/Jest changes or a CLI version outside the pinned React Native 0.86.2 template stack.",
-    "Unsafe automatic npm audit fix is forbidden. The full graph remains visible in CI and this exception expires for re-review."
+    "Upstream image-size has no patched release as of the review date; npm's proposed React Native 0.72 downgrade would remove the required API 36 and 16 KiB platform baseline.",
+    "The install-time patch rejects non-advancing ICNS, JXL, and HEIF box lengths and the release gate executes malicious-input probes with a hard timeout.",
+    "nanoid, brace-expansion, js-yaml, fast-xml-parser, and the React Native CLI are independently moved to fixed compatible releases. Unsafe automatic npm audit fix is forbidden, the full graph remains visible in CI, and this exception expires for re-review."
   ],
   "requiredControls": [
-    "npm audit --omit=dev --audit-level=low must pass",
+    "npm run audit:production must reject every unreviewed advisory and every unpatched image-size installation",
+    "npm ci must apply the version-pinned source patch reproducibly",
     "the full npm audit report must be uploaded by CI",
     "release artifacts must pass the APK/AAB content, signature, ABI, alignment, and dependency-closure gates"
   ]

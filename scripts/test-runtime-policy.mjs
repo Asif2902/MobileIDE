@@ -32,6 +32,10 @@ const doctorReport = JSON.parse(doctor.stdout);
 assert.equal(doctorReport.schemaVersion, 4);
 assert.equal(doctorReport.environment.globalPlatformSpoof, false);
 assert.equal(doctorReport.runtimeDistribution.signatureVerified, true);
+assert.equal(doctorReport.opencode.ready, false);
+assert.equal(doctorReport.opencode.capabilities.interactiveTui, false);
+assert.equal(doctorReport.opencode.capabilities.agentRun, false);
+assert.match(doctorReport.opencode.boundary, /Android|ABI|payload/i);
 assert.deepEqual(doctorReport.packageResolution.resolutionOrder, [
   'android-bionic',
   'verified-static-or-musl',

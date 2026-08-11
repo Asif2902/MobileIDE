@@ -17,6 +17,12 @@ const toolPacks = JSON.parse(
 const openCode = JSON.parse(
   fs.readFileSync(path.join(assets, 'lib/adev-opencode.json'), 'utf8'),
 );
+const busybox = JSON.parse(
+  fs.readFileSync(path.join(assets, 'lib/adev-busybox.json'), 'utf8'),
+);
+const nano = JSON.parse(
+  fs.readFileSync(path.join(assets, 'lib/adev-nano.json'), 'utf8'),
+);
 const releaseVersion = JSON.parse(
   fs.readFileSync(path.join(root, 'version.json'), 'utf8'),
 );
@@ -93,6 +99,25 @@ const lock = {
   toolPacks: {
     sha256: sha256(path.join(assets, 'lib/adev-toolpacks.json')),
     ids: toolPacks.packs.map(pack => pack.id).sort(),
+  },
+  busybox: {
+    sha256: sha256(path.join(assets, 'lib/adev-busybox.json')),
+    version: busybox.version,
+    platform: busybox.platform,
+    supportedAbis: busybox.supportedAbis,
+    source: busybox.source,
+    runtime: busybox.runtime,
+  },
+  nano: {
+    sha256: sha256(path.join(assets, 'lib/adev-nano.json')),
+    version: nano.version,
+    platform: nano.platform,
+    supportedAbis: nano.supportedAbis,
+    unsupportedAbis: nano.unsupportedAbis,
+    source: nano.source,
+    runtime: nano.runtime,
+    dependencies: nano.dependencies,
+    components: nano.components,
   },
   openCode: {
     sha256: sha256(path.join(assets, 'lib/adev-opencode.json')),

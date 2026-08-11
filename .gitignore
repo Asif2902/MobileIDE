@@ -60,6 +60,14 @@ yarn-error.log
 
 # Bundle artifact
 *.jsbundle
+*.apk
+*.aab
+
+# Local ADB/UI diagnostics
+/adev-launch.png
+/adev-terminal.png
+/device-*.png
+/device-*.xml
 
 # Ruby / CocoaPods
 **/Pods/

@@ -1,5 +1,6 @@
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unistd.h>
@@ -37,20 +38,31 @@ int main(int argc, char** argv) {
     }
 
     // Termux GNU Make has /data/data/com.termux/files/usr/bin/sh compiled as
-    // its default SHELL. Command-line variables override that build-time path
-    // for the top-level make and every recursive $(MAKE) invocation.
-    const std::string bundled_bash = native_dir + "/libbin_bash.so";
-    const std::string shell =
-        access(bundled_bash.c_str(), X_OK) == 0 ? bundled_bash : "/system/bin/sh";
-    const std::string shell_assignment = "SHELL=" + shell;
+    // its default shell. Do not point SHELL at libbin_bash.so here:
+    //
+    //  * GNU Make only recognizes exact Bourne-shell basenames (sh, bash,
+    //    dash, ...), so "libbin_bash.so" takes its non-POSIX slow path.
+    //  * Android APK install directories contain '=' characters. Make's slow
+    //    command parser treats an '=' in the first word as an assignment and
+    //    eventually falls back to its compiled Termux default shell.
+    //
+    // /system/bin/sh is an Android-native POSIX shell with a recognized
+    // basename. A command-line assignment has higher precedence than the
+    // compiled default and propagates to recursive $(MAKE) invocations.
+    // Append it after caller arguments so another SHELL= value cannot
+    // reintroduce an inaccessible Linux/Termux path.
+    constexpr const char* shell = "/system/bin/sh";
+    const std::string shell_assignment = std::string("SHELL=") + shell;
+    setenv("SHELL", shell, 1);
+    setenv("CONFIG_SHELL", shell, 1);
 
     std::vector<char*> forwarded;
     forwarded.reserve(static_cast<size_t>(argc) + 2);
     forwarded.push_back(const_cast<char*>(runtime.c_str()));
-    forwarded.push_back(const_cast<char*>(shell_assignment.c_str()));
     for (int index = 1; index < argc; ++index) {
         forwarded.push_back(argv[index]);
     }
+    forwarded.push_back(const_cast<char*>(shell_assignment.c_str()));
     forwarded.push_back(nullptr);
 
     execv(runtime.c_str(), forwarded.data());

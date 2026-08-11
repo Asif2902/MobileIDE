@@ -25,6 +25,11 @@ assert.equal(manifest.runtime.interpreter, '/system/bin/linker64');
 assert.equal(manifest.runtime.pie, true);
 assert.equal(manifest.runtime.minimumLoadAlignment, 16384);
 assert.equal(manifest.runtime.globalLinuxSpoof, false);
+assert.match(manifest.capabilities.interactiveTui, /unsupported/i);
+assert.match(manifest.capabilities.agentRun, /unsupported/i);
+assert.match(manifest.capabilities.serve, /unsupported/i);
+assert.match(manifest.capabilities.web, /unsupported/i);
+assert.match(manifest.capabilities.policy, /no Linux\/glibc binary/i);
 assert.equal(
   lock.openCode.sha256,
   crypto.createHash('sha256').update(read(manifestPath)).digest('hex'),
@@ -64,8 +69,20 @@ assert.match(launcher, /LD_PRELOAD/);
 assert.match(launcher, /OPENTUI_LIB_PATH/);
 assert.match(launcher, /BUN_TMPDIR/);
 assert.match(launcher, /SQLITE_TMPDIR/);
-assert.match(launcher, /access\(inherited_tmp, W_OK\)/);
+assert.match(launcher, /BUN_SELF_EXE/);
+assert.match(launcher, /TERMUX_EXEC__PROC_SELF_EXE/);
+assert.match(launcher, /setenv\("ANDROID_ROOT", "\/system", 1\)/);
+assert.match(launcher, /setenv\("TERMUX_VERSION", "adev-opencode", 1\)/);
+assert.match(launcher, /TERMUX__PREFIX__TMP_DIR/);
+assert.match(launcher, /TERMUX_APP__DATA_DIR/);
+assert.match(launcher, /private_tmp/);
+assert.match(launcher, /path == "\/tmp"/);
+assert.match(launcher, /W_OK \| X_OK/);
 assert.match(launcher, /Linux\/glibc binary will not be substituted/);
+assert.match(launcher, /requested_version/);
+assert.match(launcher, /requested_debug_paths/);
+assert.match(launcher, /unsupported_mode/);
+assert.match(launcher, /available upstream Android Bun\/OpenTUI payloads abort/);
 const runtimeManager = text(
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
 );

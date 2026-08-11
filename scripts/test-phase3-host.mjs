@@ -308,9 +308,49 @@ try {
   assert.match(credentialBrokerSource, /ADEV_GIT_CREDENTIAL_SESSION/);
   assert.match(credentialBrokerSource, /InetAddress\.getByName\("127\.0\.0\.1"\)/);
 
+  const gitNativeModule = fs.readFileSync(
+    path.join(
+      root,
+      'android',
+      'app',
+      'src',
+      'main',
+      'java',
+      'com',
+      'mobileide',
+      'app',
+      'modules',
+      'GitNativeModule.kt',
+    ),
+    'utf8',
+  );
+  assert.match(gitNativeModule, /resolveCloneDestination/);
+  assert.match(gitNativeModule, /destination\.parentFile == workspaceRoot/);
+  assert.match(gitNativeModule, /gitCreatePullRequest/);
+  assert.match(gitNativeModule, /credentialStore\.findHttps\("github\.com"\)/);
+  assert.match(gitNativeModule, /ListBranchCommand\.ListMode\.ALL/);
+  assert.match(gitNativeModule, /SetupUpstreamMode\.TRACK/);
+  assert.doesNotMatch(gitNativeModule, /Log\.i\([^\n]*\$url/);
+
+  const gitPanel = fs.readFileSync(
+    path.join(root, 'src', 'components', 'git', 'GitPanel.tsx'),
+    'utf8',
+  );
+  assert.match(gitPanel, /privateCloneDestination/);
+  assert.match(gitPanel, /await openWorkspace\(destPath\)/);
+  assert.match(gitPanel, /setActiveView\('files'\)/);
+  assert.match(gitPanel, /Create GitHub Pull Request/);
+
+  const fileExplorer = fs.readFileSync(
+    path.join(root, 'src', 'components', 'explorer', 'FileExplorer.tsx'),
+    'utf8',
+  );
+  assert.match(fileExplorer, /Private Projects/);
+  assert.match(fileExplorer, /Open \.env/);
+
   process.stdout.write(
-    'Phase 3 host checks passed: protected Git bridge, strict SSH policy, ' +
-      'offline Corepack/pnpm/Yarn payloads, signed tool-pack lifecycle, and Bun gate.\n',
+    'Phase 3 host checks passed: protected Git/PR bridge, discoverable private clones, ' +
+      'tracked branches, strict SSH policy, offline package managers, tool packs, and Bun gate.\n',
   );
 } finally {
   fs.rmSync(temp, {recursive: true, force: true});

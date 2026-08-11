@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.2",
+  "runtimeVersion": "1.16.3",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -12,6 +12,13 @@
       "developerRuntime": "bundled",
       "nativeFiles": [
         {
+          "packagedName": "libbin_adev_busybox.so",
+          "sha256": "b0355548765780cb983e7c3524253d4d851f4ce9d82a60f52ba42bda969f4491",
+          "bytes": 32864,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "fc0b5f6c0be0b54367360de1a08ea1d2d3f950d3f8650ac3d9463eeb6f887d6e",
           "bytes": 41272,
@@ -20,8 +27,8 @@
         },
         {
           "packagedName": "libbin_adev_make.so",
-          "sha256": "6164f19cbcc4648d7102aed8898a5972d0a4a258f09a05b7aeaf7fd96eabf94a",
-          "bytes": 33448,
+          "sha256": "f0985fb1974975b2611da7b41d6fb3404b7ba0e6c69ef7a16f30b5c3cb7a9751",
+          "bytes": 33072,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -43,8 +50,8 @@
         },
         {
           "packagedName": "libbin_busybox.so",
-          "sha256": "141adb1b625a6f44c4b114f76b4387b4ea4f7ab802b88eb40e0d2f6adcccb1c3",
-          "bytes": 1148524,
+          "sha256": "db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058",
+          "bytes": 4320,
           "runtimePaths": [
             "bin/busybox"
           ],
@@ -195,6 +202,15 @@
           "owner": "developer-runtime"
         },
         {
+          "packagedName": "libbin_nano.so",
+          "sha256": "ee689aa27847d10a91a596e90590070c046b4f829f875a4e4ec71a25f8ad7682",
+          "bytes": 432008,
+          "runtimePaths": [
+            "bin/nano"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
           "packagedName": "libbin_node.so",
           "sha256": "d682000d9f5d887ec66de1ed68d9616c7a9d064bca9ae9d8c46725a00912cbc6",
           "bytes": 49715528,
@@ -205,8 +221,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "e6caf17046b68a84f8a7e4cb36018c6fe0f11ffd62dfd6950e39612c16637efd",
-          "bytes": 35256,
+          "sha256": "9249e485fae93398a645a99739600c06767dca383bec23e34cc15e695eb90353",
+          "bytes": 41304,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1889,6 +1905,13 @@
       "capability": "IDE native helpers are packaged; the developer runtime requires the signed x86_64 runtime feature.",
       "nativeFiles": [
         {
+          "packagedName": "libbin_adev_busybox.so",
+          "sha256": "4fa1b2a094f6fad8d35f78566bfe5546d089ee0d51f1e017d27831197cb53e3a",
+          "bytes": 32408,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "77057ec11dcdad955fd3acf9b9c25f9e369c37e918690d2870feb45addd706b3",
           "bytes": 42232,
@@ -1897,8 +1920,8 @@
         },
         {
           "packagedName": "libbin_adev_make.so",
-          "sha256": "9e8cbf1b8eb1456d7e32168633d701276aaa58fe467738d0ced9689f4406e814",
-          "bytes": 33144,
+          "sha256": "fc0dce83b697b3fcb43527a72e63a4cfcaf5192018e61b987a842a42b4956803",
+          "bytes": 32664,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1911,8 +1934,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "43d02015eafcef995e1186f8acb5064cf03695cc9d2b331d2e208eb9c88d2a8c",
-          "bytes": 34840,
+          "sha256": "e4f35b609fa7584602045a7e3e8b77ff9d0bbf3aebf971778a361709519fe23f",
+          "bytes": 41448,
           "runtimePaths": [],
           "owner": "app-native"
         }
@@ -1939,8 +1962,148 @@
       "rust-cargo"
     ]
   },
+  "busybox": {
+    "sha256": "559e400b2c298ae889d345feb6663ce8193e45751f5397bdd8381374ffa29ae3",
+    "version": "1.38.0-1",
+    "platform": "android-bionic",
+    "supportedAbis": [
+      "arm64-v8a"
+    ],
+    "source": {
+      "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+      "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/b/busybox/busybox_1.38.0-1_aarch64.deb",
+      "archiveSha256": "1bb7f1d4c00cadd0e1117b6dd7110311b8bf749ef00b486e96cfdc11c98f8fd9",
+      "upstreamRepository": "https://git.busybox.net/busybox/"
+    },
+    "runtime": {
+      "interpreter": "/system/bin/linker64",
+      "pie": true,
+      "minimumLoadAlignment": 16384,
+      "executableNeeded": [
+        "libbusybox.so.1.38.0",
+        "libc.so"
+      ],
+      "librarySoname": "libbusybox.so.1.38.0",
+      "libraryNeeded": [
+        "libandroid-selinux.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "closurePolicy": "LD_LIBRARY_PATH resolves native-map SONAMEs; libc.so and libm.so are Android system libraries"
+    }
+  },
+  "nano": {
+    "sha256": "e2df9af70fcc5a399f685850c0685a493e4b9dbc686c75793ac724da06af86a1",
+    "version": "9.2",
+    "platform": "android-bionic",
+    "supportedAbis": [
+      "arm64-v8a"
+    ],
+    "unsupportedAbis": {
+      "x86_64": "No pinned and verified Android/Bionic x86_64 Nano payload is bundled. Use vi until an x86_64 package is staged and tested."
+    },
+    "source": {
+      "repository": "https://packages.termux.dev/apt/termux-main",
+      "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz",
+      "signedManifest": "https://packages.termux.dev/apt/termux-main/dists/stable/InRelease",
+      "signedManifestDate": "Sun, 9 Aug 2026 14:50:55 UTC",
+      "signedManifestSha256": "fd876e2dbc87fbd1f5497353009e27cce0917219d136fe50383425cf9d7f45f3",
+      "packageIndexSha256": "0eac8df3821120b2002c6da476eed9d1fe9de61557783e8a38ca202456bd5291",
+      "signingKeyFingerprint": "CC72CF8BA7DBFA0182877D045A897D96E57CF20C",
+      "signingKeySha256": "21c385d5a30107453bd60582d64e2f6e5f5ce11e340ac05e57f943f9c0235420",
+      "signatureVerified": true,
+      "nanoArchiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/nano/nano_9.2_aarch64.deb",
+      "nanoArchiveSha256": "59de33ebd2774625d8d8fd7855307a2d9e0bfdea45b9f5b1e95e78d8a5801fb4",
+      "nanoUpstreamSourceSha256": "05ecb99247b782e8a5b3a25ed4101dd034b0236902f7449bc9795b717642f7e9",
+      "ncursesArchiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses/ncurses_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "ncursesArchiveSha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "libandroidSupportArchiveSha256": "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
+    },
+    "runtime": {
+      "interpreter": "/system/bin/linker64",
+      "pie": true,
+      "minimumLoadAlignment": 16384,
+      "needed": [
+        "libandroid-support.so",
+        "libncursesw.so.6",
+        "libc.so"
+      ],
+      "closurePolicy": "LD_LIBRARY_PATH resolves the two pinned native-map libraries; libc.so is supplied by Android/Bionic.",
+      "terminfoEnvironment": "TERMINFO=$PREFIX/share/terminfo",
+      "configPolicy": "RuntimeManager generates a prefix-correct user .nanorc only when the user has no existing configuration."
+    },
+    "dependencies": [
+      {
+        "package": "libandroid-support",
+        "version": "29-1",
+        "packagedName": "liblib_libandroid_support_so.so",
+        "soname": "libandroid-support.so",
+        "bytes": 20736,
+        "sha256": "739cf829511d71dafd6c67fdbb70f3f0c6048642ea2e1967790ee961fde14430"
+      },
+      {
+        "package": "ncurses",
+        "version": "6.6.20260307+really6.5.20250830",
+        "packagedName": "liblib_libncursesw_so_6.so",
+        "soname": "libncursesw.so.6",
+        "bytes": 384496,
+        "sha256": "795f855f5a988d9e89116847b2c9aa03720cedbc02026259ca735be25398c4c5"
+      }
+    ],
+    "components": [
+      {
+        "packagedName": "libbin_nano.so",
+        "sourcePath": "data/data/com.termux/files/usr/bin/nano",
+        "runtimePaths": [
+          "bin/nano"
+        ],
+        "bytes": 432008,
+        "sha256": "ee689aa27847d10a91a596e90590070c046b4f829f875a4e4ec71a25f8ad7682",
+        "license": "GPL-3.0-only",
+        "role": "ELF64 AArch64 PIE executable"
+      },
+      {
+        "runtimePath": "etc/nanorc.termux",
+        "bytes": 61,
+        "sha256": "bbdb6ef791eb8648576d48276b2e8862cdbf5534af6fb580a06d794a6d65bb9e",
+        "license": "GPL-3.0-only",
+        "role": "Unmodified package nanorc source; RuntimeManager rewrites its Termux prefix before use"
+      },
+      {
+        "runtimePath": "share/nano",
+        "files": 44,
+        "bytes": 55036,
+        "treeSha256": "9ef9463f09be6a7868179f3f4f352374c51dcfa35ea7720f1d637afe65583370",
+        "license": "GPL-3.0-only",
+        "role": "Nano syntax definitions"
+      },
+      {
+        "runtimePath": "share/terminfo",
+        "package": "ncurses",
+        "version": "6.6.20260307+really6.5.20250830",
+        "files": 40,
+        "bytes": 105154,
+        "treeSha256": "2f91f3649f9d2a1bb73b32b976d256268b2c55eb085c49d39ffb6ec27a4c317f",
+        "license": "MIT",
+        "role": "Complete minimal Termux ncurses terminal database"
+      },
+      {
+        "runtimePath": "share/licenses/nano/COPYING",
+        "sha256": "ab8264ecf333be0367fe48cbef3b3434122bc4622e7dbb98b308dd45125c56e8",
+        "license": "GPL-3.0-only",
+        "role": "GNU GPL version 3 license text"
+      },
+      {
+        "runtimePath": "share/licenses/ncurses/COPYRIGHT",
+        "bytes": 1447,
+        "sha256": "708999f95527e1ffa670c6fce288c6c600cb477dd04afcc1171422b3dd4ee226",
+        "license": "MIT",
+        "role": "ncurses copyright and license notice"
+      }
+    ]
+  },
   "openCode": {
-    "sha256": "20161320048cf54f215fb17e8e42d5454b5d21afe454bd2d775f969b59d941c0",
+    "sha256": "dc8a439badbdbccbfe3d2caed2f5143584211a5b36b4c9ea009a2452acbdfb10",
     "version": "1.17.9",
     "platform": "android-bionic",
     "supportedAbis": [

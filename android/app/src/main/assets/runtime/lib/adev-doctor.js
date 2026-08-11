@@ -52,6 +52,16 @@ function native(name) {
   );
 }
 
+function countFiles(directory) {
+  if (!directory || !fs.existsSync(directory)) return 0;
+  let count = 0;
+  for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
+    if (entry.isDirectory()) count += countFiles(path.join(directory, entry.name));
+    else if (entry.isFile()) count += 1;
+  }
+  return count;
+}
+
 const npmCli = path.join(prefix, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const nodeGyp = path.join(
   prefix,
@@ -73,6 +83,7 @@ const probes = {
   git: probe('git', process.env.MOBILEIDE_GIT || native('git'), ['--version']),
   curl: probe('curl', process.env.MOBILEIDE_CURL || native('curl'), ['--version']),
   bash: probe('bash', process.env.MOBILEIDE_BASH || native('bash'), ['--version']),
+  nano: probe('nano', process.env.MOBILEIDE_NANO || native('nano'), ['--version']),
   busybox: probe('busybox', process.env.MOBILEIDE_BUSYBOX || native('busybox'), ['--help']),
   opencode: probe(
     'opencode',
@@ -270,6 +281,18 @@ if (selfTest || verbose) {
   fs.rmSync(testDir, { recursive: true, force: true });
 }
 
+const reportedAbi = process.env.ADEV_ABI || process.arch;
+const nanoSupported = ['arm64-v8a', 'arm64', 'aarch64'].includes(reportedAbi);
+const nanoTerminfo = path.join(prefix, 'share', 'terminfo');
+const nanoSyntax = path.join(prefix, 'share', 'nano');
+const nanoUserConfig = path.join(process.env.HOME || '', '.nanorc');
+const nanoDataReady =
+  fs.existsSync(path.join(nanoTerminfo, 'x', 'xterm-256color')) &&
+  countFiles(nanoTerminfo) === 40 &&
+  countFiles(nanoSyntax) === 44 &&
+  fs.existsSync(nanoUserConfig);
+const nanoReady = nanoSupported && probes.nano.ready && nanoDataReady;
+
 const requiredReady = [
   probes.node,
   probes.npm,
@@ -280,7 +303,7 @@ const requiredReady = [
   probes.git,
   probes.curl,
   probes.busybox,
-].every(item => item.ready);
+].every(item => item.ready) && (!nanoSupported || nanoReady);
 const executionReady = Object.values(executionTests).every(item => item.ready);
 
 const runtimeLockPath = path.join(prefix, 'runtime-lock.json');
@@ -386,16 +409,41 @@ const report = {
     upstream: 'https://bun.sh/docs/installation',
   },
   opencode: {
-    ready: probes.opencode.ready,
+    ready: false,
+    diagnosticsReady: probes.opencode.ready,
     version: probes.opencode.version,
     platform: 'android-bionic',
     abi: process.env.ADEV_ABI || process.arch,
     supportedAbis: ['arm64-v8a'],
     delivery: 'APK native library',
     globalLinuxSpoof: false,
+    capabilities: {
+      version: probes.opencode.ready,
+      help: true,
+      debugPaths: probes.opencode.ready,
+      interactiveTui: false,
+      agentRun: false,
+      serve: false,
+      web: false,
+    },
     boundary: probes.opencode.ready
-      ? null
-      : 'A verified Android/Bionic OpenCode runtime is currently available only for ARM64.',
+      ? 'The installed ARM64 payload is diagnostic-only: available upstream Android Bun/OpenTUI builds abort in native Bionic code for TUI, run, serve, and web modes.'
+      : 'No verified Android/Bionic OpenCode diagnostic payload is available for this ABI.',
+  },
+  nano: {
+    ready: nanoReady,
+    executableReady: probes.nano.ready,
+    version: probes.nano.version,
+    platform: 'android-bionic',
+    abi: reportedAbi,
+    supportedAbis: ['arm64-v8a'],
+    terminfo: process.env.TERMINFO || null,
+    terminfoEntries: countFiles(nanoTerminfo),
+    syntaxDefinitions: countFiles(nanoSyntax),
+    userConfigReady: fs.existsSync(nanoUserConfig),
+    boundary: nanoSupported
+      ? (nanoReady ? null : 'Nano is incomplete: check the native payload, TERMINFO, syntax data, and generated user config.')
+      : 'Nano is not bundled for x86_64; use vi until a pinned Android/Bionic x86_64 payload is verified.',
   },
   frameworks: {
     next: nextProject,
@@ -452,6 +500,14 @@ if (jsonMode) {
   process.stdout.write(
     `Tool-pack catalog: ${toolPacks.catalogVerified ? 'signature verified' : 'invalid'}; ` +
       `Bun: unsupported Android/Bionic boundary\n`
+  );
+  process.stdout.write(
+    `OpenCode: ${report.opencode.diagnosticsReady ? 'version/help diagnostics ready' : 'diagnostics unavailable'}; ` +
+      `TUI/run/server unsupported by the verified Android payload\n`
+  );
+  process.stdout.write(
+    `Nano: ${report.nano.ready ? 'ready' : report.nano.boundary}; ` +
+      `${report.nano.terminfoEntries} terminfo entries, ${report.nano.syntaxDefinitions} syntax files\n`
   );
   if (nextProject.installed) {
     process.stdout.write(

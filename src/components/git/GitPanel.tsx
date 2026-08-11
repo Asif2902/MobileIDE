@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,13 @@ import {
 import { useGitStore } from '../../stores/gitStore';
 import { useFileStore } from '../../stores/fileStore';
 import { useRuntimeStore } from '../../stores/runtimeStore';
+import { useUIStore } from '../../stores/uiStore';
+import { ClipboardNativeModule, MobileIDENativeModule } from '../../native';
+import {
+  normalizeProjectFolderName,
+  privateCloneDestination,
+  repositoryNameFromUrl,
+} from '../../utils/gitWorkspacePolicy';
 
 /** Git panel is for easy stage / commit / push — not a full CLI replacement. */
 type MoreSection = 'none' | 'remote' | 'branches';
@@ -42,6 +49,8 @@ export const GitPanel: React.FC = () => {
     commitChanges,
     pushChanges,
     pullChanges,
+    fetchRemote,
+    createPullRequest,
     loadLog,
     loadBranches,
     checkoutBranch,
@@ -55,12 +64,16 @@ export const GitPanel: React.FC = () => {
   // to the virtual workspace path only if resolve failed.
   const currentWorkspace = useFileStore(state => state.currentWorkspace);
   const currentWorkspaceRealPath = useFileStore(state => state.currentWorkspaceRealPath);
+  const loadWorkspaces = useFileStore(state => state.loadWorkspaces);
+  const openWorkspace = useFileStore(state => state.openWorkspace);
+  const setActiveView = useUIStore(state => state.setActiveView);
   const { isReady } = useRuntimeStore();
   const [more, setMore] = useState<MoreSection>('none');
   const [commitMsg, setCommitMsg] = useState('');
   const [authorName, setAuthorName] = useState('Developer');
   const [authorEmail, setAuthorEmail] = useState('dev@adevstudio.local');
   const [cloneUrl, setCloneUrl] = useState('');
+  const [cloneFolder, setCloneFolder] = useState('');
   const [showClone, setShowClone] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
@@ -69,17 +82,24 @@ export const GitPanel: React.FC = () => {
   const [remoteName, setRemoteName] = useState('origin');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [showAddRemote, setShowAddRemote] = useState(false);
-  const hasChecked = useRef(false);
+  const [showPullRequest, setShowPullRequest] = useState(false);
+  const [pullRequestTitle, setPullRequestTitle] = useState('');
+  const [pullRequestBody, setPullRequestBody] = useState('');
+  const [pullRequestBase, setPullRequestBase] = useState('main');
 
   const repoPath = currentWorkspaceRealPath || currentWorkspace || '';
+  const primaryRemote = remotes.find(item => item.name === 'origin')?.name
+    || remotes[0]?.name
+    || 'origin';
 
   // Re-check whenever the workspace path changes (JGit needs the real FS path).
   useEffect(() => {
-    if (!isReady || !repoPath) return;
+    if (!isReady) return;
     let cancelled = false;
-    hasChecked.current = true;
     (async () => {
       try {
+        // Blank is a valid "no project open" state. checkRepo marks the Git
+        // panel initialized so it cannot remain on an endless loading spinner.
         await checkRepo(repoPath);
       } catch (e) {
         // Absolute last resort — never let the Git tab unmount with a throw
@@ -123,28 +143,74 @@ export const GitPanel: React.FC = () => {
     setCommitMsg('');
   };
 
-  const handleClone = () => {
+  const handleClone = async () => {
     if (!cloneUrl.trim()) {
       Alert.alert('Error', 'Please enter a repository URL');
       return;
     }
-    const repoName = cloneUrl.split('/').pop()?.replace('.git', '') || 'cloned-repo';
-    // Put cloned repo in the same parent directory as current workspace
-    const parentDir = repoPath.substring(0, repoPath.lastIndexOf('/'));
-    const destPath = `${parentDir}/${repoName}`;
-    cloneRepo(cloneUrl.trim(), destPath);
-    setShowClone(false);
-    setCloneUrl('');
+    let cloned = false;
+    try {
+      const paths = await MobileIDENativeModule.getVirtualPaths();
+      const repoName = cloneFolder.trim() || repositoryNameFromUrl(cloneUrl);
+      const destPath = privateCloneDestination(paths.workspaces, repoName);
+      await cloneRepo(cloneUrl.trim(), destPath);
+      cloned = true;
+      await loadWorkspaces();
+      const opened = await openWorkspace(destPath);
+      if (!opened) {
+        throw new Error(
+          'The repository was cloned into Private Projects, but Files could not open it. ' +
+          'Open it from Files → Projects and review the displayed filesystem error.',
+        );
+      }
+      await checkRepo(destPath);
+      setShowClone(false);
+      setCloneUrl('');
+      setCloneFolder('');
+      setActiveView('files');
+      Alert.alert(
+        'Repository ready',
+        `${destPath.split('/').pop()} is open in Files. Dotfiles such as .env are visible.`,
+      );
+    } catch (cloneError: any) {
+      if (cloned) {
+        // The repository already exists; do not leave a retry action that can
+        // only fail with "destination is not empty".
+        setShowClone(false);
+        setCloneUrl('');
+        setCloneFolder('');
+      }
+      Alert.alert(
+        cloned ? 'Repository cloned, but not opened' : 'Clone failed',
+        cloneError?.message || 'The repository could not be cloned. Check the URL and credentials.',
+      );
+    }
   };
 
-  const handleAuth = () => {
+  const closeAuthModal = useCallback(() => {
+    setTokenInput('');
+    setShowAuth(false);
+  }, []);
+
+  const handleAuth = async () => {
     if (!tokenInput.trim()) {
       Alert.alert('Error', 'Please enter a GitHub token');
       return;
     }
-    setCredentials(usernameInput.trim() || 'token', tokenInput.trim());
-    setShowAuth(false);
+    const stored = await setCredentials(
+      usernameInput.trim() || 'token',
+      tokenInput.trim(),
+    );
+    // Never retain a submitted PAT in React state, including after failure.
     setTokenInput('');
+    if (!stored) {
+      Alert.alert(
+        'GitHub credential not saved',
+        'Android Keystore could not securely store the token. Review the Git error and try again.',
+      );
+      return;
+    }
+    closeAuthModal();
     setUsernameInput('');
   };
 
@@ -152,6 +218,32 @@ export const GitPanel: React.FC = () => {
     if (!newBranch.trim()) return;
     checkoutBranch(repoPath, newBranch.trim(), true);
     setNewBranch('');
+  };
+
+  const handleCreatePullRequest = async () => {
+    if (!pullRequestTitle.trim()) {
+      Alert.alert('Title required', 'Enter a pull request title.');
+      return;
+    }
+    const result = await createPullRequest(
+      repoPath,
+      pullRequestTitle.trim(),
+      pullRequestBody,
+      pullRequestBase.trim() || 'main',
+      branch,
+      primaryRemote,
+    );
+    if (result) {
+      setShowPullRequest(false);
+      setPullRequestTitle('');
+      setPullRequestBody('');
+      if (result.url) {
+        Alert.alert('Pull request created', `#${result.number}`, [
+          { text: 'Close' },
+          { text: 'Open on GitHub', onPress: () => MobileIDENativeModule.openUrl(result.url) },
+        ]);
+      }
+    }
   };
 
   const handleAddRemote = () => {
@@ -215,36 +307,12 @@ export const GitPanel: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Clone Modal */}
-        <Modal visible={showClone} transparent animationType="slide" onRequestClose={() => setShowClone(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Clone Repository</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="https://github.com/user/repo.git"
-                placeholderTextColor="#666"
-                value={cloneUrl}
-                onChangeText={setCloneUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowClone(false)}>
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleClone}>
-                  <Text style={styles.primaryBtnText}>Clone</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {renderCloneModal()}
 
         {/* Auth Modal */}
         <AuthModal
           visible={showAuth}
-          onClose={() => setShowAuth(false)}
+          onClose={closeAuthModal}
           onConfirm={handleAuth}
           username={usernameInput}
           setUsername={setUsernameInput}
@@ -268,11 +336,39 @@ export const GitPanel: React.FC = () => {
           </View>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerTextBtn} onPress={() => setShowClone(true)}>
+            <Text style={styles.headerTextBtnLabel}>Clone</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={handleRefresh}>
             <Text style={styles.iconBtnText}>⟳</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={() => setShowAuth(true)}>
             <Text style={styles.iconBtnText}>{isAuthenticated ? '👤' : '🔑'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.projectBar}>
+        <View style={styles.projectInfo}>
+          <Text style={styles.projectName} numberOfLines={1}>
+            {currentWorkspace?.split('/').pop() || 'Current project'}
+          </Text>
+          <Text style={styles.projectPath} numberOfLines={1} ellipsizeMode="middle">
+            {currentWorkspace || repoPath}
+          </Text>
+          <Text style={styles.dotfileHint}>App-private project · .env and other dotfiles are visible in Files</Text>
+        </View>
+        <View style={styles.projectActions}>
+          <TouchableOpacity style={styles.projectBtn} onPress={() => setActiveView('files')}>
+            <Text style={styles.projectBtnText}>Files</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.projectBtn}
+            onPress={() => {
+              ClipboardNativeModule.setString(repoPath).catch(() => {});
+            }}
+          >
+            <Text style={styles.projectBtnText}>Copy path</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -369,14 +465,14 @@ export const GitPanel: React.FC = () => {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, styles.pushBtn]}
-          onPress={() => pushChanges(repoPath)}
+          onPress={() => pushChanges(repoPath, primaryRemote)}
           disabled={isLoading}
         >
           <Text style={styles.actionBtnText}>↑ Push</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, styles.pullBtn]}
-          onPress={() => pullChanges(repoPath)}
+          onPress={() => pullChanges(repoPath, primaryRemote)}
           disabled={isLoading}
         >
           <Text style={styles.actionBtnText}>↓ Pull</Text>
@@ -385,13 +481,16 @@ export const GitPanel: React.FC = () => {
 
       <AuthModal
         visible={showAuth}
-        onClose={() => setShowAuth(false)}
+        onClose={closeAuthModal}
         onConfirm={handleAuth}
         username={usernameInput}
         setUsername={setUsernameInput}
         token={tokenInput}
         setToken={setTokenInput}
       />
+
+      {renderCloneModal()}
+      {renderPullRequestModal()}
 
       {isLoading && (
         <View style={styles.loadingOverlay}>
@@ -420,6 +519,122 @@ export const GitPanel: React.FC = () => {
           </View>
         )}
       </>
+    );
+  }
+
+  function renderCloneModal() {
+    const suggestedFolder = cloneUrl.trim()
+      ? repositoryNameFromUrl(cloneUrl)
+      : 'repository-name';
+    return (
+      <Modal
+        visible={showClone}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowClone(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Clone into Private Projects</Text>
+            <Text style={styles.modalSub}>
+              The repository will be registered, opened in Files, and used as the terminal folder.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="https://github.com/user/repo.git"
+              placeholderTextColor="#666"
+              value={cloneUrl}
+              onChangeText={setCloneUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder={suggestedFolder}
+              placeholderTextColor="#666"
+              value={cloneFolder}
+              onChangeText={setCloneFolder}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.destinationHint}>
+              Destination: Private Projects / {normalizeProjectFolderName(
+                cloneFolder.trim() || suggestedFolder,
+              )}
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowClone(false)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleClone}
+                disabled={isLoading}
+              >
+                <Text style={styles.primaryBtnText}>{isLoading ? 'Cloning…' : 'Clone & Open'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  function renderPullRequestModal() {
+    return (
+      <Modal
+        visible={showPullRequest}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPullRequest(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create GitHub Pull Request</Text>
+            <Text style={styles.modalSub}>
+              Head: {branch}. Push this branch first. The protected GitHub token stays in
+              Android Keystore.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Base branch (usually main)"
+              placeholderTextColor="#666"
+              value={pullRequestBase}
+              onChangeText={setPullRequestBase}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Pull request title"
+              placeholderTextColor="#666"
+              value={pullRequestTitle}
+              onChangeText={setPullRequestTitle}
+            />
+            <TextInput
+              style={[styles.input, styles.pullRequestBody]}
+              placeholder="Description (optional)"
+              placeholderTextColor="#666"
+              value={pullRequestBody}
+              onChangeText={setPullRequestBody}
+              multiline
+              textAlignVertical="top"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowPullRequest(false)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleCreatePullRequest}
+                disabled={isLoading}
+              >
+                <Text style={styles.primaryBtnText}>Create PR</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     );
   }
 
@@ -481,12 +696,12 @@ export const GitPanel: React.FC = () => {
           <Text style={styles.sectionTitle}>Branches</Text>
           {branches.map((b, idx) => (
             <TouchableOpacity
-              key={idx}
+              key={b.fullName || `${b.isRemote ? 'remote' : 'local'}-${b.name}-${idx}`}
               style={[styles.branchRow, b.isCurrent && styles.branchRowActive]}
-              onPress={() => !b.isCurrent && checkoutBranch(repoPath, b.name)}
+              onPress={() => !b.isCurrent && checkoutBranch(repoPath, b.name, false, !!b.isRemote)}
             >
               <Text style={[styles.branchName, b.isCurrent && styles.branchNameActive]}>
-                {b.isCurrent ? '● ' : '○ '}{b.name}
+                {b.isCurrent ? '● ' : '○ '}{b.name}{b.isRemote ? '  · remote' : ''}
               </Text>
               {b.isCurrent && <Text style={styles.currentBadge}>current</Text>}
             </TouchableOpacity>
@@ -532,6 +747,24 @@ export const GitPanel: React.FC = () => {
           <TouchableOpacity style={styles.linkBtn} onPress={() => setShowAddRemote(true)}>
             <Text style={styles.linkBtnText}>+ Add Remote</Text>
           </TouchableOpacity>
+          {remotes.length > 0 && (
+            <View style={styles.remoteActions}>
+              <TouchableOpacity
+                style={styles.secondaryCompactBtn}
+                onPress={() => fetchRemote(repoPath, primaryRemote)}
+                disabled={isLoading}
+              >
+                <Text style={styles.secondaryCompactBtnText}>Fetch branches</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryCompactBtn}
+                onPress={() => setShowPullRequest(true)}
+                disabled={isLoading}
+              >
+                <Text style={styles.secondaryCompactBtnText}>Create PR</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* GitHub auth section */}
@@ -604,7 +837,8 @@ const AuthModal: React.FC<{
           </TouchableOpacity>
         </View>
         <Text style={styles.modalSub}>
-          Use a Personal Access Token (PAT) with repo scope. It is encrypted by
+          Use a classic PAT with repo scope, or a fine-grained token with Contents
+          read/write and Pull requests read/write. It is encrypted by
           Android Keystore and shared with UI and terminal Git without appearing
           in commands or logs.{'\n'}GitHub → Settings → Developer → Tokens
         </Text>
@@ -658,12 +892,30 @@ const styles = StyleSheet.create({
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#e4e4e7' },
   headerActions: { flexDirection: 'row', gap: 8 },
+  headerTextBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: '#2d2d3d',
+  },
+  headerTextBtnLabel: { color: '#a78bfa', fontSize: 12, fontWeight: '700' },
   branchBadge: {
     backgroundColor: '#2d2d3d', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
   },
   branchText: { fontSize: 12, color: '#8b5cf6' },
   iconBtn: { padding: 6 },
   iconBtnText: { fontSize: 18, color: '#ccc' },
+  projectBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 9, backgroundColor: '#252526',
+    borderBottomWidth: 1, borderBottomColor: '#333',
+  },
+  projectInfo: { flex: 1 },
+  projectName: { color: '#e4e4e7', fontSize: 13, fontWeight: '700' },
+  projectPath: { color: '#8b8b91', fontSize: 10, marginTop: 2 },
+  dotfileHint: { color: '#71717a', fontSize: 9, marginTop: 2 },
+  projectActions: { flexDirection: 'row', gap: 5 },
+  projectBtn: {
+    paddingHorizontal: 8, paddingVertical: 7, backgroundColor: '#333', borderRadius: 5,
+  },
+  projectBtnText: { color: '#d4d4d8', fontSize: 10, fontWeight: '600' },
 
   tabBar: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#333' },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center' },
@@ -734,6 +986,12 @@ const styles = StyleSheet.create({
   remoteRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
   remoteName: { fontSize: 14, color: '#e4e4e7', fontWeight: '600' },
   remoteUrl: { fontSize: 12, color: '#888', marginTop: 2 },
+  remoteActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  secondaryCompactBtn: {
+    flex: 1, paddingVertical: 9, alignItems: 'center', backgroundColor: '#2d2d3d',
+    borderWidth: 1, borderColor: '#4c3f70', borderRadius: 6,
+  },
+  secondaryCompactBtnText: { color: '#a78bfa', fontSize: 12, fontWeight: '600' },
 
   authStatus: { padding: 12, backgroundColor: '#2d4a2d', borderRadius: 6 },
   authText: { color: '#73c991', fontSize: 13 },
@@ -745,6 +1003,8 @@ const styles = StyleSheet.create({
   halfInput: { flex: 1 },
   flexInput: { flex: 1 },
   rowInput: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  destinationHint: { color: '#a1a1aa', fontSize: 11 },
+  pullRequestBody: { minHeight: 100 },
   smallBtn: { backgroundColor: '#8b5cf6', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 6 },
   smallBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 

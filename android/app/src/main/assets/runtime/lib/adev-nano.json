@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "termux-nano-android",
+  "package": "nano",
+  "version": "9.2",
+  "platform": "android-bionic",
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "unsupportedAbis": {
+    "x86_64": "No pinned and verified Android/Bionic x86_64 Nano payload is bundled. Use vi until an x86_64 package is staged and tested."
+  },
+  "license": "GPL-3.0-only",
+  "source": {
+    "repository": "https://packages.termux.dev/apt/termux-main",
+    "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz",
+    "signedManifest": "https://packages.termux.dev/apt/termux-main/dists/stable/InRelease",
+    "signedManifestDate": "Sun, 9 Aug 2026 14:50:55 UTC",
+    "signedManifestSha256": "fd876e2dbc87fbd1f5497353009e27cce0917219d136fe50383425cf9d7f45f3",
+    "packageIndexSha256": "0eac8df3821120b2002c6da476eed9d1fe9de61557783e8a38ca202456bd5291",
+    "signingKeyFingerprint": "CC72CF8BA7DBFA0182877D045A897D96E57CF20C",
+    "signingKeySha256": "21c385d5a30107453bd60582d64e2f6e5f5ce11e340ac05e57f943f9c0235420",
+    "signatureVerified": true,
+    "nanoArchiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/nano/nano_9.2_aarch64.deb",
+    "nanoArchiveSha256": "59de33ebd2774625d8d8fd7855307a2d9e0bfdea45b9f5b1e95e78d8a5801fb4",
+    "nanoUpstreamSourceSha256": "05ecb99247b782e8a5b3a25ed4101dd034b0236902f7449bc9795b717642f7e9",
+    "ncursesArchiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/n/ncurses/ncurses_6.6.20260307+really6.5.20250830_aarch64.deb",
+    "ncursesArchiveSha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+    "libandroidSupportArchiveSha256": "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
+  },
+  "runtime": {
+    "interpreter": "/system/bin/linker64",
+    "pie": true,
+    "minimumLoadAlignment": 16384,
+    "needed": [
+      "libandroid-support.so",
+      "libncursesw.so.6",
+      "libc.so"
+    ],
+    "closurePolicy": "LD_LIBRARY_PATH resolves the two pinned native-map libraries; libc.so is supplied by Android/Bionic.",
+    "terminfoEnvironment": "TERMINFO=$PREFIX/share/terminfo",
+    "configPolicy": "RuntimeManager generates a prefix-correct user .nanorc only when the user has no existing configuration."
+  },
+  "dependencies": [
+    {
+      "package": "libandroid-support",
+      "version": "29-1",
+      "packagedName": "liblib_libandroid_support_so.so",
+      "soname": "libandroid-support.so",
+      "bytes": 20736,
+      "sha256": "739cf829511d71dafd6c67fdbb70f3f0c6048642ea2e1967790ee961fde14430"
+    },
+    {
+      "package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "packagedName": "liblib_libncursesw_so_6.so",
+      "soname": "libncursesw.so.6",
+      "bytes": 384496,
+      "sha256": "795f855f5a988d9e89116847b2c9aa03720cedbc02026259ca735be25398c4c5"
+    }
+  ],
+  "components": [
+    {
+      "packagedName": "libbin_nano.so",
+      "sourcePath": "data/data/com.termux/files/usr/bin/nano",
+      "runtimePaths": [
+        "bin/nano"
+      ],
+      "bytes": 432008,
+      "sha256": "ee689aa27847d10a91a596e90590070c046b4f829f875a4e4ec71a25f8ad7682",
+      "license": "GPL-3.0-only",
+      "role": "ELF64 AArch64 PIE executable"
+    },
+    {
+      "runtimePath": "etc/nanorc.termux",
+      "bytes": 61,
+      "sha256": "bbdb6ef791eb8648576d48276b2e8862cdbf5534af6fb580a06d794a6d65bb9e",
+      "license": "GPL-3.0-only",
+      "role": "Unmodified package nanorc source; RuntimeManager rewrites its Termux prefix before use"
+    },
+    {
+      "runtimePath": "share/nano",
+      "files": 44,
+      "bytes": 55036,
+      "treeSha256": "9ef9463f09be6a7868179f3f4f352374c51dcfa35ea7720f1d637afe65583370",
+      "license": "GPL-3.0-only",
+      "role": "Nano syntax definitions"
+    },
+    {
+      "runtimePath": "share/terminfo",
+      "package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "files": 40,
+      "bytes": 105154,
+      "treeSha256": "2f91f3649f9d2a1bb73b32b976d256268b2c55eb085c49d39ffb6ec27a4c317f",
+      "license": "MIT",
+      "role": "Complete minimal Termux ncurses terminal database"
+    },
+    {
+      "runtimePath": "share/licenses/nano/COPYING",
+      "sha256": "ab8264ecf333be0367fe48cbef3b3434122bc4622e7dbb98b308dd45125c56e8",
+      "license": "GPL-3.0-only",
+      "role": "GNU GPL version 3 license text"
+    },
+    {
+      "runtimePath": "share/licenses/ncurses/COPYRIGHT",
+      "bytes": 1447,
+      "sha256": "708999f95527e1ffa670c6fce288c6c600cb477dd04afcc1171422b3dd4ee226",
+      "license": "MIT",
+      "role": "ncurses copyright and license notice"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "termux-busybox-android",
+  "package": "busybox",
+  "version": "1.38.0-1",
+  "platform": "android-bionic",
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "license": "GPL-2.0-only",
+  "source": {
+    "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+    "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/b/busybox/busybox_1.38.0-1_aarch64.deb",
+    "archiveSha256": "1bb7f1d4c00cadd0e1117b6dd7110311b8bf749ef00b486e96cfdc11c98f8fd9",
+    "upstreamRepository": "https://git.busybox.net/busybox/"
+  },
+  "runtime": {
+    "interpreter": "/system/bin/linker64",
+    "pie": true,
+    "minimumLoadAlignment": 16384,
+    "executableNeeded": [
+      "libbusybox.so.1.38.0",
+      "libc.so"
+    ],
+    "librarySoname": "libbusybox.so.1.38.0",
+    "libraryNeeded": [
+      "libandroid-selinux.so",
+      "libm.so",
+      "libc.so"
+    ],
+    "closurePolicy": "LD_LIBRARY_PATH resolves native-map SONAMEs; libc.so and libm.so are Android system libraries"
+  },
+  "components": [
+    {
+      "packagedName": "libbin_busybox.so",
+      "sourcePath": "data/data/com.termux/files/usr/bin/busybox",
+      "runtimePaths": [
+        "bin/busybox"
+      ],
+      "bytes": 4320,
+      "sha256": "db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058",
+      "role": "ELF64 AArch64 PIE executable"
+    },
+    {
+      "packagedName": "liblib_libbusybox_so_1_38_0.so",
+      "sourcePath": "data/data/com.termux/files/usr/lib/libbusybox.so.1.38.0",
+      "runtimePaths": [
+        "lib/libbusybox.so.1.38.0"
+      ],
+      "bytes": 876576,
+      "sha256": "b8153ac191754afcd6dd1896f961c7ecf3965cafd727a2690f648fdd9ba57cc1",
+      "role": "ELF64 AArch64 shared library"
+    }
+  ]
+}
