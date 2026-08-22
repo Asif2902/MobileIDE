@@ -160,6 +160,8 @@ configure_file(
 
 add_executable(adev_opencode adev_opencode.cpp)
 
+add_library(adev_opencode_compat SHARED adev_opencode_compat.c)
+
 target_include_directories(adev_opencode PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 target_link_options(adev_opencode PRIVATE
@@ -171,11 +173,29 @@ target_link_options(adev_opencode PRIVATE
 target_compile_options(adev_opencode PRIVATE "-O2" "-g0")
 target_compile_definitions(adev_opencode PRIVATE NDEBUG)
 
+target_link_libraries(adev_opencode_compat PRIVATE dl)
+target_link_options(adev_opencode_compat PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+target_compile_options(adev_opencode_compat PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_opencode_compat PRIVATE NDEBUG)
+
 set_target_properties(adev_opencode PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
     INTERPROCEDURAL_OPTIMIZATION FALSE
     OUTPUT_NAME "bin_opencode"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+set_target_properties(adev_opencode_compat PROPERTIES
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "lib_adev_opencode_compat"
     PREFIX "lib"
     SUFFIX ".so"
 )

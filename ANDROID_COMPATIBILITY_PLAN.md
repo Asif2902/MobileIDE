@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-22
-Application: A Dev Studio 1.3.11 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.16.6
+Application: A Dev Studio 1.3.12 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.16.7
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -13,7 +13,7 @@ Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. The Phase 5 device/UI matrix owns Node/Express/Vite/Next/HMR/port/process cleanup evidence; connected runner execution remains. |
 | 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | `93b3527` | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, and the Bun/tool-pack capability policy pass. Live network auth remains in the device matrix; absent large toolchains and Git LFS remain explicit signed feature boundaries. |
 | 4. Android 16, ABI, filesystem, and runtime distribution | **IMPLEMENTED — DEVICE / FEATURE / HOST RELEASE GATES** | `001cc17` | React Native 0.86.2, API 36, NDK r29, Gradle 9.3.1, dual-ABI app/native helpers, signed runtime locking, guided private imports, and 16 KiB checks pass. Phase 5 now automates the connected/release gates; the full x86_64 developer runtime remains a signed feature boundary. |
-| 5. Automation, security, production release, and final audit | **IMPLEMENTED — DEVICE / PROVENANCE / SIGNING GATES** | `d6b3296` | Test/lint isolation, exact JDK 17, one version source, fail-closed external signing, APK/AAB validation, dependency/license/secret/runtime-ownership policy, and API/ABI/16 KiB CI orchestration pass host checks. The 1.3.11 phone-test APK and instrumentation APK build and verify; connected execution, 196 legacy hash-only provenance mappings, and external production signing remain gates. |
+| 5. Automation, security, production release, and final audit | **IMPLEMENTED — DEVICE / PROVENANCE / SIGNING GATES** | `d6b3296` | Test/lint isolation, exact JDK 17, one version source, fail-closed external signing, APK/AAB validation, dependency/license/secret/runtime-ownership policy, and API/ABI/16 KiB CI orchestration pass host checks. The 1.3.12 phone-test APK and instrumentation APK build and verify; connected execution, 196 legacy hash-only provenance mappings, and external production signing remain gates. |
 
 ### What “implemented — device gate” means
 
@@ -21,7 +21,7 @@ It means the integration is present and its host/unit/build checks pass, while
 some required device combinations are not yet certified. API 30 evidence was
 collected from the user's ARM64 phone for the terminal startup/prompt, the
 Python-to-Make node-gyp failure progression, and OpenCode diagnostics/crash
-boundaries. That partial evidence does not certify the final 1.3.11 candidate,
+boundaries. That partial evidence does not certify the final 1.3.12 candidate,
 API 29/34/35/36, strict 16 KiB devices, x86_64, secondary users, work profiles,
 or fresh/upgrade matrices. Those remain explicit release gates.
 
@@ -36,6 +36,7 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | Shell environment and ARM64 sysroot correction | **FIXED — 1.3.11 DEVICE RETEST** | `0ffebd2` | The 1.3.8 phone logs proved node-gyp reached Clang, then exposed two platform defects: Kotlin emitted a literal `${'$'}{NODE_OPTIONS:-}` into `.adev-agent-env`, and Clang could not search the packaged target-specific `asm/types.h`. Runtime 1.16.4 emits valid POSIX expansion, adds the ARM64 UAPI include directory plus `CPATH`, gates header completeness, and adds permanent host regressions. Final Vite execution remains pending; native compilation is now observed through object generation. |
 | Unix LLD personality and OpenCode short-version correction | **FIXED — 1.3.11 DEVICE RETEST** | `8054295` | The 1.3.9 phone run compiled `bufferutil.o` and then proved relocated generic `lld` could not select the Unix driver. Runtime 1.16.5 routes Clang, `$LD`, PATH, shell, and Java execution through a dual-ABI APK-native bridge that supplies `argv[0] = ld.lld`. Runtime 1.16.6 supersedes the former OpenCode short-option forwarding with fully native diagnostics. Final addon link/load and diagnostic retest remain pending because ADB has no device. |
 | Next.js version routing and native OpenCode diagnostics | **HOST/APK VERIFIED — 1.3.11 DEVICE RETEST** | `fbfe48d` | The phone proved Next 15.5.2 rejects the launcher's forced `--webpack`; exact package inspection confirmed Next 15 uses Webpack when Turbo flags are absent and Next 16 requires `--webpack`. Runtime 1.16.6 implements that split and tests 15.5.2/15.5.22/16.2.12. OpenCode version/help/path diagnostics now terminate natively without Bun or `/tmp`; unsafe modes retain exit 69. Full host, dual-ABI build, APK, closure, and 16 KiB gates pass. ADB is empty, so real framework and CLI execution remains pending. |
+| OpenCode real-runtime `/tmp` compatibility | **HOST/NATIVE VERIFIED — 1.3.12 DEVICE RETEST** | pending local commit | Direct ARM64 payload evidence proved every mode failed first at literal `mkdir("/tmp")`; the pinned upstream tagfix only disables Bionic heap tagging. Runtime 1.16.7 adds an OpenCode-process-only libc path shim that maps exact `/tmp` paths to canonical app-private temp, rejects traversal, restores the upstream tagfix/OpenTUI/library environment, and forwards every standard mode to the real payload. Host forwarding/remap tests and dual-ABI 16 KiB native builds pass. ADB is empty, so version/help/paths/run/serve/web/TUI remain explicitly uncertified. |
 
 ## Executive result
 
@@ -72,15 +73,15 @@ The platform-wide fix is now implemented:
 - Filesystem access now uses canonical segment-aware containment, rejects
   sibling-prefix/traversal escapes, removes broad `/data` and `/mnt` grants,
   and makes `/system`/`/apex` read-only.
-- Gradle, npm package metadata, diagnostics, and release notes agree on app version 1.3.11/runtime 1.16.6.
+- Gradle, npm package metadata, diagnostics, and release notes agree on app version 1.3.12/runtime 1.16.7.
 
 This is not an individual-package workaround. It applies to packages using
 `node-gyp`, npm's lifecycle runner, shell shims, and native C/C++ compilation.
 No post-install `chmod`, `npm rebuild`, or package-specific command is intended
 to be necessary.
 
-The 1.3.11 phone-test target and its instrumentation APK build successfully on
-the pinned Windows JDK 17/NDK r29 toolchain. The 360,682,699-byte candidate is
+The 1.3.12 phone-test target and its instrumentation APK build successfully on
+the pinned Windows JDK 17/NDK r29 toolchain. The 360,699,232-byte candidate is
 API 36, dual ABI, debug-test signed, and passes source-asset completeness,
 signed runtime-lock, dependency-closure, ZIP alignment, and all-ELF 16 KiB
 checks. A phone was used for earlier API 30 diagnosis but is disconnected for
@@ -405,12 +406,12 @@ Status meanings:
 | pnpm | ⚠️ Integrated; device retest | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Version 1.3.6 retains its previously AAPT-omitted `.bin` commands and `.package-map.json`; the final APK contains the complete source payload. Android execution remains in the Phase 3 device gate. |
 | Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
 | Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
-| OpenCode CLI | ⚠️ Native diagnostics fixed; 1.3.11 device gate and explicit functional boundary | `--version`, `-v`, help, and `debug paths` now terminate inside the dual-ABI APK-native launcher, use the manifest-derived version, and never start Bun or touch inherited `/tmp`. Host execution proves poisoned `/tmp`/XDG values are rejected for app-private paths. Interactive, agent-run, serve, and web remain exit 69 because the available Android Bun/OpenTUI payload aborts in Bionic; a Linux/glibc binary is never substituted. API 29/30/36 execution of the new binary remains required. |
+| OpenCode CLI | ⚠️ Real runtime integrated; 1.3.12 ARM64 device gate | The first common payload failure was literal `mkdir("/tmp")`, not a proven per-mode Bun/OpenTUI crash. Runtime 1.16.7 restores the exact upstream tagfix/OpenTUI/library launch contract and preloads a separate ADEV shim that maps only `/tmp` paths into canonical app-private temp while rejecting traversal. Bare TUI, version/help/paths, agent-run, serve, and web now reach the real pinned ARM64 payload; host tests prove argument/environment forwarding, mapping, exit propagation, hashes, and 16 KiB alignment. No connected device is available, so none of those real modes is yet certified. x86_64 remains an honest missing-payload boundary; no glibc binary is substituted. |
 | Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production ABI feature payloads are not yet present, so the resolver returns an actionable unavailable capability instead of installing into noexec app data. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
 | Symlinks | ✅ Integrated with explicit Android boundary | Runtime symlinks are rebuilt automatically on private app storage. Shared/FUSE/SAF cannot faithfully represent Unix symlinks, case sensitivity, modes, or execution, so the guided copy refuses links/escapes; developers must clone or extract the source directly into private storage when project symlinks must be preserved. No unsafe dereference fallback is offered. |
-| Environment variables | ⚠️ Fixed; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Runtime 1.16.6 retains corrected `NODE_OPTIONS` and target-specific ARM64 `CPATH`, and exports the Unix-personality linker through `$LD`. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Locale and interactive shared-storage transitions still need device checks. |
+| Environment variables | ⚠️ Fixed; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Runtime 1.16.7 retains corrected `NODE_OPTIONS`, target-specific ARM64 `CPATH`, and Unix-personality `$LD`; the OpenCode child additionally receives all Bun/POSIX temp spellings, XDG paths, real-executable variables, upstream OpenTUI/tagfix paths, and its process-scoped `/tmp` remap. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Locale and interactive shared-storage transitions still need device checks. |
 | TTY / terminal | ⚠️ Startup observed; final UX/device retest | API 30 observed the terminal startup/prompt after invalid SELinux-context bytes were removed. Native `forkpty`, resize, process-group signals, reaping, and bounded fallback exist. Version 1.3.8 removes double safe-area padding, keeps shortcuts above the IME, reconciles Android composition without duplicate text, and copies soft wraps as logical lines. Keyboard/accessory/copy, repeated close, job control, and final-candidate behavior remain device gates. |
 | Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. |
 | Android shared filesystem | ⚠️ Restricted by Android; guided import integrated | The app reports shared-storage capability limits and can atomically copy a project into the private execution workspace without shell commands. Android still requires the user to grant all-files access; shared storage remains noexec and `Android/data` restrictions still apply. |
@@ -420,9 +421,9 @@ Status meanings:
 | CPU architectures | ⚠️ App integrated; x86_64 runtime feature boundary | Gradle, React Native, Hermes, PTY, npm lifecycle shell, and Git credential helper build/package for `arm64-v8a` and `x86_64`; obsolete 32-bit ABIs are intentionally excluded. The full developer runtime/compiler sysroot remains ARM64, and x86_64 reports the required signed runtime feature rather than pretending native builds work. |
 | Android 16 / Play targeting | ⚠️ Integrated; automated device/release gate | The project compiles and targets API 36 with RN 0.86.2, Gradle 9.3.1, NDK r29, new architecture, Hermes, and edge-to-edge enabled. APK manifest checks pass; CI now requires API 35/36 and strict 16 KiB device jobs plus bundletool validation before production release. |
 | Release signing | ⚠️ Integrated; external credential gate | Release never uses `signingConfigs.debug`. Gradle fails closed unless all four external keystore values exist, rejects repository-local keystores, and the artifact gate rejects the Android debug certificate and requires the approved SHA-256 signer identity. No production key was supplied locally, so the production APK/AAB is intentionally a CI/owner gate. |
-| Runtime supply-chain reproducibility | ⚠️ Incomplete production provenance/signing gate | The Ed25519-signed runtime 1.16.6 lock records 208 ARM64 plus 6 x86_64 native payloads by ABI/API/page policy, hash, size, path, and owner. BusyBox and Nano have exact signed-index/archive/license/SONAME evidence, but 196 legacy Termux artifacts remain hash-only. The bootstrap key is permitted only for this debug-key phone-test candidate; complete retained provenance and an external release key are production blockers. |
+| Runtime supply-chain reproducibility | ⚠️ Incomplete production provenance/signing gate | The Ed25519-signed runtime 1.16.7 lock records 209 ARM64 plus 7 x86_64 native payloads by ABI/API/page policy, hash, size, path, and owner. The two new ADEV temp-shim builds carry application-source/license metadata; the legacy hash-only count remains 196. BusyBox and Nano retain exact signed-index/archive/license/SONAME evidence. The bootstrap key is permitted only for this debug-key phone-test candidate; complete retained provenance and an external release key are production blockers. |
 | Runtime update cleanup | ✅ Fully integrated | Runtime fingerprinting forces device reinitialization on map changes. Before relocation, Gradle verifies the Ed25519 runtime-lock signature and prunes only stale `libbin_`/`liblib_` JNI outputs and map entries absent from that signed ownership manifest; unrelated files cannot be removed. |
-| APK/install footprint | ✅ Phone-test policy integrated | The final 1.3.11 phone-test APK is 360,682,699 bytes and remains below the enforced 390,000,000-byte APK/AAB budget. Size is rechecked for production artifacts; optional large toolchains remain signed feature capabilities rather than unsafe writable-storage installs. |
+| APK/install footprint | ✅ Phone-test policy integrated | The final 1.3.12 phone-test APK is 360,699,232 bytes and remains below the enforced 390,000,000-byte APK/AAB budget. Size is rechecked for production artifacts; optional large toolchains remain signed feature capabilities rather than unsafe writable-storage installs. |
 | Host Android build toolchain | ⚠️ Integrated; external production-release gate | Gradle 9.3.1, AGP 8.12.0, exact JDK 17, Kotlin 2.1.20, API/build tools 36, and NDK 29.0.14206865 build phone-test unit tests, the complete non-debuggable phone-test APK, and its instrumentation APK successfully. Gradle rejects unsupported host JDKs. Externally signed AAB/APK and two-clean-build production evidence remain CI/owner gates. |
 | Dependency security | ⚠️ Integrated mitigation; upstream release boundary | `npm run audit:production` rejects every advisory except the two exact `image-size` parser advisories that upstream still has no patched release for. A version-pinned install script rejects non-advancing ICNS/JXL/HEIF boxes, and the gate runs malicious-input probes with a two-second kill timeout before accepting the eight transitive report nodes. Nanoid 3.3.18, React Native CLI 20.2.0, fast-xml-parser 5.10.1, js-yaml, and brace-expansion are on fixed compatible releases. The reviewed exception expires 2026-09-11; any new advisory, source drift, missing patch, timeout, or count increase fails. |
 | Test automation | ⚠️ Host/build complete; connected/signing gate | Repository-isolated Jest/ESLint, TypeScript, Java/Kotlin unit tests, phone-test instrumentation compilation, runtime policy/phase/Nano/OpenCode suites, license/secret/audit gates, signed ownership, and APK ABI/API/content/dependency/alignment checks pass. The built instrumentation runs offline/network/existing-project matrices inside the target UID. x86_64 emulators, connected ARM64 API 29/34/35/36 fresh/upgrade, strict 16 KiB, and two externally signed clean production builds remain. |
@@ -951,6 +952,52 @@ is authorized by this five-phase plan; only external runner, device, feature,
 and signing evidence remains.
 
 ## Phase 5 acceptance record
+
+### 1.3.12 OpenCode `/tmp` compatibility beta evidence — 2026-08-22
+
+- Implementation commit: pending local commit
+  (`fix: restore OpenCode Android runtime with private tmp remap`).
+- App/runtime version: 1.3.12 / 1.16.7; phone-test package
+  `com.mobileide.app.phonetest`, version code 18, compile/target API 36.
+- Direct execution evidence from the prior phone build showed the pinned
+  OpenCode/Bun payload failed first at `mkdir("/tmp")` for version, help, paths,
+  run, serve, web, and TUI, even when `TMPDIR`, `TMP`, `TEMP`, and `BUN_TMPDIR`
+  were app-private. That common first failure did not prove each mode had a
+  separate native crash.
+- Exact inspection of `guysoft/opencode-termux` v0.2.1 shows its wrapper
+  preloads `libtagfix.so`, configures `LD_LIBRARY_PATH` and
+  `OPENTUI_LIB_PATH`, and launches the payload. Its tagfix source only calls
+  Bionic `mallopt` to disable heap pointer tagging; it cannot redirect `/tmp`.
+- The pinned payload dynamically imports libc `mkdir`, `mkdirat`, `open`,
+  `openat`, metadata, rename, and removal functions. A new ADEV-owned preload
+  shim maps only exact `/tmp` and `/tmp/...` paths to canonical app-private
+  `ADEV_OPENCODE_TMPDIR`, rejects `..` traversal, and leaves every other path
+  unchanged. Android's root `/tmp` is never created or requested.
+- The APK-native launcher restores the upstream tagfix/OpenTUI/library
+  contract, supplies every Bun/POSIX/XDG temp spelling plus real-executable
+  variables, preloads the ADEV shim before inherited `termux-exec`, and forwards
+  all standard arguments. The former blanket exit-69 mode gate is removed.
+- Host execution passes bare, version, short-version, help, paths, run-help,
+  real-run, serve, and web forwarding against a child fixture. It also verifies
+  temp replacement, preload order, child exit propagation, traversal rejection,
+  exact upstream component hashes, Bionic PIE/interpreter policy, exported shim
+  symbols, and `PT_LOAD >= 0x4000`.
+- JDK 17 builds `testPhoneTestUnitTest`, `assemblePhoneTest`, and
+  `assemblePhoneTestAndroidTest`. The main APK contains 250 ELF files; 244
+  loadable files pass 16 KiB alignment and six compiler relocatables correctly
+  have no load segments. The signed runtime lock records 209 ARM64 plus seven
+  x86_64 payloads; the legacy hash-only provenance count remains 196.
+- Main APK: `ADevStudio-v1.3.12-phone-test.apk`, 360,699,232 bytes, SHA-256
+  `96FC78D8A7F01905F1932EEBF96458A32682815FEE575D34E351AC292EF10234`.
+  It is version 1.3.12-phone-test/API 36, exact ARM64/x86_64, signed with the
+  phone-test debug certificate, and passes the signed-lock, source-asset,
+  dependency-closure, ZIP alignment, and ELF alignment gates.
+- Instrumentation APK: 694,413 bytes, SHA-256
+  `566189259B6E79E03A843FD96A3A05AC9CBA7269D9B6A7C753C8E7E673C0FE46`.
+- `adb devices -l` is empty. The real ARM64 payload must be exercised in this
+  order: version, help, debug paths, `run --help`, real `run`, serve, web, then
+  TUI. Node/Vite/Next/Git/native-addon and terminal UX checks also remain
+  device gates; none is inferred from host or APK success.
 
 ### 1.3.11 Next.js/OpenCode corrective beta evidence — 2026-08-22
 

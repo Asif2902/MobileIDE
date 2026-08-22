@@ -444,6 +444,21 @@ const openCodeLauncherPresent = Boolean(
 const openCodePayloadPresent = Boolean(
   nativeDir && fs.existsSync(path.join(nativeDir, 'libbin_opencode_runtime.so'))
 );
+const openCodeCompatPresent = Boolean(
+  nativeDir && fs.existsSync(path.join(nativeDir, 'liblib_adev_opencode_compat.so'))
+);
+const openCodeTagfixPresent = Boolean(
+  nativeDir && fs.existsSync(path.join(nativeDir, 'liblib_opencode_tagfix.so'))
+);
+const openCodeOpenTuiPresent = Boolean(
+  nativeDir && fs.existsSync(path.join(nativeDir, 'liblib_opencode_opentui.so'))
+);
+const openCodeRuntimePresent =
+  openCodeLauncherPresent &&
+  openCodePayloadPresent &&
+  openCodeCompatPresent &&
+  openCodeTagfixPresent &&
+  openCodeOpenTuiPresent;
 const nanoSupported = ['arm64-v8a', 'arm64', 'aarch64'].includes(reportedAbi);
 const nanoTerminfo = path.join(prefix, 'share', 'terminfo');
 const nanoSyntax = path.join(prefix, 'share', 'nano');
@@ -548,7 +563,7 @@ const report = {
     ssh:
       'Running ssh without a host prints usage. Connect with ssh user@host; host-key verification remains enabled.',
     opencode:
-      'OpenCode version, help, and path diagnostics run entirely in the APK-native launcher; interactive/run/server modes remain blocked because the available Android Bun/OpenTUI payloads abort in native code.',
+      'OpenCode standard modes now reach the pinned Android/Bionic payload through the upstream tagfix plus ADEV process-scoped /tmp remap. Run the staged device checks before treating TUI/run/serve/web as certified.',
   },
   environment: {
     path: process.env.PATH || null,
@@ -597,33 +612,39 @@ const report = {
     upstream: 'https://bun.sh/docs/installation',
   },
   opencode: {
-    ready: false,
-    launcherReady: openCodeLauncherPresent && probes.opencode.ready,
+    ready: openCodeRuntimePresent && probes.opencode.ready,
+    launcherReady: openCodeLauncherPresent,
     diagnosticsReady: probes.opencode.ready,
-    diagnosticsNative: probes.opencode.ready,
+    diagnosticsNative: false,
     payloadPresent: openCodePayloadPresent,
+    tempRemapPresent: openCodeCompatPresent,
+    upstreamTagfixPresent: openCodeTagfixPresent,
+    openTuiPresent: openCodeOpenTuiPresent,
+    runtimeLaunchReady: openCodeRuntimePresent,
+    functionalModesEnabled: openCodeRuntimePresent,
     functionalModesReady: false,
+    deviceCertified: false,
     version: probes.opencode.version,
     platform: 'android-bionic',
     abi: process.env.ADEV_ABI || process.arch,
     supportedAbis: ['arm64-v8a'],
-    diagnosticAbis: ['arm64-v8a', 'x86_64'],
+    diagnosticAbis: ['arm64-v8a'],
     delivery: 'APK native library',
     globalLinuxSpoof: false,
     capabilities: {
       version: probes.opencode.ready,
-      help: probes.opencode.ready,
-      debugPaths: probes.opencode.ready,
-      interactiveTui: false,
-      agentRun: false,
-      serve: false,
-      web: false,
+      help: openCodeRuntimePresent,
+      debugPaths: openCodeRuntimePresent,
+      interactiveTui: openCodeRuntimePresent,
+      agentRun: openCodeRuntimePresent,
+      serve: openCodeRuntimePresent,
+      web: openCodeRuntimePresent,
     },
-    boundary: probes.opencode.ready
-      ? openCodePayloadPresent
-        ? 'Native diagnostics are ready. The installed ARM64 payload is not used for them; available upstream Android Bun/OpenTUI builds abort in native Bionic code for TUI, run, serve, and web modes.'
-        : 'Native diagnostics are ready on this ABI, but no verified Android/Bionic functional OpenCode payload is installed.'
-      : 'The APK-native Android OpenCode diagnostics launcher is unavailable.',
+    boundary: openCodeRuntimePresent
+      ? probes.opencode.ready
+        ? 'The real Android payload passed the version probe. TUI, run, serve, and web remain enabled but uncertified until the staged connected-device matrix passes.'
+        : 'The real Android payload and /tmp remap are installed, but the version probe failed. Inspect this probe before running later modes.'
+      : 'OpenCode is incomplete for this ABI: launcher, payload, tagfix, OpenTUI, and the ADEV /tmp remap are all required.',
   },
   nano: {
     ready: nanoReady,
@@ -697,9 +718,9 @@ if (jsonMode) {
       `Bun: unsupported Android/Bionic boundary\n`
   );
   process.stdout.write(
-    `OpenCode: ${report.opencode.diagnosticsReady ? 'native version/help/path diagnostics ready' : 'diagnostics unavailable'}; ` +
-      `payload ${report.opencode.payloadPresent ? 'present but capability-gated' : 'unavailable for this ABI'}; ` +
-      `TUI/run/server unsupported by the verified Android payload\n`
+    `OpenCode: ${report.opencode.runtimeLaunchReady ? 'real Android payload launch enabled' : 'runtime incomplete'}; ` +
+      `/tmp remap ${report.opencode.tempRemapPresent ? 'present' : 'missing'}; ` +
+      `${report.opencode.deviceCertified ? 'device certified' : 'TUI/run/serve/web device retest pending'}\n`
   );
   process.stdout.write(
     `Nano: ${report.nano.ready ? 'ready' : report.nano.boundary}; ` +

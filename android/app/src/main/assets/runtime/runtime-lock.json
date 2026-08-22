@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.6",
+  "runtimeVersion": "1.16.7",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -228,8 +228,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "a971896f3dc57ff8bfb2e43f5917f6cbd9277c2bd2561c2a4226009eaeaa3238",
-          "bytes": 38904,
+          "sha256": "c38af95ba6427aedb4ece4b96036af3259ed2bc9ad6b50e5d310fae7f374418b",
+          "bytes": 45416,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -257,6 +257,13 @@
             "bin/python3.14"
           ],
           "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_adev_opencode_compat.so",
+          "sha256": "2fdf79a585124afc8d8ef5b65cbd03234199fc74bb1e7898c17a7e67d0d9369a",
+          "bytes": 11648,
+          "runtimePaths": [],
+          "owner": "app-native"
         },
         {
           "packagedName": "liblib_clang_21_lib_linux_libclang_rt_asan_aarch64_android_so.so",
@@ -1948,8 +1955,15 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "796c835d56b04b92bcdfd987412511d9fd816317d874a463d4e71d3befc09a28",
-          "bytes": 38488,
+          "sha256": "708fd6d04845c8d5cd093ec089d674e10671d77300597b7b0fc8d1afc2098655",
+          "bytes": 46440,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "liblib_adev_opencode_compat.so",
+          "sha256": "146e6f1ca2f9e5720d84bb2b5b5f9a03a94c91f33820074b2c64dfbc09891889",
+          "bytes": 11192,
           "runtimePaths": [],
           "owner": "app-native"
         }
@@ -2117,7 +2131,7 @@
     ]
   },
   "openCode": {
-    "sha256": "dc8a439badbdbccbfe3d2caed2f5143584211a5b36b4c9ea009a2452acbdfb10",
+    "sha256": "c36255943e4be7348e11a8947b76459345d7158a39c23298308997857fa2e0b1",
     "version": "1.17.9",
     "platform": "android-bionic",
     "supportedAbis": [

@@ -143,16 +143,18 @@ try {
             requiresWritableExecutable = $false
             globalLinuxSpoof = $false
             fileWatcher = "disabled for the bundled host-only @parcel/watcher binding"
+            tempPathPolicy = "process-scoped /tmp remap to canonical app-private ADEV_OPENCODE_TMPDIR"
+            preloadOrder = "upstream tagfix, ADEV /tmp compatibility shim, inherited termux-exec"
         }
         capabilities = [ordered]@{
-            version = "verified on ARM64 Android API 30"
-            help = "provided by the APK-native capability launcher"
-            debugPaths = "verified on ARM64 Android API 30"
-            interactiveTui = "unsupported: the available Android Bun/OpenTUI payloads abort in native code on a real Bionic device"
-            agentRun = "unsupported: the available Android Bun payloads abort on real command execution"
-            serve = "unsupported: startup aborts before a verified HTTP response"
-            web = "unsupported: startup aborts before a verified HTTP response"
-            policy = "unsafe modes fail with an actionable capability boundary; no Linux/glibc binary is substituted"
+            version = "enabled through the real pinned payload; device retest required after /tmp remap"
+            help = "enabled through the real pinned payload; device retest required after /tmp remap"
+            debugPaths = "enabled through the real pinned payload; device retest required after /tmp remap"
+            interactiveTui = "enabled through the real pinned payload; device retest required after /tmp remap"
+            agentRun = "enabled through the real pinned payload; device retest required after /tmp remap"
+            serve = "enabled through the real pinned payload; device retest required after /tmp remap"
+            web = "enabled through the real pinned payload; device retest required after /tmp remap"
+            policy = "all standard modes reach the Android/Bionic payload; no Linux/glibc binary is substituted"
         }
         components = @(
             [ordered]@{
@@ -174,7 +176,7 @@ try {
                 license = "MIT"
             }
         )
-        deviceGate = "API 30 ARM64 completed for version, help, paths, TUI, run, serve, and web. Retest the explicit capability boundary on API 29 and API 36."
+        deviceGate = "Pending ARM64 retest after the process-scoped /tmp remap, in order: version, help, debug paths, run help, run hello, serve, web, and TUI. API 29 and API 36 remain required."
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ManifestPath) | Out-Null
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -NoNewline $ManifestPath

@@ -117,6 +117,7 @@ const nativeRuntimeArtifacts = Object.entries(runtimeLock.abis)
       const nano = nanoComponents.get(entry.packagedName);
       const appOwned =
         entry.packagedName.startsWith('libbin_adev_') ||
+        entry.packagedName.startsWith('liblib_adev_') ||
         entry.packagedName === 'libbin_opencode.so';
 
       if (exact?.sha256 && exact.sha256 !== entry.sha256) {

@@ -1839,6 +1839,16 @@ class RuntimeManager(private val context: Context) {
         val makeRuntime = findNativeTool("libbin_make", ".so")
         val openCodeLauncher = File(nativeLibDir, "libbin_opencode.so")
         val openCodePayload = File(nativeLibDir, "libbin_opencode_runtime.so")
+        val openCodeCompat = File(nativeLibDir, "liblib_adev_opencode_compat.so")
+        val openCodeTagfix = File(nativeLibDir, "liblib_opencode_tagfix.so")
+        val openCodeOpenTui = File(nativeLibDir, "liblib_opencode_opentui.so")
+        val openCodeRuntimeReady = listOf(
+            openCodeLauncher,
+            openCodePayload,
+            openCodeCompat,
+            openCodeTagfix,
+            openCodeOpenTui
+        ).all { it.isFile }
         val commandReadiness = linkedMapOf(
             "node" to File(nativeLibDir, "libbin_node.so").isFile,
             "npm" to File(libDir, "node_modules/npm/bin/npm-cli.js").isFile,
@@ -1862,10 +1872,9 @@ class RuntimeManager(private val context: Context) {
                 File(nativeLibDir, "libbin_busybox.so").isFile &&
                     File(nativeLibDir, "libbin_adev_busybox.so").isFile
                 ),
-            // The launcher itself supplies safe diagnostics and the explicit
-            // exit-69 capability boundary on every packaged ABI. A functional
-            // Bun/OpenTUI payload is a separate capability below.
-            "opencode" to openCodeLauncher.isFile,
+            // OpenCode is ready only when the launcher, pinned payload, upstream
+            // libraries, and ADEV's process-scoped /tmp remap are all packaged.
+            "opencode" to openCodeRuntimeReady,
             "next" to File(libDir, "adev-next.js").isFile,
             "ssh" to (
                 File(nativeLibDir, "libbin_dropbearmulti.so").isFile &&
@@ -1938,18 +1947,22 @@ class RuntimeManager(private val context: Context) {
                 "verified-preview" to true,
                 "next-webpack-wasm" to File(libDir, "adev-next.js").isFile,
                 "opencode-launcher" to openCodeLauncher.isFile,
-                "opencode-native-diagnostics" to openCodeLauncher.isFile,
+                "opencode-temp-remap" to openCodeCompat.isFile,
+                "opencode-runtime-ready" to openCodeRuntimeReady,
+                "opencode-device-certified" to false,
+                "opencode-native-diagnostics" to openCodeRuntimeReady,
                 "opencode-payload-arm64" to openCodePayload.isFile,
                 // Retain the legacy key for consumers of the v5 capability
                 // surface while making its ARM64 payload condition explicit.
                 "opencode-diagnostics-arm64" to (
-                    openCodeLauncher.isFile && openCodePayload.isFile
+                    openCodeRuntimeReady
                     ),
-                // Real TUI/run/server modes abort inside the available upstream
-                // Android Bun/OpenTUI payloads on-device.
-                "opencode-interactive" to false,
-                "opencode-agent-run" to false,
-                "opencode-server" to false
+                // These booleans describe the installed execution path. Device
+                // certification remains a separate, deliberately false gate
+                // until version/help/run/serve/web/TUI pass on a connected phone.
+                "opencode-interactive" to openCodeRuntimeReady,
+                "opencode-agent-run" to openCodeRuntimeReady,
+                "opencode-server" to openCodeRuntimeReady
             ),
             nativeBuildReady = nativeBuildReady,
             npmLifecycleReady = npmShell.isFile,

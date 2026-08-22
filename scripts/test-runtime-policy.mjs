@@ -37,8 +37,11 @@ assert.equal(doctorReport.opencode.ready, false);
 assert.equal(doctorReport.opencode.launcherReady, false);
 assert.equal(doctorReport.opencode.diagnosticsNative, false);
 assert.equal(doctorReport.opencode.payloadPresent, false);
+assert.equal(doctorReport.opencode.tempRemapPresent, false);
+assert.equal(doctorReport.opencode.runtimeLaunchReady, false);
+assert.equal(doctorReport.opencode.deviceCertified, false);
 assert.equal(doctorReport.opencode.functionalModesReady, false);
-assert.deepEqual(doctorReport.opencode.diagnosticAbis, ['arm64-v8a', 'x86_64']);
+assert.deepEqual(doctorReport.opencode.diagnosticAbis, ['arm64-v8a']);
 assert.equal(doctorReport.opencode.capabilities.interactiveTui, false);
 assert.equal(doctorReport.opencode.capabilities.agentRun, false);
 assert.match(doctorReport.opencode.boundary, /Android|ABI|payload/i);
@@ -52,7 +55,7 @@ assert.match(doctorReport.cliGuidance.npmRun, /package\.json script/);
 assert.match(doctorReport.cliGuidance.directJavaScript, /node index\.js/);
 assert.match(doctorReport.cliGuidance.git, /git status/);
 assert.match(doctorReport.cliGuidance.ssh, /ssh user@host/);
-assert.match(doctorReport.cliGuidance.opencode, /blocked/);
+assert.match(doctorReport.cliGuidance.opencode, /process-scoped \/tmp remap/);
 
 const projectFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'adev-project-guide-'));
 try {
