@@ -52,6 +52,7 @@
     "lib/arm64-v8a/liblib_libbusybox_so_1_38_0.so",
     "lib/arm64-v8a/libbin_nano.so",
     "lib/arm64-v8a/libbin_adev_make.so",
+    "lib/arm64-v8a/libbin_adev_ld_lld.so",
     "lib/arm64-v8a/libbin_adev_git_credential.so",
     "lib/arm64-v8a/libbin_opencode.so",
     "lib/arm64-v8a/libbin_opencode_runtime.so",
@@ -60,6 +61,7 @@
     "lib/x86_64/libbin_adev_npm_shell.so",
     "lib/x86_64/libbin_adev_busybox.so",
     "lib/x86_64/libbin_adev_make.so",
+    "lib/x86_64/libbin_adev_ld_lld.so",
     "lib/x86_64/libbin_adev_git_credential.so",
     "lib/x86_64/libbin_opencode.so",
     "assets/runtime/lib/adev-opencode.json"

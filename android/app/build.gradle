@@ -392,6 +392,7 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
                 "libbin_adev_npm_shell.so",
                 "libbin_adev_busybox.so",
                 "libbin_adev_make.so",
+                "libbin_adev_ld_lld.so",
                 "libbin_adev_git_credential.so",
                 "libbin_opencode.so"
             ]

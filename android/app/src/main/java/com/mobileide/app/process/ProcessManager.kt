@@ -245,8 +245,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "make" to "libbin_adev_make.so",
             "llvm-ar" to "libbin_llvm_ar.so",
             "ar" to "libbin_llvm_ar.so",
-            "lld" to "libbin_lld.so",
-            "ld.lld" to "libbin_lld.so",
+            "lld" to "libbin_adev_ld_lld.so",
+            "ld.lld" to "libbin_adev_ld_lld.so",
             "pkg-config" to "libbin_pkg_config.so",
             "adev-npm-shell" to "libbin_adev_npm_shell.so",
             "opencode" to "libbin_opencode.so"

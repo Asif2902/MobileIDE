@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.4",
+  "runtimeVersion": "1.16.5",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -22,6 +22,13 @@
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "fc0b5f6c0be0b54367360de1a08ea1d2d3f950d3f8650ac3d9463eeb6f887d6e",
           "bytes": 41272,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_ld_lld.so",
+          "sha256": "86371a22601b1129e201f22e99cfa0d533af618b6c41a1fed4c704c7097c7074",
+          "bytes": 32288,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -221,8 +228,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "9249e485fae93398a645a99739600c06767dca383bec23e34cc15e695eb90353",
-          "bytes": 41304,
+          "sha256": "d54723fd4505cb65dd5e2f6711033bb122933bdfdeb835d13e5329680632e3f4",
+          "bytes": 41688,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1919,6 +1926,13 @@
           "owner": "app-native"
         },
         {
+          "packagedName": "libbin_adev_ld_lld.so",
+          "sha256": "b2f27e2797c99c59263c2b37d19d31cfdf31dc4f9ccaa20d3031091fd1bd2da2",
+          "bytes": 31784,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "libbin_adev_make.so",
           "sha256": "fc0dce83b697b3fcb43527a72e63a4cfcaf5192018e61b987a842a42b4956803",
           "bytes": 32664,
@@ -1934,8 +1948,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "e4f35b609fa7584602045a7e3e8b77ff9d0bbf3aebf971778a361709519fe23f",
-          "bytes": 41448,
+          "sha256": "21e748f29a752a99d5edef8a1d9135bda8e56d681b0dfcedd548b2e03fe9d504",
+          "bytes": 41992,
           "runtimePaths": [],
           "owner": "app-native"
         }

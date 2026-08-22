@@ -61,6 +61,7 @@ const appBuild = text('android/app/build.gradle');
 const appCmake = text('android/app/src/main/jni/CMakeLists.txt');
 const helperCmake = text('android/app/src/main/cpp/CMakeLists.txt');
 const makeLauncher = text('android/app/src/main/cpp/adev_make.cpp');
+const linkerLauncher = text('android/app/src/main/cpp/adev_ld_lld.cpp');
 const busyboxLauncher = text('android/app/src/main/cpp/adev_busybox.cpp');
 const assetIgnorePattern =
   appBuild.match(/ignoreAssetsPattern\s*=\s*"([^"]+)"/)?.[1] ?? '';
@@ -85,6 +86,7 @@ assert.match(
 );
 assert.match(appCmake, /add_subdirectory\([^)]*cpp/);
 assert.match(helperCmake, /add_executable\(adev_make adev_make\.cpp\)/);
+assert.match(helperCmake, /add_executable\(adev_ld_lld adev_ld_lld\.cpp\)/);
 assert.match(helperCmake, /add_executable\(adev_busybox adev_busybox\.cpp\)/);
 assert.match(busyboxLauncher, /control_mode/);
 assert.match(
@@ -92,11 +94,15 @@ assert.match(
   /control_mode \? "busybox" : \(android_w \? "uptime" : argv\[1\]\)/,
 );
 assert.match(appBuild, /libbin_adev_busybox\.so/);
+assert.match(appBuild, /libbin_adev_ld_lld\.so/);
 assert.match(makeLauncher, /SHELL=/);
 assert.match(makeLauncher, /libbin_make\.so/);
 assert.match(makeLauncher, /\/system\/bin\/sh/);
 assert.match(makeLauncher, /CONFIG_SHELL/);
 assert.doesNotMatch(makeLauncher, /const std::string bundled_bash/);
+assert.match(linkerLauncher, /libbin_lld\.so/);
+assert.match(linkerLauncher, /const_cast<char\*>\("ld\.lld"\)/);
+assert.match(linkerLauncher, /execv\(runtime\.c_str\(\)/);
 assert.match(
   text('scripts/verify-phase4-apk.mjs'),
   /lib\/arm64-v8a\/libappmodules\.so/,

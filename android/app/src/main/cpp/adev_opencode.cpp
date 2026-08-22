@@ -70,7 +70,7 @@ int print_android_help() {
     std::fputs(
         "OpenCode for A Dev Studio (Android/Bionic capability build)\n\n"
         "Verified commands:\n"
-        "  opencode --version\n"
+        "  opencode --version  (or: opencode -v)\n"
         "  opencode --help\n"
         "  opencode debug paths\n\n"
         "Interactive, agent, run, serve, web, and attach modes are disabled on this "
@@ -224,7 +224,15 @@ int main(int argc, char** argv) {
     forwarded.reserve(static_cast<size_t>(argc) + 1);
     forwarded.push_back(const_cast<char*>(runtime.c_str()));
     for (int index = 1; index < argc; ++index) {
-        forwarded.push_back(argv[index]);
+        // The Android payload verifies `--version` without initializing the
+        // unsupported TUI stack. Its upstream short `-v` parsing enters full
+        // startup first and falls back to read-only /tmp. Normalize the alias
+        // at the native capability boundary instead of exposing that crash.
+        if (index == 1 && requested_version(argc, argv) && equals(argv[index], "-v")) {
+            forwarded.push_back(const_cast<char*>("--version"));
+        } else {
+            forwarded.push_back(argv[index]);
+        }
     }
     forwarded.push_back(nullptr);
 

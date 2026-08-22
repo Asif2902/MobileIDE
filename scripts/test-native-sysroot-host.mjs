@@ -62,6 +62,26 @@ assert.match(
 );
 assert.match(runtimeManager, /env\["CPATH"\] = nativeSysrootIncludePath\(\)/);
 assert.match(runtimeManager, /nativeSysrootHeadersReady\(\)/);
+assert.match(
+  runtimeManager,
+  /private fun findUnixLinkerCommand\(\): File\?[\s\S]*libbin_adev_ld_lld\.so/,
+);
+assert.match(
+  runtimeManager,
+  /--ld-path=\$it/,
+  'Clang must receive the APK-native Unix linker personality launcher',
+);
+assert.match(runtimeManager, /env\["LD"\] = it\.absolutePath/);
+
+const linkerLauncher = source('android/app/src/main/cpp/adev_ld_lld.cpp');
+assert.match(linkerLauncher, /libbin_lld\.so/);
+assert.match(linkerLauncher, /const_cast<char\*>\("ld\.lld"\)/);
+assert.match(linkerLauncher, /execv\(runtime\.c_str\(\)/);
+
+const processManager = source(
+  'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
+);
+assert.match(processManager, /"ld\.lld" to "libbin_adev_ld_lld\.so"/);
 
 const fetcher = source('scripts/fetch-runtime-libs.ps1');
 for (const header of [
@@ -82,5 +102,5 @@ assert.match(doctor, /const nativeSysrootReady = nativeSysrootHeaders\.every/);
 assert.match(doctor, /nativeSysrootReady,/);
 
 process.stdout.write(
-  'native sysroot host checks passed: ARM64 asm UAPI headers are packaged, searched, and diagnosed\n',
+  'native sysroot host checks passed: ARM64 UAPI headers and the Unix LLD personality are packaged, selected, and diagnosed\n',
 );

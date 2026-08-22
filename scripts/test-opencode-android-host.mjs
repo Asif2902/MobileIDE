@@ -80,6 +80,8 @@ assert.match(launcher, /path == "\/tmp"/);
 assert.match(launcher, /W_OK \| X_OK/);
 assert.match(launcher, /Linux\/glibc binary will not be substituted/);
 assert.match(launcher, /requested_version/);
+assert.match(launcher, /equals\(argv\[index\], "-v"\)/);
+assert.match(launcher, /const_cast<char\*>\("--version"\)/);
 assert.match(launcher, /requested_debug_paths/);
 assert.match(launcher, /unsupported_mode/);
 assert.match(launcher, /available upstream Android Bun\/OpenTUI payloads abort/);

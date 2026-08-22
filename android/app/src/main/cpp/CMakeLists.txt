@@ -101,6 +101,29 @@ set_target_properties(adev_make PROPERTIES
     SUFFIX ".so"
 )
 
+# APK-native Unix LLD personality launcher. LLVM's packaged multi-call binary
+# is named libbin_lld.so after Android relocation, so it cannot infer the
+# ld.lld/ELF driver from argv[0] without this executable bridge.
+add_executable(adev_ld_lld adev_ld_lld.cpp)
+
+target_link_options(adev_ld_lld PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_ld_lld PRIVATE "-O2" "-g0")
+target_compile_definitions(adev_ld_lld PRIVATE NDEBUG)
+
+set_target_properties(adev_ld_lld PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_ld_lld"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Native Git credential helper. Keeping the broker response out of JavaScript
 # is part of the credential-reference API guarantee.
 add_executable(adev_git_credential adev_git_credential.cpp)

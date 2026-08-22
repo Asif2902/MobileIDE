@@ -477,7 +477,7 @@ class RuntimeManager(private val context: Context) {
             val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
-            val lld = findNativeTool("libbin_lld", ".so")
+            val lld = findUnixLinkerCommand()
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
             val nano = File(nativeLibDir, "libbin_nano.so")
@@ -785,7 +785,7 @@ class RuntimeManager(private val context: Context) {
             val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
             val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
-            val lld = findNativeTool("libbin_lld", ".so")
+            val lld = findUnixLinkerCommand()
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
             val nano = File(nativeLibDir, "libbin_nano.so")
@@ -1010,6 +1010,17 @@ class RuntimeManager(private val context: Context) {
         return launcher.takeIf { it.isFile } ?: findNativeTool("libbin_make", ".so")
     }
 
+    /**
+     * Always expose LLVM's Unix/ELF personality. The relocated Termux payload
+     * is named libbin_lld.so, so the generic multi-call driver cannot infer
+     * `ld.lld` from argv[0] when Clang or a build system launches it directly.
+     */
+    private fun findUnixLinkerCommand(): File? {
+        val launcher = File(nativeLibDir, "libbin_adev_ld_lld.so")
+        val runtime = findNativeTool("libbin_lld", ".so")
+        return launcher.takeIf { it.isFile && runtime != null }
+    }
+
     private fun findClangResourceDir(): File? =
         File(libDir, "clang").listFiles()
             ?.filter { it.isDirectory }
@@ -1045,7 +1056,7 @@ class RuntimeManager(private val context: Context) {
         val systemIncludes = nativeSysrootIncludeDirs()
             .joinToString(" ") { "-isystem ${it.absolutePath}" }
         val resource = resourceDir?.absolutePath?.let { " -resource-dir $it" }.orEmpty()
-        val linker = findNativeTool("libbin_lld", ".so")
+        val linker = findUnixLinkerCommand()
             ?.absolutePath
             ?.let { " --ld-path=$it" }
             .orEmpty()
@@ -1063,7 +1074,7 @@ class RuntimeManager(private val context: Context) {
         val make = findMakeCommand()
         val clang = findNativeTool("libbin_clang_", ".so")
         val llvmAr = findNativeTool("libbin_llvm_ar", ".so")
-        val lld = findNativeTool("libbin_lld", ".so")
+        val lld = findUnixLinkerCommand()
         val clangFlags = clangDriverFlags()
         python?.let {
             out.appendLine("${exportPrefix}PYTHON=\"${it.absolutePath}\"")
@@ -1840,7 +1851,7 @@ class RuntimeManager(private val context: Context) {
             // the APK-native /system/bin/sh bridge are required.
             "make" to (makeLauncher.isFile && makeRuntime != null),
             "clang" to (findNativeTool("libbin_clang_", ".so") != null),
-            "lld" to (findNativeTool("libbin_lld", ".so") != null),
+            "lld" to (findUnixLinkerCommand() != null),
             "git" to File(nativeLibDir, "libbin_git.so").isFile,
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
@@ -2143,7 +2154,7 @@ class RuntimeManager(private val context: Context) {
             env["CPATH"] = nativeSysrootIncludePath()
         }
         findNativeTool("libbin_llvm_ar", ".so")?.let { env["AR"] = it.absolutePath }
-        findNativeTool("libbin_lld", ".so")?.let { env["LD"] = it.absolutePath }
+        findUnixLinkerCommand()?.let { env["LD"] = it.absolutePath }
         env["LDFLAGS"] = NATIVE_LINK_FLAGS
         if (File(runtimeRoot, "include/node").isDirectory) {
             env["npm_package_config_node_gyp_nodedir"] = runtimeRoot.absolutePath
