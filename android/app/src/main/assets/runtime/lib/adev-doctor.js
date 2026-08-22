@@ -436,6 +436,14 @@ if (selfTest || verbose) {
 }
 
 const reportedAbi = process.env.ADEV_ABI || process.arch;
+const openCodeLauncherPath =
+  process.env.MOBILEIDE_OPENCODE || native('opencode');
+const openCodeLauncherPresent = Boolean(
+  openCodeLauncherPath && fs.existsSync(openCodeLauncherPath)
+);
+const openCodePayloadPresent = Boolean(
+  nativeDir && fs.existsSync(path.join(nativeDir, 'libbin_opencode_runtime.so'))
+);
 const nanoSupported = ['arm64-v8a', 'arm64', 'aarch64'].includes(reportedAbi);
 const nanoTerminfo = path.join(prefix, 'share', 'terminfo');
 const nanoSyntax = path.join(prefix, 'share', 'nano');
@@ -540,7 +548,7 @@ const report = {
     ssh:
       'Running ssh without a host prints usage. Connect with ssh user@host; host-key verification remains enabled.',
     opencode:
-      'Only opencode --version, --help, and debug paths are verified; interactive/run/server modes are blocked because the available Android Bun/OpenTUI payloads abort in native code.',
+      'OpenCode version, help, and path diagnostics run entirely in the APK-native launcher; interactive/run/server modes remain blocked because the available Android Bun/OpenTUI payloads abort in native code.',
   },
   environment: {
     path: process.env.PATH || null,
@@ -590,16 +598,21 @@ const report = {
   },
   opencode: {
     ready: false,
+    launcherReady: openCodeLauncherPresent && probes.opencode.ready,
     diagnosticsReady: probes.opencode.ready,
+    diagnosticsNative: probes.opencode.ready,
+    payloadPresent: openCodePayloadPresent,
+    functionalModesReady: false,
     version: probes.opencode.version,
     platform: 'android-bionic',
     abi: process.env.ADEV_ABI || process.arch,
     supportedAbis: ['arm64-v8a'],
+    diagnosticAbis: ['arm64-v8a', 'x86_64'],
     delivery: 'APK native library',
     globalLinuxSpoof: false,
     capabilities: {
       version: probes.opencode.ready,
-      help: true,
+      help: probes.opencode.ready,
       debugPaths: probes.opencode.ready,
       interactiveTui: false,
       agentRun: false,
@@ -607,8 +620,10 @@ const report = {
       web: false,
     },
     boundary: probes.opencode.ready
-      ? 'The installed ARM64 payload is diagnostic-only: available upstream Android Bun/OpenTUI builds abort in native Bionic code for TUI, run, serve, and web modes.'
-      : 'No verified Android/Bionic OpenCode diagnostic payload is available for this ABI.',
+      ? openCodePayloadPresent
+        ? 'Native diagnostics are ready. The installed ARM64 payload is not used for them; available upstream Android Bun/OpenTUI builds abort in native Bionic code for TUI, run, serve, and web modes.'
+        : 'Native diagnostics are ready on this ABI, but no verified Android/Bionic functional OpenCode payload is installed.'
+      : 'The APK-native Android OpenCode diagnostics launcher is unavailable.',
   },
   nano: {
     ready: nanoReady,
@@ -682,7 +697,8 @@ if (jsonMode) {
       `Bun: unsupported Android/Bionic boundary\n`
   );
   process.stdout.write(
-    `OpenCode: ${report.opencode.diagnosticsReady ? 'version/help diagnostics ready' : 'diagnostics unavailable'}; ` +
+    `OpenCode: ${report.opencode.diagnosticsReady ? 'native version/help/path diagnostics ready' : 'diagnostics unavailable'}; ` +
+      `payload ${report.opencode.payloadPresent ? 'present but capability-gated' : 'unavailable for this ABI'}; ` +
       `TUI/run/server unsupported by the verified Android payload\n`
   );
   process.stdout.write(

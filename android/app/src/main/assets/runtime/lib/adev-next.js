@@ -7,7 +7,8 @@
  * - resolves Next from the current project (never silently runs a global copy)
  * - caches the exact matching @next/swc-wasm-nodejs package outside the project
  * - prepends that cache to NODE_PATH
- * - selects webpack for `next dev` and `next build`
+ * - selects the version-appropriate webpack CLI form for `next dev` and
+ *   `next build`
  *
  * No package.json, lockfile, or node_modules file in the user project is
  * modified.
@@ -33,19 +34,47 @@ function findProject(start) {
   }
 }
 
+function parseNextMajor(version) {
+  const semver =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+  const match = typeof version === 'string' ? semver.exec(version) : null;
+  if (!match) {
+    throw new Error(
+      `Next.js reported invalid version ${JSON.stringify(version)}; expected a complete semantic version such as 15.5.22.`,
+    );
+  }
+
+  const major = Number(match[1]);
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(`Next.js reported an out-of-range major version in ${JSON.stringify(version)}.`);
+  }
+  return major;
+}
+
 function resolveNext(project) {
+  let packageJson;
   try {
-    const packageJson = require.resolve('next/package.json', { paths: [project] });
+    packageJson = require.resolve('next/package.json', { paths: [project] });
+  } catch (error) {
+    fail(
+      'Next.js is not installed in this project.',
+      `Run npm install in ${project}, then retry. ${error.message}`,
+    );
+    return null;
+  }
+
+  try {
     const manifest = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
     return {
       version: manifest.version,
+      major: parseNextMajor(manifest.version),
       packageDir: path.dirname(packageJson),
       bin: require.resolve('next/dist/bin/next', { paths: [project] }),
     };
   } catch (error) {
     fail(
-      'Next.js is not installed in this project.',
-      `Run npm install in ${project}, then retry. ${error.message}`,
+      'The local Next.js installation has invalid metadata.',
+      `${error.message} Reinstall Next.js in ${project}, then retry.`,
     );
     return null;
   }
@@ -124,14 +153,23 @@ function prepareWasm(version, cache, options = {}) {
   return manifestPath;
 }
 
-function withWebpack(args) {
+function withWebpack(args, major) {
   const subcommand = args[0];
   if (subcommand === 'dev' || subcommand === 'build') {
-    const compatibleArgs = args.filter(arg => arg !== '--turbopack' && arg !== '--turbo');
-    if (!compatibleArgs.includes('--webpack')) {
-      return [subcommand, '--webpack', ...compatibleArgs.slice(1)];
+    if (!Number.isSafeInteger(major) || major < 0) {
+      throw new Error('A validated Next.js major version is required for dev/build selection.');
     }
-    return compatibleArgs;
+
+    const selectors = new Set(['--turbopack', '--turbo', '--webpack']);
+    const compatibleArgs = args.slice(1).filter(arg => !selectors.has(arg));
+
+    // Next 15 and earlier already default to webpack and reject --webpack.
+    // Next 16 defaults to Turbopack and exposes --webpack as the supported
+    // opt-out. Rebuild the selector list so conflicting or duplicate flags
+    // can never reach the project CLI.
+    return major < 16
+      ? [subcommand, ...compatibleArgs]
+      : [subcommand, '--webpack', ...compatibleArgs];
   }
   return args;
 }
@@ -160,7 +198,7 @@ function main() {
   process.env.ADEV_NEXT_SWC_WASM = wasm;
   Module._initPaths();
 
-  const launchedArgs = withWebpack(args.length ? args : ['dev']);
+  const launchedArgs = withWebpack(args.length ? args : ['dev'], next.major);
   if (diagnostic || dryRun) {
     process.stdout.write(
       JSON.stringify(
@@ -186,4 +224,4 @@ function main() {
 
 main();
 
-module.exports = { findProject, withWebpack };
+module.exports = { findProject, parseNextMajor, withWebpack };

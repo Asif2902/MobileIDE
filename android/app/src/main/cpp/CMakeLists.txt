@@ -148,7 +148,19 @@ set_target_properties(adev_git_credential PROPERTIES
 
 # Android-native OpenCode entrypoint. The launcher is built for every app ABI;
 # the large, source-pinned Bionic runtime is currently delivered for ARM64.
+if(NOT DEFINED ADEV_OPENCODE_VERSION OR ADEV_OPENCODE_VERSION STREQUAL "")
+    message(FATAL_ERROR "ADEV_OPENCODE_VERSION must come from adev-opencode.json")
+endif()
+
+configure_file(
+    adev_opencode_version.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/adev_opencode_version.h"
+    @ONLY
+)
+
 add_executable(adev_opencode adev_opencode.cpp)
+
+target_include_directories(adev_opencode PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 target_link_options(adev_opencode PRIVATE
     "-Wl,-z,max-page-size=16384"

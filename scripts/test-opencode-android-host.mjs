@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,28 +63,39 @@ assert.ok(
 );
 
 const launcher = text('android/app/src/main/cpp/adev_opencode.cpp');
-assert.match(launcher, /execv\(runtime\.c_str\(\)/);
-assert.match(launcher, /\/system\/bin\/linker64|ANDROID_ROOT/);
-assert.match(launcher, /LD_PRELOAD/);
-assert.match(launcher, /OPENTUI_LIB_PATH/);
-assert.match(launcher, /BUN_TMPDIR/);
-assert.match(launcher, /SQLITE_TMPDIR/);
-assert.match(launcher, /BUN_SELF_EXE/);
-assert.match(launcher, /TERMUX_EXEC__PROC_SELF_EXE/);
-assert.match(launcher, /setenv\("ANDROID_ROOT", "\/system", 1\)/);
-assert.match(launcher, /setenv\("TERMUX_VERSION", "adev-opencode", 1\)/);
+const launcherTemplate = text(
+  'android/app/src/main/cpp/adev_opencode_version.h.in',
+);
+const cmake = text('android/app/src/main/cpp/CMakeLists.txt');
+const gradle = text('android/app/build.gradle');
+assert.match(launcher, /#include "adev_opencode_version\.h"/);
+assert.doesNotMatch(launcher, /1\.17\.9/);
+assert.match(launcherTemplate, /@ADEV_OPENCODE_VERSION@/);
+assert.match(cmake, /ADEV_OPENCODE_VERSION/);
+assert.match(cmake, /configure_file\(/);
+assert.match(gradle, /new JsonSlurper\(\)\.parse\(openCodeManifestFile\)/);
+assert.match(
+  gradle,
+  /-DADEV_OPENCODE_VERSION=\$\{openCodeManifest\.version\}/,
+);
+assert.doesNotMatch(launcher, /execv\(|libbin_opencode_runtime|LD_PRELOAD/);
 assert.match(launcher, /TERMUX__PREFIX__TMP_DIR/);
 assert.match(launcher, /TERMUX_APP__DATA_DIR/);
 assert.match(launcher, /private_tmp/);
 assert.match(launcher, /path == "\/tmp"/);
-assert.match(launcher, /W_OK \| X_OK/);
 assert.match(launcher, /Linux\/glibc binary will not be substituted/);
 assert.match(launcher, /requested_version/);
-assert.match(launcher, /equals\(argv\[index\], "-v"\)/);
-assert.match(launcher, /const_cast<char\*>\("--version"\)/);
+assert.match(launcher, /print_version/);
 assert.match(launcher, /requested_debug_paths/);
+assert.match(launcher, /print_debug_paths/);
 assert.match(launcher, /unsupported_mode/);
 assert.match(launcher, /available upstream Android Bun\/OpenTUI payloads abort/);
+assert.match(launcher, /ADEV_OPENCODE_HOST_TEST/);
+assert.match(launcher, /XDG_DATA_HOME/);
+assert.match(launcher, /XDG_CONFIG_HOME/);
+assert.match(launcher, /XDG_CACHE_HOME/);
+assert.match(launcher, /XDG_STATE_HOME/);
+assert.match(launcher, /XDG_RUNTIME_DIR/);
 const runtimeManager = text(
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
 );
@@ -93,6 +104,119 @@ assert.match(
   /writeScript\(\s*"opencode",\s*"#!\/system\/bin\/sh\\nexec/,
   'OpenCode must have a real PATH trampoline for child processes',
 );
+assert.match(runtimeManager, /"opencode" to openCodeLauncher\.isFile/);
+assert.match(runtimeManager, /"opencode-native-diagnostics"/);
+assert.match(runtimeManager, /"opencode-payload-arm64"/);
+
+const compilerCandidates = process.platform === 'win32'
+  ? ['g++', 'clang++']
+  : ['c++', 'g++', 'clang++'];
+const compiler = compilerCandidates.find(candidate => {
+  const result = spawnSync(candidate, ['--version'], {encoding: 'utf8'});
+  return result.status === 0;
+});
+assert.ok(compiler, 'A host C++ compiler is required for OpenCode launcher tests');
+
+const hostFixture = fs.mkdtempSync(
+  path.join(os.tmpdir(), 'adev-opencode-launcher-'),
+);
+try {
+  const generatedHeader = path.join(hostFixture, 'adev_opencode_version.h');
+  const hostBinary = path.join(
+    hostFixture,
+    process.platform === 'win32' ? 'opencode-host.exe' : 'opencode-host',
+  );
+  fs.writeFileSync(
+    generatedHeader,
+    `#pragma once\n#define ADEV_OPENCODE_VERSION ${JSON.stringify(manifest.version)}\n`,
+  );
+  execFileSync(
+    compiler,
+    [
+      '-std=c++17',
+      '-DADEV_OPENCODE_HOST_TEST',
+      `-I${hostFixture}`,
+      path.join(root, 'android/app/src/main/cpp/adev_opencode.cpp'),
+      '-o',
+      hostBinary,
+    ],
+    {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
+  );
+
+  const privateRoot = path.join(hostFixture, 'private');
+  const home = path.join(privateRoot, 'home');
+  const prefix = path.join(privateRoot, 'runtime');
+  const privateTmp = path.join(prefix, 'tmp');
+  fs.mkdirSync(home, {recursive: true});
+  fs.mkdirSync(privateTmp, {recursive: true});
+  const launcherEnvironment = {
+    ...process.env,
+    ADEV_OPENCODE_TEST_PRIVATE_ROOT: privateRoot,
+    HOME: home,
+    PREFIX: prefix,
+    TERMUX__PREFIX__TMP_DIR: privateTmp,
+    TMPDIR: '/tmp',
+    TMP: '/tmp',
+    TEMP: '/tmp',
+    BUN_TMPDIR: '/tmp',
+    XDG_DATA_HOME: '/tmp',
+    XDG_CONFIG_HOME: '/tmp',
+    XDG_CACHE_HOME: '/tmp',
+    XDG_STATE_HOME: '/tmp',
+    XDG_RUNTIME_DIR: '/tmp',
+  };
+  const runLauncher = args => spawnSync(hostBinary, args, {
+    encoding: 'utf8',
+    env: launcherEnvironment,
+  });
+  const launchFailure = result =>
+    result.stderr || result.error?.message || `launcher exited ${result.status}`;
+
+  for (const alias of [['--version'], ['-v']]) {
+    const result = runLauncher(alias);
+    assert.equal(result.status, 0, launchFailure(result));
+    assert.equal(result.stdout.trim(), manifest.version);
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /Bun|\/tmp/);
+  }
+  for (const alias of [['--help'], ['-h'], ['help']]) {
+    const result = runLauncher(alias);
+    assert.equal(result.status, 0, launchFailure(result));
+    assert.match(result.stdout, /Native diagnostics/);
+  }
+
+  const debugPaths = runLauncher(['debug', 'paths']);
+  assert.equal(debugPaths.status, 0, launchFailure(debugPaths));
+  const reportedPaths = Object.fromEntries(
+    debugPaths.stdout.trim().split(/\r?\n/).map(line => line.split(/=(.*)/s).slice(0, 2)),
+  );
+  assert.deepEqual(Object.keys(reportedPaths), [
+    'home',
+    'xdg_data_home',
+    'xdg_config_home',
+    'xdg_cache_home',
+    'xdg_state_home',
+    'xdg_runtime_dir',
+    'temp',
+  ]);
+  const normalizedPrivateRoot = path.resolve(privateRoot).toLowerCase();
+  for (const [name, value] of Object.entries(reportedPaths)) {
+    assert.ok(
+      path.resolve(value).toLowerCase().startsWith(`${normalizedPrivateRoot}${path.sep}`),
+      `${name} escaped the app-private test root: ${value}`,
+    );
+    assert.notEqual(value, '/tmp');
+  }
+  assert.equal(path.resolve(reportedPaths.temp), path.resolve(privateTmp));
+
+  for (const unsupported of [[], ['run'], ['serve'], ['agent'], ['web']]) {
+    const result = runLauncher(unsupported);
+    assert.equal(result.status, 69, launchFailure(result));
+    assert.match(result.stderr, /unavailable on the verified Android\/Bionic runtime/);
+    assert.doesNotMatch(result.stdout, /Bun/);
+  }
+} finally {
+  fs.rmSync(hostFixture, {recursive: true, force: true});
+}
 
 const sdk =
   process.env.ANDROID_SDK_ROOT ??

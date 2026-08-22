@@ -1837,6 +1837,8 @@ class RuntimeManager(private val context: Context) {
     fun getCapabilities(): RuntimeCapabilities {
         val makeLauncher = File(nativeLibDir, "libbin_adev_make.so")
         val makeRuntime = findNativeTool("libbin_make", ".so")
+        val openCodeLauncher = File(nativeLibDir, "libbin_opencode.so")
+        val openCodePayload = File(nativeLibDir, "libbin_opencode_runtime.so")
         val commandReadiness = linkedMapOf(
             "node" to File(nativeLibDir, "libbin_node.so").isFile,
             "npm" to File(libDir, "node_modules/npm/bin/npm-cli.js").isFile,
@@ -1860,10 +1862,10 @@ class RuntimeManager(private val context: Context) {
                 File(nativeLibDir, "libbin_busybox.so").isFile &&
                     File(nativeLibDir, "libbin_adev_busybox.so").isFile
                 ),
-            "opencode" to (
-                File(nativeLibDir, "libbin_opencode.so").isFile &&
-                    File(nativeLibDir, "libbin_opencode_runtime.so").isFile
-                ),
+            // The launcher itself supplies safe diagnostics and the explicit
+            // exit-69 capability boundary on every packaged ABI. A functional
+            // Bun/OpenTUI payload is a separate capability below.
+            "opencode" to openCodeLauncher.isFile,
             "next" to File(libDir, "adev-next.js").isFile,
             "ssh" to (
                 File(nativeLibDir, "libbin_dropbearmulti.so").isFile &&
@@ -1935,10 +1937,16 @@ class RuntimeManager(private val context: Context) {
                 "structured-listen-events" to File(libDir, "adev-server-events.js").isFile,
                 "verified-preview" to true,
                 "next-webpack-wasm" to File(libDir, "adev-next.js").isFile,
-                "opencode-diagnostics-arm64" to (commandReadiness["opencode"] == true),
-                // The command is installed and exposes version/help/path
-                // diagnostics, but real TUI/run/server modes abort inside the
-                // available upstream Android Bun/OpenTUI payloads on-device.
+                "opencode-launcher" to openCodeLauncher.isFile,
+                "opencode-native-diagnostics" to openCodeLauncher.isFile,
+                "opencode-payload-arm64" to openCodePayload.isFile,
+                // Retain the legacy key for consumers of the v5 capability
+                // surface while making its ARM64 payload condition explicit.
+                "opencode-diagnostics-arm64" to (
+                    openCodeLauncher.isFile && openCodePayload.isFile
+                    ),
+                // Real TUI/run/server modes abort inside the available upstream
+                // Android Bun/OpenTUI payloads on-device.
                 "opencode-interactive" to false,
                 "opencode-agent-run" to false,
                 "opencode-server" to false

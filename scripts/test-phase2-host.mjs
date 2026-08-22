@@ -30,64 +30,86 @@ try {
   const nextDir = path.join(project, 'node_modules', 'next');
   const nextBin = path.join(nextDir, 'dist', 'bin', 'next.js');
   const cache = path.join(root, 'cache');
-  const wasmManifest = path.join(
-    cache,
-    '15.5.22',
-    'node_modules',
-    '@next',
-    'swc-wasm-nodejs',
-    'package.json',
-  );
   fs.mkdirSync(path.dirname(nextBin), { recursive: true });
-  fs.mkdirSync(path.dirname(wasmManifest), { recursive: true });
   fs.writeFileSync(path.join(project, 'package.json'), '{"private":true}\n');
-  fs.writeFileSync(
-    path.join(nextDir, 'package.json'),
-    JSON.stringify({ name: 'next', version: '15.5.22' }),
-  );
   fs.writeFileSync(
     nextBin,
     "require('node:fs').writeFileSync(process.env.ADEV_FAKE_NEXT_OUT, JSON.stringify({ignore:process.env.NEXT_IGNORE_INCORRECT_LOCKFILE,telemetry:process.env.NEXT_TELEMETRY_DISABLED,nodePath:process.env.NODE_PATH}));\n",
   );
-  fs.writeFileSync(
-    wasmManifest,
-    JSON.stringify({ name: '@next/swc-wasm-nodejs', version: '15.5.22' }),
-  );
+
+  function installFakeNext(version) {
+    fs.writeFileSync(
+      path.join(nextDir, 'package.json'),
+      JSON.stringify({ name: 'next', version }),
+    );
+    const wasmManifest = path.join(
+      cache,
+      version,
+      'node_modules',
+      '@next',
+      'swc-wasm-nodejs',
+      'package.json',
+    );
+    fs.mkdirSync(path.dirname(wasmManifest), { recursive: true });
+    fs.writeFileSync(
+      wasmManifest,
+      JSON.stringify({ name: '@next/swc-wasm-nodejs', version }),
+    );
+  }
+
+  async function dryRun(version, args) {
+    installFakeNext(version);
+    const result = await run(
+      process.execPath,
+      [launcher, '--adev-dry-run', '--adev-diagnose', ...args],
+      { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
+    );
+    assert.equal(result.code, 0, result.stderr);
+    const info = JSON.parse(result.stdout);
+    assert.equal(info.nextVersion, version);
+    return info;
+  }
 
   const before = fs.readFileSync(path.join(project, 'package.json'), 'utf8');
-  const dev = await run(
-    process.execPath,
-    [launcher, '--adev-dry-run', '--adev-diagnose', 'dev', '-p', '3210'],
-    { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
-  );
-  assert.equal(dev.code, 0, dev.stderr);
-  const devInfo = JSON.parse(dev.stdout);
-  assert.equal(devInfo.nextVersion, '15.5.22');
-  assert.deepEqual(devInfo.args, ['dev', '--webpack', '-p', '3210']);
-  assert.equal(devInfo.projectModified, false);
+  for (const version of ['15.5.2', '15.5.22', '16.2.12']) {
+    const webpackSelector = version.startsWith('16.') ? ['--webpack'] : [];
+    const defaultDev = await dryRun(version, []);
+    assert.deepEqual(defaultDev.args, ['dev', ...webpackSelector]);
+    assert.equal(defaultDev.projectModified, false);
 
-  const turbo = await run(
-    process.execPath,
-    [launcher, '--adev-dry-run', 'dev', '--turbopack', '-p', '3210'],
-    { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
-  );
-  assert.deepEqual(JSON.parse(turbo.stdout).args, ['dev', '--webpack', '-p', '3210']);
+    assert.deepEqual(
+      (await dryRun(version, ['dev', '--turbopack', '--turbo', '-p', '3210'])).args,
+      ['dev', ...webpackSelector, '-p', '3210'],
+    );
+    assert.deepEqual(
+      (await dryRun(version, ['dev', '--webpack', '--webpack', '-p', '3210'])).args,
+      ['dev', ...webpackSelector, '-p', '3210'],
+    );
+    assert.deepEqual(
+      (await dryRun(version, ['build', '--turbo', '--webpack', '--webpack'])).args,
+      ['build', ...webpackSelector],
+    );
 
-  const build = await run(
-    process.execPath,
-    [launcher, '--adev-dry-run', 'build'],
-    { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
-  );
-  assert.deepEqual(JSON.parse(build.stdout).args, ['build', '--webpack']);
-
-  const start = await run(
-    process.execPath,
-    [launcher, '--adev-dry-run', 'start', '-p', '3210'],
-    { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
-  );
-  assert.deepEqual(JSON.parse(start.stdout).args, ['start', '-p', '3210']);
+    const start = await dryRun(version, ['start', '--turbo', '--webpack', '-p', '3210']);
+    assert.deepEqual(start.args, ['start', '--turbo', '--webpack', '-p', '3210']);
+  }
   assert.equal(fs.readFileSync(path.join(project, 'package.json'), 'utf8'), before);
 
+  fs.writeFileSync(
+    path.join(nextDir, 'package.json'),
+    JSON.stringify({ name: 'next', version: 'not-semver' }),
+  );
+  const malformed = await run(
+    process.execPath,
+    [launcher, '--adev-dry-run', 'dev'],
+    { cwd: project, env: { ...process.env, ADEV_NEXT_CACHE: cache } },
+  );
+  assert.equal(malformed.code, 1);
+  assert.match(malformed.stderr, /invalid metadata/);
+  assert.match(malformed.stderr, /invalid version "not-semver"/);
+  assert.match(malformed.stderr, /Reinstall Next\.js/);
+
+  installFakeNext('15.5.22');
   const fakeNextOutput = path.join(root, 'fake-next-output.json');
   const direct = await run(process.execPath, [launcher, 'start'], {
     cwd: project,
@@ -102,6 +124,38 @@ try {
   assert.equal(directEnv.ignore, '1');
   assert.equal(directEnv.telemetry, '1');
   assert.ok(directEnv.nodePath.includes(path.join(cache, '15.5.22', 'node_modules')));
+
+  const runtimeManager = fs.readFileSync(
+    path.join(
+      repo,
+      'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
+    ),
+    'utf8',
+  );
+  assert.ok(
+    runtimeManager.includes(
+      'sb.appendLine("next() { \\"$node\\" \\"${nextLauncher.absolutePath}\\"',
+    ),
+  );
+  assert.match(runtimeManager, /writeScript\(\s*"next"[\s\S]*?nextLauncher\.absolutePath/);
+  assert.match(runtimeManager, /"ADEV_NEXT_LAUNCHER" to File\(libDir, "adev-next\.js"\)/);
+
+  const npmShell = fs.readFileSync(
+    path.join(repo, 'android/app/src/main/cpp/adev_npm_shell.cpp'),
+    'utf8',
+  );
+  assert.match(npmShell, /static void try_next_exec\(char \*\*argv\)/);
+  assert.match(npmShell, /try_next_exec\(v\)/);
+  assert.match(npmShell, /getenv\("ADEV_NEXT_LAUNCHER"\)/);
+
+  const processManager = fs.readFileSync(
+    path.join(
+      repo,
+      'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
+    ),
+    'utf8',
+  );
+  assert.match(processManager, /"next" -> if \(node\.exists\(\) && nextLauncher\.exists\(\)\)/);
 
   const child = spawn(
     process.execPath,

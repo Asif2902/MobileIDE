@@ -66,6 +66,14 @@ if (!versionFile.isFile()) {
     throw new GradleException("Missing ${versionFile}; version.json is the release version authority.")
 }
 def releaseVersion = new JsonSlurper().parse(versionFile)
+def openCodeManifestFile = file("src/main/assets/runtime/lib/adev-opencode.json")
+if (!openCodeManifestFile.isFile()) {
+    throw new GradleException("Missing ${openCodeManifestFile}; OpenCode launcher version cannot be configured.")
+}
+def openCodeManifest = new JsonSlurper().parse(openCodeManifestFile)
+if (!(openCodeManifest.version instanceof String) || openCodeManifest.version.isBlank()) {
+    throw new GradleException("${openCodeManifestFile} must declare a non-empty string version.")
+}
 def releaseSigningEnvironment = [
     storeFile: System.getenv("ADEV_RELEASE_STORE_FILE"),
     storePassword: System.getenv("ADEV_RELEASE_STORE_PASSWORD"),
@@ -149,7 +157,8 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17"
-                arguments "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_STL=c++_shared",
+                    "-DADEV_OPENCODE_VERSION=${openCodeManifest.version}"
             }
         }
     }

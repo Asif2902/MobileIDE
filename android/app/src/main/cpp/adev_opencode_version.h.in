@@ -1,0 +1,4 @@
+#pragma once
+
+// Configured by Gradle from assets/runtime/lib/adev-opencode.json.
+#define ADEV_OPENCODE_VERSION "@ADEV_OPENCODE_VERSION@"

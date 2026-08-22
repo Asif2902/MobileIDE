@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.5",
+  "runtimeVersion": "1.16.6",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -228,8 +228,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "d54723fd4505cb65dd5e2f6711033bb122933bdfdeb835d13e5329680632e3f4",
-          "bytes": 41688,
+          "sha256": "a971896f3dc57ff8bfb2e43f5917f6cbd9277c2bd2561c2a4226009eaeaa3238",
+          "bytes": 38904,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1948,8 +1948,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "21e748f29a752a99d5edef8a1d9135bda8e56d681b0dfcedd548b2e03fe9d504",
-          "bytes": 41992,
+          "sha256": "796c835d56b04b92bcdfd987412511d9fd816317d874a463d4e71d3befc09a28",
+          "bytes": 38488,
           "runtimePaths": [],
           "owner": "app-native"
         }
