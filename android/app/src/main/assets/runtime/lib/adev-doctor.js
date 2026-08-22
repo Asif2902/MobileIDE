@@ -14,6 +14,160 @@ const selfTest = args.has('--self-test');
 const prefix = process.env.PREFIX || '';
 const nativeDir = process.env.MOBILEIDE_NATIVE_LIB || '';
 
+const PROJECT_SCAN_SKIP = new Set([
+  '.git', '.hg', '.svn', '.next', '.turbo', 'build', 'coverage', 'dist',
+  'node_modules',
+]);
+
+function safeProjectText(value, maxLength = 200) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '?')
+    .slice(0, maxLength);
+}
+
+function readProjectManifest(directory) {
+  const manifestPath = path.join(directory, 'package.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const scripts = parsed && typeof parsed.scripts === 'object' && parsed.scripts
+      ? Object.keys(parsed.scripts).map(name => safeProjectText(name, 100)).sort()
+      : [];
+    return {
+      path: manifestPath,
+      name: safeProjectText(parsed.name || path.basename(directory)),
+      scripts,
+      engines: parsed && typeof parsed.engines === 'object' && parsed.engines
+        ? {
+            node: parsed.engines.node ? safeProjectText(parsed.engines.node, 100) : null,
+            npm: parsed.engines.npm ? safeProjectText(parsed.engines.npm, 100) : null,
+          }
+        : {node: null, npm: null},
+      packageManager: parsed.packageManager
+        ? safeProjectText(parsed.packageManager, 100)
+        : null,
+    };
+  } catch (error) {
+    return fs.existsSync(manifestPath)
+      ? {path: manifestPath, error: safeProjectText(error.message)}
+      : null;
+  }
+}
+
+function shellDirectory(relativePath) {
+  // JSON quoting is understood by the bundled Bash and Android mksh. It also
+  // prevents project-controlled whitespace or metacharacters becoming part of
+  // a diagnostic command suggestion.
+  return JSON.stringify(relativePath.split(path.sep).join('/'));
+}
+
+function findNestedNodeProjects(root, maxDepth = 3, maxDirectories = 120) {
+  const projects = [];
+  const pending = [{directory: root, depth: 0}];
+  let visited = 0;
+  while (pending.length && visited < maxDirectories) {
+    const current = pending.shift();
+    visited += 1;
+    let entries;
+    try {
+      entries = fs.readdirSync(current.directory, {withFileTypes: true});
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || PROJECT_SCAN_SKIP.has(entry.name)) continue;
+      const directory = path.join(current.directory, entry.name);
+      const relativePath = path.relative(root, directory);
+      const manifest = readProjectManifest(directory);
+      if (manifest) {
+        projects.push({
+          relativePath: safeProjectText(relativePath.split(path.sep).join('/'), 300),
+          ...manifest,
+        });
+      }
+      if (current.depth + 1 < maxDepth) {
+        pending.push({directory, depth: current.depth + 1});
+      }
+    }
+  }
+  return {projects: projects.slice(0, 30), truncated: pending.length > 0 || projects.length > 30};
+}
+
+function satisfiesEngine(version, range) {
+  if (!version || !range) return null;
+  try {
+    const semver = require(path.join(prefix, 'lib', 'node_modules', 'npm', 'node_modules', 'semver'));
+    return semver.satisfies(version, range, {includePrerelease: true});
+  } catch {
+    return null;
+  }
+}
+
+function inspectCurrentProject() {
+  const cwd = process.cwd();
+  const manifest = readProjectManifest(cwd);
+  const directEntries = ['index.js', 'server.js', 'app.js']
+    .filter(name => fs.existsSync(path.join(cwd, name)));
+  const nested = findNestedNodeProjects(cwd);
+  const suggestions = [];
+
+  let npmVersion = null;
+  try {
+    npmVersion = JSON.parse(
+      fs.readFileSync(path.join(prefix, 'lib', 'node_modules', 'npm', 'package.json'), 'utf8')
+    ).version;
+  } catch {}
+  const engineCompatibility = {
+    node: satisfiesEngine(process.version, manifest?.engines?.node),
+    npm: satisfiesEngine(npmVersion, manifest?.engines?.npm),
+  };
+
+  if (manifest && !manifest.error) {
+    if (manifest.scripts.includes('dev')) suggestions.push('npm run dev');
+    if (manifest.scripts.includes('start')) suggestions.push('npm start');
+    if (manifest.scripts.length === 0) {
+      suggestions.push('npm run  # list scripts; none are currently declared here');
+    }
+    if (engineCompatibility.node === false) {
+      suggestions.push(
+        `Engine mismatch: project requires Node ${manifest.engines.node}; runtime provides ${process.version}`
+      );
+    }
+    if (engineCompatibility.npm === false) {
+      suggestions.push(
+        `Engine mismatch: project requires npm ${manifest.engines.npm}; runtime provides ${npmVersion}`
+      );
+    }
+  } else if (!manifest) {
+    suggestions.push('Open or cd into a folder containing package.json');
+  }
+  if (directEntries.includes('index.js') && !(manifest?.scripts || []).includes('index.js')) {
+    suggestions.push('node index.js  # run the file directly; npm run index.js needs a declared script');
+  }
+  if (!manifest?.scripts?.includes('dev')) {
+    const nestedDev = nested.projects.find(project => project.scripts?.includes('dev'));
+    if (nestedDev) {
+      suggestions.push(`cd ${shellDirectory(nestedDev.relativePath)} && npm run dev`);
+    }
+  }
+
+  return {
+    cwd,
+    manifest,
+    directEntries,
+    nestedProjects: nested.projects,
+    nestedScanTruncated: nested.truncated,
+    runtimeVersions: {node: process.version, npm: npmVersion},
+    engineCompatibility,
+    suggestedCommands: suggestions,
+    npmLifecycleSecurity: {
+      behavior: 'install scripts require explicit project approval',
+      reviewPending: 'npm approve-scripts --allow-scripts-pending',
+      approveReviewedPackage: 'npm approve-scripts <package>',
+      warning: 'Review a package and version before approval; A Dev Studio does not auto-approve native install scripts.',
+    },
+  };
+}
+
 function firstExisting(...values) {
   return values.find(value => value && fs.existsSync(value)) || null;
 }
@@ -293,6 +447,14 @@ const nanoDataReady =
   fs.existsSync(nanoUserConfig);
 const nanoReady = nanoSupported && probes.nano.ready && nanoDataReady;
 
+const nativeBuildTriple = 'aarch64-linux-android';
+const nativeSysrootHeaders = [
+  path.join(prefix, 'include', 'linux', 'types.h'),
+  path.join(prefix, 'include', nativeBuildTriple, 'asm', 'types.h'),
+  path.join(prefix, 'include', 'asm-generic', 'types.h'),
+];
+const nativeSysrootReady = nativeSysrootHeaders.every(file => fs.existsSync(file));
+
 const requiredReady = [
   probes.node,
   probes.npm,
@@ -303,8 +465,9 @@ const requiredReady = [
   probes.git,
   probes.curl,
   probes.busybox,
-].every(item => item.ready) && (!nanoSupported || nanoReady);
+].every(item => item.ready) && nativeSysrootReady && (!nanoSupported || nanoReady);
 const executionReady = Object.values(executionTests).every(item => item.ready);
+const project = inspectCurrentProject();
 
 const runtimeLockPath = path.join(prefix, 'runtime-lock.json');
 const runtimeLockPublicKey = path.join(prefix, 'runtime-lock.pub.pem');
@@ -340,7 +503,7 @@ try {
 }
 
 const report = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   healthy:
     requiredReady &&
     executionReady &&
@@ -366,6 +529,19 @@ const report = {
     nodeHeaders: path.join(prefix, 'include', 'node'),
     caBundle: process.env.SSL_CERT_FILE || process.env.SSL_CERT_DIR || null,
   },
+  project,
+  cliGuidance: {
+    npmRun:
+      'npm run <name> only runs a matching package.json script; use npm run to list scripts.',
+    directJavaScript:
+      'Use node index.js to run an entry file unless package.json explicitly declares an index.js script.',
+    git:
+      'Running git without a subcommand prints help. Use git status, git clone <url>, git pull, or git push.',
+    ssh:
+      'Running ssh without a host prints usage. Connect with ssh user@host; host-key verification remains enabled.',
+    opencode:
+      'Only opencode --version, --help, and debug paths are verified; interactive/run/server modes are blocked because the available Android Bun/OpenTUI payloads abort in native code.',
+  },
   environment: {
     path: process.env.PATH || null,
     shell: process.env.SHELL || null,
@@ -388,12 +564,16 @@ const report = {
   },
   compiler: {
     api: process.env.ADEV_NATIVE_BUILD_API || null,
+    targetTriple: nativeBuildTriple,
     cc: process.env.CC || null,
     cxx: process.env.CXX || null,
+    cpath: process.env.CPATH || null,
     ar: process.env.AR || null,
     ld: process.env.LD || null,
     ldflags: process.env.LDFLAGS || null,
     nodeHeadersReady: fs.existsSync(path.join(prefix, 'include', 'node', 'node.h')),
+    nativeSysrootReady,
+    nativeSysrootHeaders,
   },
   packageResolution: packagePolicy,
   packageManagers,
@@ -508,6 +688,40 @@ if (jsonMode) {
   process.stdout.write(
     `Nano: ${report.nano.ready ? 'ready' : report.nano.boundary}; ` +
       `${report.nano.terminfoEntries} terminfo entries, ${report.nano.syntaxDefinitions} syntax files\n`
+  );
+  if (project.manifest && !project.manifest.error) {
+    process.stdout.write(
+      `Project: ${project.manifest.name || path.basename(project.cwd)}; ` +
+        `scripts ${project.manifest.scripts.length ? project.manifest.scripts.join(', ') : '(none)'}\n`
+    );
+    if (project.manifest.engines.node || project.manifest.engines.npm) {
+      process.stdout.write(
+        `Project engines: Node ${project.manifest.engines.node || '(not declared)'}; ` +
+          `npm ${project.manifest.engines.npm || '(not declared)'}; ` +
+          `runtime Node ${project.runtimeVersions.node}, npm ${project.runtimeVersions.npm || '?'}\n`
+      );
+    }
+  } else if (project.manifest?.error) {
+    process.stdout.write(`Project: package.json is invalid (${project.manifest.error})\n`);
+  } else {
+    process.stdout.write(`Project: no package.json in ${safeProjectText(project.cwd, 300)}\n`);
+  }
+  if (project.nestedProjects.length) {
+    process.stdout.write(
+      `Nested Node projects: ${project.nestedProjects
+        .map(item => `${item.relativePath} [${item.scripts?.join(', ') || 'no scripts'}]`)
+        .join('; ')}${project.nestedScanTruncated ? '; scan limited' : ''}\n`
+    );
+  }
+  for (const suggestion of project.suggestedCommands) {
+    process.stdout.write(`Try: ${suggestion}\n`);
+  }
+  process.stdout.write(
+    `npm install scripts: review pending packages with ` +
+      `${project.npmLifecycleSecurity.reviewPending}; approve only reviewed package versions.\n`
+  );
+  process.stdout.write(
+    `CLI usage: git status (bare git prints help); ssh user@host (bare ssh prints usage).\n`
   );
   if (nextProject.installed) {
     process.stdout.write(

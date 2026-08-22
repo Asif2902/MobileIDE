@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const repo = path.resolve(import.meta.dirname, '..');
+const runtimeManagerPath = path.join(
+  repo,
+  'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
+);
+
+function decodeKotlinString(fragment) {
+  return fragment
+    .replace(/\\"/g, '"')
+    .replace(/\\\$/g, '$')
+    .replace(/\\\\/g, '\\');
+}
+
+function generatedAgentLine(source, prefix) {
+  const appendLines = source.matchAll(
+    /agentEnv\.appendLine\("((?:[^"\\]|\\.)*)"\)/g,
+  );
+  for (const match of appendLines) {
+    const decoded = decodeKotlinString(match[1]);
+    if (decoded.startsWith(prefix)) {
+      return decoded;
+    }
+  }
+  assert.fail(`Missing generated agent environment line: ${prefix}`);
+}
+
+function existingShells() {
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          process.env.ADEV_POSIX_SH,
+          process.env.SHELL,
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git/bin/sh.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git/usr/bin/sh.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git/bin/bash.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git/usr/bin/bash.exe'),
+        ]
+      : [process.env.ADEV_POSIX_SH, process.env.SHELL, '/bin/sh', '/bin/bash'];
+  return [...new Set(candidates.filter(Boolean))].filter(candidate =>
+    path.isAbsolute(candidate) ? fs.existsSync(candidate) : true,
+  );
+}
+
+function shellPath(file) {
+  return process.platform === 'win32' ? file.replaceAll('\\', '/') : file;
+}
+
+function run(shell, args, env) {
+  return spawnSync(shell, args, {
+    encoding: 'utf8',
+    env,
+    windowsHide: true,
+  });
+}
+
+const source = fs.readFileSync(runtimeManagerPath, 'utf8');
+const lines = [
+  generatedAgentLine(source, 'adev_node_options='),
+  generatedAgentLine(source, 'case "$adev_node_options" in *adev-server-events.js*'),
+  generatedAgentLine(source, 'case "$adev_node_options" in *adev-runtime-policy.js*'),
+  generatedAgentLine(source, 'export NODE_OPTIONS='),
+  generatedAgentLine(source, 'unset adev_node_options'),
+];
+const generatedSnippet = `${lines.join('\n')}\n`;
+
+assert.equal(lines[0], 'adev_node_options="${NODE_OPTIONS:-}"');
+assert.doesNotMatch(generatedSnippet, /\$\{'\$'\}/);
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'adev-agent-env-host-'));
+try {
+  const envFile = path.join(root, '.adev-agent-env');
+  fs.writeFileSync(envFile, generatedSnippet);
+  const portableEnvFile = shellPath(envFile);
+  const shells = existingShells();
+  assert.ok(shells.length > 0, 'A POSIX shell is required for the agent-env test');
+
+  for (const shell of shells) {
+    const baseEnv = { ...process.env, PREFIX: '/adev-test-prefix-with-no-assets' };
+    delete baseEnv.NODE_OPTIONS;
+    delete baseEnv.BASH_ENV;
+
+    const syntax = run(shell, ['-n', portableEnvFile], baseEnv);
+    assert.equal(
+      syntax.status,
+      0,
+      `${shell} rejected generated agent env syntax:\n${syntax.stderr}`,
+    );
+
+    const empty = run(
+      shell,
+      [
+        '-c',
+        '. "$1"; printf "%s" "${NODE_OPTIONS+x}:$NODE_OPTIONS"',
+        'adev-agent-env-test',
+        portableEnvFile,
+      ],
+      baseEnv,
+    );
+    assert.equal(empty.status, 0, `${shell} could not source agent env:\n${empty.stderr}`);
+    assert.equal(empty.stdout, 'x:');
+
+    const original = '--trace-warnings --max-old-space-size=512';
+    const preserved = run(
+      shell,
+      ['-c', '. "$1"; printf "%s" "$NODE_OPTIONS"', 'adev-agent-env-test', portableEnvFile],
+      { ...baseEnv, NODE_OPTIONS: original },
+    );
+    assert.equal(
+      preserved.status,
+      0,
+      `${shell} could not preserve NODE_OPTIONS:\n${preserved.stderr}`,
+    );
+    assert.equal(preserved.stdout, original);
+
+    if (/bash(?:\.exe)?$/i.test(shell)) {
+      const bashEnv = run(shell, ['-c', 'printf "%s" "$NODE_OPTIONS"'], {
+        ...baseEnv,
+        BASH_ENV: portableEnvFile,
+        NODE_OPTIONS: original,
+      });
+      assert.equal(
+        bashEnv.status,
+        0,
+        `${shell} could not auto-load BASH_ENV:\n${bashEnv.stderr}`,
+      );
+      assert.equal(bashEnv.stdout, original);
+    }
+  }
+
+  process.stdout.write(
+    `Agent environment shell tests passed (${shells
+      .map(shell => path.basename(shell))
+      .join(', ')}).\n`,
+  );
+} finally {
+  fs.rmSync(root, { recursive: true, force: true });
+}

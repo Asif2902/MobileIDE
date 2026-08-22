@@ -59,6 +59,7 @@ class RuntimeManager(private val context: Context) {
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         // Keep addons compatible with the app's minimum supported Android.
         private const val NATIVE_BUILD_API = 29
+        private const val NATIVE_BUILD_TRIPLE = "aarch64-linux-android"
         private const val NATIVE_LINK_FLAGS =
             "-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
 
@@ -720,7 +721,10 @@ class RuntimeManager(private val context: Context) {
             agentEnv.appendLine("export ADEV_NEXT_LAUNCHER=\"${nextLauncher.absolutePath}\"")
             agentEnv.appendLine("export ADEV_NEXT_CACHE=\"${File(cacheDir, "next-swc").absolutePath}\"")
             agentEnv.appendLine("export ADEV_NPM_CLI=\"${File(libDir, "node_modules/npm/bin/npm-cli.js").absolutePath}\"")
-            agentEnv.appendLine("adev_node_options=\"\${'$'}{NODE_OPTIONS:-}\"")
+            // Escape Kotlin's '$' once so the generated POSIX shell retains
+            // the parameter expansion. Using ${'$'} here would write that
+            // Kotlin escape expression literally and Android sh rejects it.
+            agentEnv.appendLine("adev_node_options=\"\${NODE_OPTIONS:-}\"")
             agentEnv.appendLine("case \"\$adev_node_options\" in *adev-server-events.js*) ;; *) [ -f \"\$PREFIX/lib/adev-server-events.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-server-events.js \$adev_node_options\" ;; esac")
             agentEnv.appendLine("case \"\$adev_node_options\" in *adev-runtime-policy.js*) ;; *) [ -f \"\$PREFIX/lib/adev-runtime-policy.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-runtime-policy.js \$adev_node_options\" ;; esac")
             agentEnv.appendLine("export NODE_OPTIONS=\"\$adev_node_options\"")
@@ -1018,15 +1022,35 @@ class RuntimeManager(private val context: Context) {
             ?.sortedByDescending { it.name }
             ?.firstOrNull()
 
+    private fun nativeSysrootIncludeDirs(): List<File> {
+        val includeRoot = File(runtimeRoot, "include")
+        // Android's generated UAPI headers intentionally use includes such as
+        // <asm/types.h>. Those architecture headers live below the target
+        // triple, not directly below include/, so that directory must precede
+        // the generic Bionic headers for every compiler entry point.
+        return listOf(File(includeRoot, NATIVE_BUILD_TRIPLE), includeRoot)
+    }
+
+    private fun nativeSysrootHeadersReady(): Boolean = listOf(
+        File(runtimeRoot, "include/linux/types.h"),
+        File(runtimeRoot, "include/$NATIVE_BUILD_TRIPLE/asm/types.h"),
+        File(runtimeRoot, "include/asm-generic/types.h")
+    ).all(File::isFile)
+
+    private fun nativeSysrootIncludePath(): String =
+        nativeSysrootIncludeDirs().joinToString(":") { it.absolutePath }
+
     private fun clangDriverFlags(resourceDir: File? = findClangResourceDir()): String {
         val prefix = runtimeRoot.absolutePath
+        val systemIncludes = nativeSysrootIncludeDirs()
+            .joinToString(" ") { "-isystem ${it.absolutePath}" }
         val resource = resourceDir?.absolutePath?.let { " -resource-dir $it" }.orEmpty()
         val linker = findNativeTool("libbin_lld", ".so")
             ?.absolutePath
             ?.let { " --ld-path=$it" }
             .orEmpty()
-        return "--target=aarch64-linux-android$NATIVE_BUILD_API " +
-            "--sysroot=$prefix -isystem $prefix/include -L$prefix/lib -B$prefix/lib" +
+        return "--target=$NATIVE_BUILD_TRIPLE$NATIVE_BUILD_API " +
+            "--sysroot=$prefix $systemIncludes -L$prefix/lib -B$prefix/lib" +
             "$resource$linker"
     }
 
@@ -1054,6 +1078,9 @@ class RuntimeManager(private val context: Context) {
         clang?.let {
             out.appendLine("${exportPrefix}CC=\"${it.absolutePath} $clangFlags\"")
             out.appendLine("${exportPrefix}CXX=\"${it.absolutePath} --driver-mode=g++ $clangFlags\"")
+            // CPATH also covers packages that invoke clang directly instead
+            // of respecting node-gyp's CC/CXX command strings.
+            out.appendLine("${exportPrefix}CPATH=\"${nativeSysrootIncludePath()}\"")
         }
         llvmAr?.let { out.appendLine("${exportPrefix}AR=\"${it.absolutePath}\"") }
         lld?.let { out.appendLine("${exportPrefix}LD=\"${it.absolutePath}\"") }
@@ -1841,7 +1868,8 @@ class RuntimeManager(private val context: Context) {
         val nativeBuildReady = listOf(
             "node-gyp", "python", "make", "clang", "lld"
         ).all { commandReadiness[it] == true } &&
-            File(runtimeRoot, "include/node/node.h").isFile
+            File(runtimeRoot, "include/node/node.h").isFile &&
+            nativeSysrootHeadersReady()
         val npmShell = File(nativeLibDir, "libbin_adev_npm_shell.so")
         val termuxExec = listOf(
             "liblib_libtermux_exec_linker_ld_preload_so.so",
@@ -2112,6 +2140,7 @@ class RuntimeManager(private val context: Context) {
             val flags = clangDriverFlags()
             env["CC"] = "${it.absolutePath} $flags"
             env["CXX"] = "${it.absolutePath} --driver-mode=g++ $flags"
+            env["CPATH"] = nativeSysrootIncludePath()
         }
         findNativeTool("libbin_llvm_ar", ".so")?.let { env["AR"] = it.absolutePath }
         findNativeTool("libbin_lld", ".so")?.let { env["LD"] = it.absolutePath }

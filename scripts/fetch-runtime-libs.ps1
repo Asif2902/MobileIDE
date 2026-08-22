@@ -502,6 +502,13 @@ if ($missing.Count -eq 0) {
 if ($stageToolchain) {
     $requiredToolchainPaths = @(
         "include\node\node.h",
+        # linux/types.h includes <asm/types.h>. The latter is intentionally
+        # target-specific in Android's Bionic sysroot, so all three paths are
+        # required for a usable ARM64 node-gyp compiler rather than merely a
+        # present Clang executable.
+        "include\linux\types.h",
+        "include\aarch64-linux-android\asm\types.h",
+        "include\asm-generic\types.h",
         "bin\curl",
         "bin\make",
         "bin\lld",

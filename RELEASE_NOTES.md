@@ -1,96 +1,69 @@
-# A Dev Studio 1.3.8
+# A Dev Studio 1.3.9
 
-This phone-test candidate addresses the failures copied from the connected ARM64
-phone: terminal startup looping, incomplete Linux commands, native addons using
-Termux's unavailable shell, misleading OpenCode behavior, and Git workspaces
-that were difficult to locate or operate from the app.
+This phone-test release fixes the two platform defects exposed by the latest
+ARM64 device logs after the earlier Python and Make repairs allowed node-gyp to
+reach compilation.
 
-Phone-test package:
+## Fixed in 1.3.9
 
-- `1.3.8-phone-test` installs as `com.mobileide.app.phonetest` and includes the
-  ARM64 developer runtime without requiring Metro.
-- It is debug-key signed only for direct device testing; it is not a production
-  Play release.
-- Runtime 1.16.3 forces a verified upgrade extraction. Developers should not
-  need `chmod`, a package-specific rebuild, or app-data clearing.
+- Generated `.adev-agent-env` now contains the valid POSIX expansion
+  `${NODE_OPTIONS:-}`. Version 1.3.8 accidentally emitted the literal Kotlin
+  escape `${'$'}{NODE_OPTIONS:-}`, which made Android `sh` stop npm/Vite with
+  `bad substitution`.
+- Clang now searches `$PREFIX/include/aarch64-linux-android` before the generic
+  Bionic headers. This resolves the packaged `asm/types.h` imported by
+  `linux/types.h` and applies to node-gyp plus packages that invoke Clang
+  directly through the exported `CPATH`.
+- Runtime generation, readiness, and `adev-doctor` fail clearly if the Linux,
+  ARM64 ASM, or generic ASM UAPI header chain is incomplete.
+- `adev-doctor` now explains the current package scripts, finds bounded nested
+  Node projects, suggests the correct runnable command, reports Node/npm engine
+  mismatches, and explains npm's native-script approval security policy.
 
-Runtime and terminal fixes:
+## Correct command behavior
 
-- Python's complete standard library, including `zipfile/_path`, is retained in
-  the APK so node-gyp can configure native builds.
-- The APK-native Make bridge forces Android's `/system/bin/sh`, including for
-  recursive Make, so no build can fall back to
-  `/data/data/com.termux/files/usr/bin/sh`.
-- BusyBox 1.38.0-1 now has a verified ELF64 AArch64 payload and APK-native
-  argv-zero dispatcher. Commands such as `vi`, `less`, `more`, `w`, `mktemp`,
-  and `grep` are routed through normal PATH lookup; final phone execution is
-  pending. Android `w` reports uptime because app UIDs cannot read utmp logins.
-- Nano 9.2 is integrated for ARM64 with terminfo, 44 syntax definitions,
-  generated prefix-correct configuration, Nano/Git editor defaults, and a
-  `cproj <folder>` helper for finding private projects from any directory.
-- Terminal environment construction strips invalid bytes from the SELinux
-  context before spawning. The startup/prompt correction was observed during
-  the earlier API 30 diagnosis; the final 1.3.8 candidate still needs retest.
-- The terminal removes duplicate safe-area padding, keeps its shortcut bar
-  above the Android keyboard, reconciles IME composition without duplicated
-  input, and copies soft-wrapped output as logical lines.
+- `npm run dev` works only in a package whose `package.json` declares `dev`.
+  In the copied AchMarket logs that package was `AchMarket/frontend`, not either
+  parent directory.
+- Run a direct entry file with `node index.js`; `npm run index.js` is valid only
+  if a script named `index.js` is declared.
+- Bare `git` and bare `ssh` printing usage means both executables resolved. Live
+  clone/push/auth and host-key behavior still require device/network testing.
+- AchMarket declares Node 22.x/npm 10.x while the bundled runtime is Node 26.4/
+  npm 11.16. That warning is a project engine mismatch, not an Android EACCES
+  failure.
+- OpenCode remains a diagnostic-only Android command. `--version`, `--help`,
+  and debug paths are supported; functional TUI/run/server modes remain blocked
+  with exit 69 because the available Android Bun/OpenTUI payloads abort in
+  native Bionic code.
 
-Git and workspace fixes:
+## Package and upgrade behavior
 
-These paths pass host unit/security/build checks. Live phone HTTPS/SSH clone,
-pull, push, rejection, credential persistence, and PR creation are pending.
+- `1.3.9-phone-test` installs as `com.mobileide.app.phonetest` and is debug-key
+  signed for direct phone testing; it is not a production Play release.
+- Runtime 1.16.4 forces upgrade re-extraction, so existing installations receive
+  the corrected shell file and compiler environment automatically. No `chmod`,
+  package-specific workaround, app-data clearing, or manual rebuild is intended.
+- The complete ARM64 developer/compiler runtime remains in the base APK. The
+  full x86_64 developer runtime and optional large toolchains remain explicit
+  signed feature-pack boundaries.
+- Bun and full OpenCode functional modes remain explicit upstream Android/Bionic
+  capability boundaries rather than unsafe glibc fallbacks.
 
-- Clones use a visible, validated private-workspace folder and open that folder
-  automatically after success. Project and `.env` access are exposed in the
-  explorer rather than requiring shell-only discovery.
-- Branch refresh/checkout, upstream push, and native pull/fetch behavior are
-  completed. Remote and branch arguments are validated before reaching Git.
-- HTTPS credentials and PR tokens use Android Keystore-backed references. The
-  UI now waits for secure storage to succeed, clears cancelled token input, and
-  never returns embedded remote credentials to JavaScript.
-- Failed clone/open operations preserve the current repository and surface the
-  real error instead of showing a false success state.
+## Verification status
 
-OpenCode capability boundary:
-
-- The command is installed on PATH, uses app-private temp directories, and
-  supports `--version`, `--help`, and `debug paths` diagnostics on ARM64.
-- Real API 30 testing proved that every available Android Bun/OpenTUI payload
-  aborts in native Bionic code for TUI, agent `run`, `serve`, or `web` modes.
-  Version 1.3.8 blocks those crash paths with an actionable exit-69 message. It
-  does not substitute an incompatible Linux/glibc binary or claim full OpenCode
-  compatibility.
-
-Known capability boundaries:
-
-- The complete developer/compiler runtime is bundled for ARM64. x86_64 ships
-  app helpers but still requires a signed full-runtime feature pack.
-- Nano is ARM64-only; x86_64 continues to provide `vi` until a pinned Android/
-  Bionic Nano package exists for that ABI.
-- General Bun remains unsupported on Android/Bionic.
-- Shared storage cannot reliably preserve executable modes, Unix symlinks, or
-  case sensitivity. Native builds use the app-private workspace flow.
-
-Dependency security:
-
-- React Native CLI 20.2.0, Nanoid 3.3.18, fast-xml-parser 5.10.1, js-yaml,
-  and brace-expansion are pinned to fixed compatible releases.
-- Upstream `image-size` has no release fixing its ICNS/JXL/HEIF infinite-loop
-  advisories. `npm install` applies a version-pinned parser patch, and the
-  release gate runs malformed-input probes with a hard timeout. Only the two
-  exact reviewed advisories are accepted until 2026-09-11; any other audit
-  finding or patch drift fails the build.
-
-Final 1.3.8 phone-test evidence:
-
-- APK: `app-phoneTest.apk`, 360,650,192 bytes
-- SHA-256: `D227A57916822CF090FE6C63F8313A398860EE4B24CD6CE46DE96D2BFA3219AB`
-- Test signer SHA-256: `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`
-- API/ABI/lock/closure/16 KiB APK checks: PASS (246 ELF files)
-- Unit/instrumentation compilation: PASS; test APK 694,409 bytes, SHA-256
-  `B006C6952640969B04F07870A6AF2D4959970E1BD2F324F3C34A472CCD9AD014`
-- API 30 final-candidate fresh install/upgrade: PENDING — phone disconnected
-- Terminal keyboard/UI, npm/node-gyp compile/load, BusyBox/Nano: PENDING
-- Git HTTPS/SSH/PR and Node/Express/Vite/Next.js: PENDING
-- OpenCode diagnostics/exit-69 final-candidate retest: PENDING; earlier API 30
-  evidence established the functional Android/Bionic boundary
+- JDK 17, ESLint, TypeScript, 45 Jest tests, runtime/security/license gates, the
+  generated-agent POSIX shell regression, ARM64 sysroot regression, and Phase
+  2–5 host checks pass.
+- `testPhoneTestUnitTest`, `assemblePhoneTest`, and the instrumentation APK
+  build pass on the pinned JDK 17/NDK r29 toolchain.
+- `app-phoneTest.apk` is 360,654,460 bytes with SHA-256
+  `35B0106F3B755901C722251A98D7E3DB9D667C190E550509F05E907DF2D37A14`.
+  It targets API 36, has the exact ARM64/x86_64 ABI set, verifies the signed
+  runtime lock and dependency closure, and passes 16 KiB ZIP plus 246-ELF
+  alignment checks.
+- The instrumentation APK is 694,409 bytes with SHA-256
+  `870CA39117F9C908ECBC71E2195006C029D5A52B972B60A41E9BE43920B08AD3`.
+- A phone is not connected. Native-addon compile/load, Node/Express/Vite/
+  Next.js, Git HTTPS/SSH, terminal UX, and fresh/upgrade execution remain device
+  tests and are not inferred from host or APK verification.

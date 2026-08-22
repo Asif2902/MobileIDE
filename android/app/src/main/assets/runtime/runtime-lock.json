@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.3",
+  "runtimeVersion": "1.16.4",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
