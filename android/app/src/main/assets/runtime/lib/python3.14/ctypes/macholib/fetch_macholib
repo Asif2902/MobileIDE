@@ -1,2 +1,2 @@
-#!/data/data/com.termux/files/usr/bin/sh
+#!/system/bin/sh
 svn export --force http://svn.red-bean.com/bob/macholib/trunk/macholib/ .

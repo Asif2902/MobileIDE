@@ -1897,6 +1897,9 @@ class RuntimeManager(private val context: Context) {
             "liblib_libtermux_exec_linker_ld_preload_so.so",
             "liblib_libtermux_exec_direct_ld_preload_so.so"
         ).any { File(nativeLibDir, it).isFile }
+        val recursiveShebangResolver =
+            File(nativeLibDir, "liblib_adev_exec_compat.so").isFile
+        commandReadiness["recursive-shebang"] = recursiveShebangResolver && termuxExec
 
         return RuntimeCapabilities(
             runtimeVersion = CURRENT_RUNTIME_VERSION,
@@ -1966,7 +1969,7 @@ class RuntimeManager(private val context: Context) {
             ),
             nativeBuildReady = nativeBuildReady,
             npmLifecycleReady = npmShell.isFile,
-            termuxExecReady = termuxExec,
+            termuxExecReady = termuxExec && recursiveShebangResolver,
             privateWorkspaceExecution = true,
             sharedWorkspaceExecution = false,
             globalPlatformSpoof = false
@@ -2039,6 +2042,9 @@ class RuntimeManager(private val context: Context) {
             "USER" to "root",
             "LOGNAME" to "root",
             "SHELL" to shell,
+            // Python shell=True and the global exec resolver both use the
+            // app's exec-safe shell, never a stale com.termux package path.
+            "ADEV_PYTHON_SHELL" to shell,
             "EDITOR" to preferredEditor,
             "VISUAL" to preferredEditor,
             // Interactive mksh/dash load ENV; non-interactive bash loads BASH_ENV.
@@ -2220,9 +2226,17 @@ class RuntimeManager(private val context: Context) {
             File(libDir, "libtermux-exec-linker-ld-preload.so"),
             File(libDir, "libtermux-exec-direct-ld-preload.so")
         )
-        val preload = preloadCandidates.firstOrNull { it.exists() }
-        if (preload != null) {
-            env["LD_PRELOAD"] = preload.absolutePath
+        val termuxExecPreload = preloadCandidates.firstOrNull { it.exists() }
+        val recursiveShebangPreload =
+            File(nativeLibDir, "liblib_adev_exec_compat.so").takeIf { it.isFile }
+        if (termuxExecPreload != null) {
+            // ADEV's resolver must be first: it follows interpreter chains
+            // such as npm-cli -> /usr/bin/env -> shell wrapper -> Node ELF.
+            // termux-exec then applies Android noexec/system-linker handling.
+            env["LD_PRELOAD"] = listOfNotNull(
+                recursiveShebangPreload?.absolutePath,
+                termuxExecPreload.absolutePath
+            ).joinToString(":")
             env["TERMUX_EXEC__EXECVE_CALL__INTERCEPT"] = "enable"
             env["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "enable"
         }

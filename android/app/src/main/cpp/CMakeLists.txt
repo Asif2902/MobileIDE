@@ -31,8 +31,40 @@ set_target_properties(mobileide-pty PROPERTIES
 # ---------------------------------------------------------------------------
 add_executable(adev_npm_shell adev_npm_shell.cpp)
 
+# Process-wide Android exec compatibility. This resolver runs before
+# termux-exec and follows bounded interpreter chains (script -> script -> ELF),
+# including the standard npm `#!/usr/bin/env node` path. termux-exec remains
+# responsible for Android noexec/system-linker handling after resolution.
+add_library(adev_exec_compat SHARED adev_exec_compat.c)
+
 target_link_libraries(adev_npm_shell
     ${log-lib}
+)
+
+target_link_libraries(adev_exec_compat PRIVATE dl)
+
+target_link_options(adev_exec_compat PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_exec_compat PRIVATE
+    "-O2"
+    "-g0"
+    "-Wall"
+    "-Wextra"
+    "-Werror"
+)
+target_compile_definitions(adev_exec_compat PRIVATE NDEBUG)
+
+set_target_properties(adev_exec_compat PROPERTIES
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "lib_adev_exec_compat"
+    PREFIX "lib"
+    SUFFIX ".so"
 )
 
 target_link_options(adev_npm_shell PRIVATE

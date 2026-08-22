@@ -1845,7 +1845,9 @@ class Popen:
                 args = list(args)
 
             if shell:
-                unix_shell = ('/data/data/com.termux/files/usr/bin/sh')
+                unix_shell = (os.environ.get('ADEV_PYTHON_SHELL')
+                              or os.environ.get('SHELL')
+                              or '/system/bin/sh')
                 args = [unix_shell, "-c"] + args
                 if executable:
                     args[0] = executable

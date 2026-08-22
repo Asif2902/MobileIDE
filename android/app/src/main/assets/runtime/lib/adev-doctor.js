@@ -447,6 +447,9 @@ const openCodePayloadPresent = Boolean(
 const openCodeCompatPresent = Boolean(
   nativeDir && fs.existsSync(path.join(nativeDir, 'liblib_adev_opencode_compat.so'))
 );
+const execCompatPath = nativeDir && path.join(nativeDir, 'liblib_adev_exec_compat.so');
+const execCompatPresent = Boolean(execCompatPath && fs.existsSync(execCompatPath));
+const preloadEntries = (process.env.LD_PRELOAD || '').split(':').filter(Boolean);
 const openCodeTagfixPresent = Boolean(
   nativeDir && fs.existsSync(path.join(nativeDir, 'liblib_opencode_tagfix.so'))
 );
@@ -568,11 +571,19 @@ const report = {
   environment: {
     path: process.env.PATH || null,
     shell: process.env.SHELL || null,
+    pythonShell: process.env.ADEV_PYTHON_SHELL || null,
     npmScriptShell:
       process.env.npm_config_script_shell || process.env.NPM_CONFIG_SCRIPT_SHELL || null,
     termuxRootfs: process.env.TERMUX__ROOTFS || null,
     termuxPackage: process.env.TERMUX_APP__PACKAGE_NAME || null,
     termuxExecPreload: Boolean(process.env.LD_PRELOAD),
+    recursiveShebangResolver: {
+      present: execCompatPresent,
+      preloaded: execCompatPresent && preloadEntries[0] === execCompatPath,
+      maximumDepth: 8,
+      staleTermuxShellPathPresent:
+        process.env.ADEV_PYTHON_SHELL === '/data/data/com.termux/files/usr/bin/sh',
+    },
     globalPlatformSpoof: false,
     npmPlatform: process.env.npm_config_platform || process.env.NPM_CONFIG_PLATFORM || null,
     buildFromSource:

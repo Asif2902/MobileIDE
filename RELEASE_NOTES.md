@@ -1,4 +1,41 @@
-# A Dev Studio 1.3.12
+# A Dev Studio 1.3.13
+
+This phone-test beta fixes ADEV's platform-wide script interpreter chain. A
+normal globally installed npm command can now be launched by name when its
+entrypoint uses `#!/usr/bin/env node`; no package-specific launcher or direct
+`node "$(command -v <cli>)"` fallback is required.
+
+## Fixed in 1.3.13
+
+- A new dual-ABI, 16 KiB-aligned preload resolves up to eight nested shebang
+  levels before handing the final executable to Android's existing noexec and
+  linker compatibility layer. It covers `execve`, `execv`, `execvp`,
+  `execvpe`, `execl`, `execlp`, and `execle`.
+- Missing `/usr/bin/*` and `/bin/*` interpreters are resolved through ADEV's
+  PATH. `#!/usr/bin/env node`, `#!/usr/bin/env python`, `#!/system/bin/sh`,
+  and script interpreters that are themselves scripts share the same generic
+  path. Cycles and more than eight interpreter levels fail with `ELOOP`.
+- Python `subprocess(..., shell=True)` and `os.popen()` no longer select
+  `/data/data/com.termux/files/usr/bin/sh`. They use ADEV's APK-native shell,
+  falling back to `/system/bin/sh`.
+- Shipped Git/Python helper scripts and the native-build `paths.h` sysroot no
+  longer advertise the stale Termux package shell.
+- The Phase 1/5 connected-device matrix now performs an isolated real global
+  npm install and launches its bin by command name. It also tests env-Python,
+  system-sh, and Python `os.popen()` execution. The fixture is intentionally
+  package-neutral and contains no AchSwap-specific handling.
+- Runtime 1.16.8 forces upgrade installs to re-extract the corrected Python and
+  shell assets automatically. No data clear, `chmod`, rebuild, or reinstall of
+  an individual global CLI is intended.
+
+## Verification status
+
+- Host resolver/policy regressions and NDK r29 native builds pass for ARM64 and
+  x86_64.
+- No ADB device is connected, so the shipped global npm CLI/device harness is
+  present but not claimed as executed on a phone yet.
+
+## Previous beta: 1.3.12
 
 This phone-test beta restores the real pinned OpenCode Android runtime and fixes
 its first verified startup blocker: the payload's literal `mkdir("/tmp")` call

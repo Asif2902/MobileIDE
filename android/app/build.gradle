@@ -404,6 +404,7 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
                 "libbin_adev_ld_lld.so",
                 "libbin_adev_git_credential.so",
                 "libbin_opencode.so",
+                "liblib_adev_exec_compat.so",
                 "liblib_adev_opencode_compat.so"
             ]
             def candidates = [:].withDefault { [:].withDefault { [] } }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.7",
+  "runtimeVersion": "1.16.8",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -257,6 +257,13 @@
             "bin/python3.14"
           ],
           "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_adev_exec_compat.so",
+          "sha256": "d8f6839a3ec7002ad9b0fef284cea0d269f1c310be605079d304bbca016b18dc",
+          "bytes": 11472,
+          "runtimePaths": [],
+          "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_opencode_compat.so",
@@ -1957,6 +1964,13 @@
           "packagedName": "libbin_opencode.so",
           "sha256": "708fd6d04845c8d5cd093ec089d674e10671d77300597b7b0fc8d1afc2098655",
           "bytes": 46440,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "liblib_adev_exec_compat.so",
+          "sha256": "01364ac2ac965da80da2eba94cb51dc9d44162539c3a41ab46aae9e8128ed1fa",
+          "bytes": 12016,
           "runtimePaths": [],
           "owner": "app-native"
         },

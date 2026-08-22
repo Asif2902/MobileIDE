@@ -55,6 +55,7 @@
     "lib/arm64-v8a/libbin_adev_ld_lld.so",
     "lib/arm64-v8a/libbin_adev_git_credential.so",
     "lib/arm64-v8a/libbin_opencode.so",
+    "lib/arm64-v8a/liblib_adev_exec_compat.so",
     "lib/arm64-v8a/liblib_adev_opencode_compat.so",
     "lib/arm64-v8a/libbin_opencode_runtime.so",
     "lib/arm64-v8a/liblib_opencode_opentui.so",
@@ -65,6 +66,7 @@
     "lib/x86_64/libbin_adev_ld_lld.so",
     "lib/x86_64/libbin_adev_git_credential.so",
     "lib/x86_64/libbin_opencode.so",
+    "lib/x86_64/liblib_adev_exec_compat.so",
     "lib/x86_64/liblib_adev_opencode_compat.so",
     "assets/runtime/lib/adev-opencode.json"
   ]

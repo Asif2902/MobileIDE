@@ -39,7 +39,7 @@
 #include <sys/cdefs.h>
 
 /** Path to the default system shell. Historically the 'B' was to specify the Bourne shell. */
-#define _PATH_BSHELL "/data/data/com.termux/files/usr/bin/sh"
+#define _PATH_BSHELL "/system/bin/sh"
 
 /** Path to the system console. */
 #define _PATH_CONSOLE "/dev/console"

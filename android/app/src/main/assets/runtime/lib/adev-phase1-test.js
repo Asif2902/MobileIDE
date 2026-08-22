@@ -26,10 +26,10 @@ const networkFixtures = ['nan', 'prebuild-fallback', 'node-pre-gyp-fallback'];
 const fixtures = network ? [...coreFixtures, ...networkFixtures] : coreFixtures;
 const results = [];
 
-function run(label, command, args, cwd) {
+function run(label, command, args, cwd, env = process.env) {
   const result = childProcess.spawnSync(command, args, {
     cwd,
-    env: process.env,
+    env,
     encoding: 'utf8',
     stdio: 'pipe',
     timeout: 10 * 60 * 1000,
@@ -40,6 +40,7 @@ function run(label, command, args, cwd) {
     process.stderr.write(result.stderr || '');
     throw new Error(`${label} failed with exit ${result.status}`);
   }
+  return result;
 }
 
 try {
@@ -52,6 +53,86 @@ try {
       prefix,
     );
   }
+
+  // A real isolated global npm install verifies the generic bin-link path.
+  // The fixture deliberately uses the standard npm shebang and is executed by
+  // command name; invoking it with `node <path>` would hide resolver failures.
+  const globalCliSource = path.join(workRoot, 'global-cli-source');
+  const globalPrefix = path.join(workRoot, 'global-prefix');
+  fs.mkdirSync(globalCliSource);
+  fs.writeFileSync(
+    path.join(globalCliSource, 'package.json'),
+    JSON.stringify({
+      name: 'adev-global-cli-fixture',
+      version: '1.0.0',
+      bin: {'adev-global-cli-fixture': 'cli.js'},
+    }),
+  );
+  fs.writeFileSync(
+    path.join(globalCliSource, 'cli.js'),
+    '#!/usr/bin/env node\nprocess.stdout.write("adev-global-cli-ok\\n");\n',
+    {mode: 0o755},
+  );
+  run(
+    'global npm CLI: install',
+    process.execPath,
+    [npmCli, 'install', '--global', '--prefix', globalPrefix, globalCliSource],
+    workRoot,
+  );
+  const cliEnvironment = {
+    ...process.env,
+    PATH: `${path.join(globalPrefix, 'bin')}:${process.env.PATH}`,
+  };
+  const globalCli = run(
+    'global npm CLI: env node shebang',
+    'adev-global-cli-fixture',
+    ['--help'],
+    workRoot,
+    cliEnvironment,
+  );
+  if (!globalCli.stdout.includes('adev-global-cli-ok')) {
+    throw new Error('global npm CLI did not execute its Node entrypoint');
+  }
+
+  const pythonScript = path.join(workRoot, 'adev-python-shebang-fixture');
+  fs.writeFileSync(
+    pythonScript,
+    '#!/usr/bin/env python\nprint("adev-python-shebang-ok")\n',
+    {mode: 0o755},
+  );
+  const pythonShebang = run(
+    'env python shebang',
+    pythonScript,
+    [],
+    workRoot,
+  );
+  if (!pythonShebang.stdout.includes('adev-python-shebang-ok')) {
+    throw new Error('env python shebang did not reach Python');
+  }
+
+  const systemShellScript = path.join(workRoot, 'adev-system-shell-fixture');
+  fs.writeFileSync(
+    systemShellScript,
+    '#!/system/bin/sh\nprintf "adev-system-shell-ok\\n"\n',
+    {mode: 0o755},
+  );
+  const systemShellShebang = run(
+    'system shell shebang',
+    systemShellScript,
+    [],
+    workRoot,
+  );
+  if (!systemShellShebang.stdout.includes('adev-system-shell-ok')) {
+    throw new Error('system shell shebang did not reach /system/bin/sh');
+  }
+
+  run(
+    'python subprocess shell',
+    process.env.PYTHON,
+    ['-c', 'import os; assert os.popen("printf adev-python-shell-ok").read() == "adev-python-shell-ok"'],
+    workRoot,
+  );
+
   for (const name of fixtures) {
     const source = path.join(fixturesRoot, name);
     const target = path.join(workRoot, name);
