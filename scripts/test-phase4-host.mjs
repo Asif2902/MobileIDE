@@ -130,21 +130,33 @@ assert.match(
   text(
     'android/app/src/main/java/com/mobileide/app/modules/StorageNativeModule.kt',
   ),
+  /pickProjectTree|ACTION_OPEN_DOCUMENT_TREE/,
+);
+assert.match(
+  text(
+    'android/app/src/main/java/com/mobileide/app/projects/ProjectTransferPolicy.kt',
+  ),
   /Files\.isSymbolicLink/,
 );
 assert.match(
   text(
-    'android/app/src/main/java/com/mobileide/app/modules/StorageNativeModule.kt',
+    'android/app/src/main/java/com/mobileide/app/projects/ProjectTransferManager.kt',
   ),
-  /deleteRecursively\(\)/,
+  /deleteTreeNoFollow/,
 );
 assert.match(
   text(
-    'android/app/src/main/java/com/mobileide/app/modules/StorageNativeModule.kt',
+    'android/app/src/main/java/com/mobileide/app/projects/ProjectTransferManager.kt',
   ),
-  /renameTo\(destination\)/,
+  /moveDirectory\(staging, destination\)/,
+);
+assert.match(
+  text(
+    'android/app/src/main/java/com/mobileide/app/projects/ProjectTransferManager.kt',
+  ),
+  /DocumentFile\.fromTreeUri/,
 );
 
 process.stdout.write(
-  'Phase 4 host policy checks passed: API 36, RN 0.86, signed runtime lock, ABI feature boundary, and private workspace import.\n',
+  'Phase 4 host policy checks passed: API 36, RN 0.86, signed runtime lock, ABI feature boundary, and private import/SAF export.\n',
 );

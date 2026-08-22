@@ -1,6 +1,7 @@
 package com.mobileide.app.process
 
 import android.util.Log
+import com.mobileide.app.filesystem.WorkspaceExecutionPolicy
 import com.mobileide.app.runtime.RuntimeManager
 import java.io.BufferedReader
 import java.io.File
@@ -79,6 +80,12 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         onExit: ((Int, Int) -> Unit)? = null
     ): ManagedProcess {
         val workingDir = File(cwd ?: runtimeManager.getWorkspacesDir())
+        if (
+            WorkspaceExecutionPolicy.isSharedStorage(workingDir) &&
+            WorkspaceExecutionPolicy.requiresPrivateWorkspace(command, args)
+        ) {
+            throw IOException(WorkspaceExecutionPolicy.IMPORT_REQUIRED_MESSAGE)
+        }
         val (exe, exeArgs) = resolveCommand(command, args)
         val taskId = taskRegistry.create(
             type = taskType,

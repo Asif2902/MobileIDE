@@ -1,51 +1,182 @@
 package com.mobileide.app.modules
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
-import com.facebook.react.bridge.*
+import androidx.documentfile.provider.DocumentFile
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.BaseActivityEventListener
+import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.mobileide.app.projects.ProjectConflictPolicy
+import com.mobileide.app.projects.ProjectImportSource
+import com.mobileide.app.projects.ProjectRecord
+import com.mobileide.app.projects.ProjectRegistry
+import com.mobileide.app.projects.ProjectTransferListener
+import com.mobileide.app.projects.ProjectTransferManager
+import com.mobileide.app.projects.ProjectTransferMode
+import com.mobileide.app.projects.ProjectTransferOptions
+import com.mobileide.app.projects.ProjectTransferResult
+import com.mobileide.app.projects.ProjectTransferSnapshot
+import com.mobileide.app.projects.WorkspaceLocationPolicy
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
-import java.util.UUID
 
 /**
- * Storage Native Module
- * Exposes all-files (MANAGE_EXTERNAL_STORAGE) access management and enumeration
- * of real external storage roots so the IDE can open/edit real device folders.
+ * Android project-location and transfer bridge. Raw shared-storage opening is
+ * retained for quick editing, while development imports and exports use a
+ * capability-aware, cancellable transfer service and SAF tree permissions.
  */
-class StorageNativeModule(reactContext: ReactApplicationContext) :
+class StorageNativeModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     companion object {
         const val NAME = "StorageNative"
+        private const val REQUEST_IMPORT_TREE = 0xADE1
+        private const val REQUEST_EXPORT_TREE = 0xADE2
+        const val EVENT_TRANSFER_PROGRESS = "onProjectTransferProgress"
+        const val EVENT_TRANSFER_COMPLETE = "onProjectTransferComplete"
+        const val EVENT_TRANSFER_ERROR = "onProjectTransferError"
+    }
+
+    private val pickerLock = Any()
+    private val pendingPickers = mutableMapOf<Int, Promise>()
+
+    private val runtimeManager by lazy {
+        MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
+    }
+
+    private val workspacesRoot by lazy {
+        File(runtimeManager.getWorkspacesDir()).canonicalFile
+    }
+
+    private val workspacePolicy by lazy {
+        WorkspaceLocationPolicy(workspacesRoot, approvedExternalRoots())
+    }
+
+    private val projectRegistry by lazy {
+        ProjectRegistry(File(reactApplicationContext.filesDir, "adev-projects/project-registry.properties"))
+    }
+
+    private val transferManagerDelegate = lazy {
+        ProjectTransferManager(
+            context = reactApplicationContext,
+            workspacePolicy = workspacePolicy,
+            workspacesRoot = workspacesRoot,
+            virtualWorkspacesRoot = com.mobileide.app.runtime.RuntimeManager.VIRTUAL_WORKSPACES,
+            registry = projectRegistry,
+            listener = object : ProjectTransferListener {
+                override fun onProgress(snapshot: ProjectTransferSnapshot) {
+                    sendEvent(EVENT_TRANSFER_PROGRESS, snapshotMap(snapshot))
+                }
+
+                override fun onComplete(
+                    snapshot: ProjectTransferSnapshot,
+                    result: ProjectTransferResult
+                ) {
+                    sendEvent(EVENT_TRANSFER_COMPLETE, snapshotMap(snapshot).apply {
+                        putMap("result", transferResultMap(result))
+                    })
+                }
+
+                override fun onError(
+                    snapshot: ProjectTransferSnapshot,
+                    code: String,
+                    message: String
+                ) {
+                    sendEvent(EVENT_TRANSFER_ERROR, snapshotMap(snapshot).apply {
+                        putString("code", code)
+                        putString("message", message)
+                    })
+                }
+            }
+        )
+    }
+    private val transferManager by transferManagerDelegate
+
+    private val activityListener = object : BaseActivityEventListener() {
+        override fun onActivityResult(
+            activity: Activity,
+            requestCode: Int,
+            resultCode: Int,
+            data: Intent?
+        ) {
+            if (requestCode != REQUEST_IMPORT_TREE && requestCode != REQUEST_EXPORT_TREE) return
+            val promise = synchronized(pickerLock) { pendingPickers.remove(requestCode) } ?: return
+            if (resultCode != Activity.RESULT_OK || data?.data == null) {
+                promise.resolve(null)
+                return
+            }
+            val uri = requireNotNull(data.data)
+            val requiredFlag = if (requestCode == REQUEST_EXPORT_TREE) {
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            } else {
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            val grantedFlags = data.flags and (
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            if (grantedFlags and requiredFlag == 0) {
+                promise.reject(
+                    "TREE_PERMISSION_ERROR",
+                    if (requestCode == REQUEST_EXPORT_TREE) {
+                        "Selected folder did not grant write access"
+                    } else {
+                        "Selected folder did not grant read access"
+                    }
+                )
+                return
+            }
+            try {
+                reactApplicationContext.contentResolver.takePersistableUriPermission(uri, grantedFlags)
+                val tree = DocumentFile.fromTreeUri(reactApplicationContext, uri)
+                    ?: throw IOException("Selected document tree is unavailable")
+                promise.resolve(Arguments.createMap().apply {
+                    putString("kind", "treeUri")
+                    putString("value", uri.toString())
+                    putString("displayName", tree.name ?: "Selected folder")
+                    putBoolean("canRead", tree.canRead())
+                    putBoolean("canWrite", tree.canWrite())
+                })
+            } catch (error: Exception) {
+                promise.reject(
+                    "TREE_PERMISSION_ERROR",
+                    "ADEV could not retain access to the selected folder: ${error.message}",
+                    error
+                )
+            }
+        }
+    }
+
+    init {
+        reactContext.addActivityEventListener(activityListener)
     }
 
     override fun getName(): String = NAME
 
-    /**
-     * Whether the app currently holds all-files access. On API < 30 legacy
-     * storage applies and this returns true.
-     */
     @ReactMethod
     fun hasAllFilesAccess(promise: Promise) {
         try {
-            val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                true
-            }
-            promise.resolve(granted)
-        } catch (e: Exception) {
-            promise.reject("STORAGE_ERROR", e.message)
+            promise.resolve(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Environment.isExternalStorageManager()
+                } else {
+                    true
+                }
+            )
+        } catch (error: Exception) {
+            promise.reject("STORAGE_ERROR", error.message, error)
         }
     }
 
-    /**
-     * Launch the system settings screen where the user grants all-files access.
-     */
     @ReactMethod
     fun requestAllFilesAccess(promise: Promise) {
         try {
@@ -53,55 +184,42 @@ class StorageNativeModule(reactContext: ReactApplicationContext) :
                 promise.resolve(true)
                 return
             }
-            val pkg = reactApplicationContext.packageName
             val intent = try {
                 Intent(
                     Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:$pkg")
+                    Uri.parse("package:${reactApplicationContext.packageName}")
                 )
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
             }
-
             val activity = reactApplicationContext.currentActivity
-            if (activity != null) {
-                activity.startActivity(intent)
-            } else {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                reactApplicationContext.startActivity(intent)
-            }
+            if (activity != null) activity.startActivity(intent)
+            else reactApplicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             promise.resolve(true)
-        } catch (e: Exception) {
-            // Fall back to the generic all-files settings screen.
+        } catch (_: Exception) {
             try {
-                val fallback = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                reactApplicationContext.startActivity(fallback)
+                reactApplicationContext.startActivity(
+                    Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
                 promise.resolve(true)
-            } catch (e2: Exception) {
-                promise.reject("STORAGE_ERROR", e2.message)
+            } catch (error: Exception) {
+                promise.reject("STORAGE_ERROR", error.message, error)
             }
         }
     }
 
-    /**
-     * Enumerate common external storage roots the user is likely to open.
-     */
     @ReactMethod
     fun listExternalRoots(promise: Promise) {
         try {
             val result = Arguments.createArray()
-            val primary = Environment.getExternalStorageDirectory() // /storage/emulated/0
-
+            val primary = Environment.getExternalStorageDirectory()
             val roots = LinkedHashMap<String, String>()
             roots["Internal Storage"] = primary.absolutePath
-
-            val commonSub = listOf("Download", "Documents", "Projects", "Git", "DCIM", "Desktop", "AndroidIDEProjects")
-            commonSub.forEach { sub ->
-                val f = File(primary, sub)
-                if (f.isDirectory) roots[sub] = f.absolutePath
-            }
-
+            listOf("Download", "Documents", "Projects", "Git", "DCIM", "Desktop", "AndroidIDEProjects")
+                .forEach { name ->
+                    File(primary, name).takeIf(File::isDirectory)?.let { roots[name] = it.absolutePath }
+                }
             roots.forEach { (name, path) ->
                 result.pushMap(Arguments.createMap().apply {
                     putString("name", name)
@@ -109,119 +227,306 @@ class StorageNativeModule(reactContext: ReactApplicationContext) :
                 })
             }
             promise.resolve(result)
-        } catch (e: Exception) {
-            promise.reject("STORAGE_ERROR", e.message)
+        } catch (error: Exception) {
+            promise.reject("STORAGE_ERROR", error.message, error)
         }
     }
 
-    /**
-     * Report whether a project can safely use native builds, executable modes,
-     * case-sensitive names and symlinks in place. Shared/FUSE paths intentionally
-     * return a guided private-import requirement.
-     */
+    @ReactMethod
+    fun pickProjectTree(promise: Promise) = launchTreePicker(REQUEST_IMPORT_TREE, promise)
+
+    @ReactMethod
+    fun pickExportTree(promise: Promise) = launchTreePicker(REQUEST_EXPORT_TREE, promise)
+
     @ReactMethod
     fun assessWorkspace(realPath: String, promise: Promise) {
         try {
-            val source = File(realPath).canonicalFile
-            if (!source.isDirectory) throw IOException("Workspace is not a directory")
-            val privateRoot = reactApplicationContext.filesDir.canonicalFile
-            val privateWorkspace = source.toPath().startsWith(privateRoot.toPath())
+            val assessment = workspacePolicy.assess(File(realPath))
             promise.resolve(Arguments.createMap().apply {
-                putString("path", source.absolutePath)
-                putBoolean("privateWorkspace", privateWorkspace)
-                putBoolean("nativeBuilds", privateWorkspace)
-                putBoolean("executableModes", privateWorkspace)
-                putBoolean("symlinks", privateWorkspace)
-                putBoolean("caseSensitiveNames", privateWorkspace)
-                putBoolean("requiresPrivateImport", !privateWorkspace)
-                if (!privateWorkspace) {
-                    putString(
-                        "reason",
-                        "Android shared storage cannot guarantee execution, symlinks, Unix modes, or case sensitivity."
-                    )
-                }
+                putString("path", assessment.path)
+                putBoolean("privateWorkspace", assessment.privateWorkspace)
+                putBoolean("sharedStorage", assessment.sharedStorage)
+                putBoolean("nativeBuilds", assessment.nativeBuilds)
+                putBoolean("executableModes", assessment.executableModes)
+                putBoolean("symlinks", assessment.symlinks)
+                putBoolean("caseSensitiveNames", assessment.caseSensitiveNames)
+                putBoolean("requiresPrivateImport", assessment.requiresPrivateImport)
+                assessment.reason?.let { putString("reason", it) }
             })
-        } catch (e: Exception) {
-            promise.reject("WORKSPACE_ASSESS_ERROR", e.message, e)
+        } catch (error: Exception) {
+            promise.reject("WORKSPACE_ASSESS_ERROR", error.message, error)
         }
     }
 
-    /**
-     * Copy a shared-storage project into the app-private execution workspace.
-     * Symbolic links are rejected instead of followed so an import cannot escape
-     * its selected source tree.
-     */
+    @ReactMethod
+    fun beginImport(
+        source: ReadableMap,
+        requestedName: String?,
+        options: ReadableMap?,
+        promise: Promise
+    ) {
+        try {
+            val operationId = transferManager.beginImport(
+                parseImportSource(source),
+                requestedName,
+                parseTransferOptions(options)
+            )
+            promise.resolve(operationId)
+        } catch (error: Exception) {
+            promise.reject("PROJECT_IMPORT_START_ERROR", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun beginExport(
+        workspacePath: String,
+        destinationTreeUri: String,
+        requestedName: String?,
+        options: ReadableMap?,
+        promise: Promise
+    ) {
+        try {
+            val operationId = transferManager.beginExport(
+                File(runtimeManager.resolveVirtualPath(workspacePath)),
+                Uri.parse(destinationTreeUri),
+                requestedName,
+                parseTransferOptions(options)
+            )
+            promise.resolve(operationId)
+        } catch (error: Exception) {
+            promise.reject("PROJECT_EXPORT_START_ERROR", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun getTransfer(operationId: String, promise: Promise) {
+        val snapshot = transferManager.snapshot(operationId)
+        if (snapshot == null) promise.reject("TRANSFER_NOT_FOUND", "Unknown transfer operation")
+        else promise.resolve(snapshotMap(snapshot))
+    }
+
+    @ReactMethod
+    fun cancelTransfer(operationId: String, promise: Promise) {
+        promise.resolve(transferManager.cancel(operationId))
+    }
+
+    @ReactMethod
+    fun listProjectMetadata(promise: Promise) {
+        try {
+            val result = Arguments.createArray()
+            projectRegistry.list().forEach { result.pushMap(projectRecordMap(it)) }
+            promise.resolve(result)
+        } catch (error: Exception) {
+            promise.reject("PROJECT_METADATA_ERROR", error.message, error)
+        }
+    }
+
+    /** Backward-compatible full raw copy for the existing JS interface. */
     @ReactMethod
     fun importWorkspaceToPrivate(realPath: String, requestedName: String?, promise: Promise) {
-        Thread {
-            var staging: File? = null
-            try {
-                val source = File(realPath).canonicalFile
-                if (!source.isDirectory) throw IOException("Workspace is not a directory")
-                val privateRoot = reactApplicationContext.filesDir.canonicalFile
-                if (source.toPath().startsWith(privateRoot.toPath())) {
-                    throw IOException("Workspace is already in app-private storage")
-                }
-                val safeName = (requestedName?.trim().takeUnless { it.isNullOrEmpty() } ?: source.name)
-                    .replace(Regex("[^A-Za-z0-9._-]"), "-")
-                    .trim('-', '.')
-                    .take(64)
-                    .ifEmpty { "imported-project" }
-                val workspaceRoot =
-                    File(reactApplicationContext.filesDir, "runtime/workspaces").canonicalFile
-                if (!workspaceRoot.mkdirs() && !workspaceRoot.isDirectory) {
-                    throw IOException("Cannot create the private workspace root")
-                }
-                var destination = File(workspaceRoot, safeName)
-                var suffix = 2
-                while (destination.exists()) {
-                    destination = File(workspaceRoot, "$safeName-$suffix")
-                    suffix += 1
-                }
-                val stagingDir = File(workspaceRoot, ".import-${UUID.randomUUID()}")
-                staging = stagingDir
-                if (!stagingDir.mkdirs()) throw IOException("Cannot stage private workspace import")
-                val sourceRoot = source.toPath()
-                source.walkTopDown().forEach { entry ->
-                    if (Files.isSymbolicLink(entry.toPath())) {
-                        throw IOException("Import stopped at symbolic link: ${entry.absolutePath}")
-                    }
-                    val canonical = entry.canonicalFile
-                    if (!canonical.toPath().startsWith(sourceRoot)) {
-                        throw IOException("Import path escaped the selected workspace")
-                    }
-                    val relative = sourceRoot.relativize(canonical.toPath()).toString()
-                    val target =
-                        if (relative.isEmpty()) stagingDir else File(stagingDir, relative)
-                    if (entry.isDirectory) {
-                        if (!target.mkdirs() && !target.isDirectory) {
-                            throw IOException("Cannot create private directory: $relative")
+        try {
+            transferManager.beginImport(
+                source = ProjectImportSource.RawPath(File(realPath), File(realPath).name),
+                requestedName = requestedName,
+                options = ProjectTransferOptions(
+                    mode = ProjectTransferMode.FULL,
+                    includeGit = true,
+                    includeHidden = true,
+                    includeSecrets = true,
+                    conflictPolicy = ProjectConflictPolicy.UNIQUE
+                )
+            ) { result ->
+                reactApplicationContext.runOnUiQueueThread {
+                    result.fold(
+                        onSuccess = { imported ->
+                            promise.resolve(Arguments.createMap().apply {
+                                putString("name", imported.project.projectName)
+                                putString("path", imported.path)
+                                putString("virtualPath", imported.virtualPath)
+                                putBoolean("privateWorkspace", true)
+                            })
+                        },
+                        onFailure = { error ->
+                            promise.reject("WORKSPACE_IMPORT_ERROR", error.message, error)
                         }
-                    } else {
-                        target.parentFile?.mkdirs()
-                        entry.inputStream().use { input ->
-                            target.outputStream().use { output -> input.copyTo(output) }
-                        }
-                    }
+                    )
                 }
-                if (!stagingDir.renameTo(destination)) {
-                    throw IOException("Cannot finalize private workspace import")
-                }
-                staging = null
-                promise.resolve(Arguments.createMap().apply {
-                    putString("name", destination.name)
-                    putString("path", destination.absolutePath)
-                    putString("virtualPath", "/root/workspaces/${destination.name}")
-                    putBoolean("privateWorkspace", true)
-                })
-            } catch (e: Exception) {
-                staging?.deleteRecursively()
-                promise.reject("WORKSPACE_IMPORT_ERROR", e.message, e)
             }
-        }.apply {
-            name = "adev-workspace-import"
-            isDaemon = true
-            start()
+        } catch (error: Exception) {
+            promise.reject("WORKSPACE_IMPORT_ERROR", error.message, error)
         }
+    }
+
+    @ReactMethod
+    fun addListener(eventName: String) = Unit
+
+    @ReactMethod
+    fun removeListeners(count: Double) = Unit
+
+    private fun launchTreePicker(requestCode: Int, promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("TREE_PICKER_UNAVAILABLE", "No foreground activity is available")
+            return
+        }
+        synchronized(pickerLock) {
+            if (pendingPickers.isNotEmpty()) {
+                promise.reject("TREE_PICKER_BUSY", "A folder picker is already open")
+                return
+            }
+            pendingPickers[requestCode] = promise
+        }
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+            }
+            activity.startActivityForResult(intent, requestCode)
+        } catch (error: Exception) {
+            synchronized(pickerLock) { pendingPickers.remove(requestCode) }
+            promise.reject("TREE_PICKER_UNAVAILABLE", error.message, error)
+        }
+    }
+
+    private fun parseImportSource(source: ReadableMap): ProjectImportSource {
+        fun requiredString(name: String): String {
+            if (!source.hasKey(name) || source.isNull(name)) {
+                throw IllegalArgumentException("Import source $name is required")
+            }
+            return source.getString(name)?.takeIf(String::isNotBlank)
+                ?: throw IllegalArgumentException("Import source $name is required")
+        }
+        val kind = requiredString("kind")
+        val value = requiredString("value")
+        val displayName = if (source.hasKey("displayName") && !source.isNull("displayName")) {
+            source.getString("displayName")
+        } else {
+            null
+        }
+        return when (kind) {
+            "rawPath" -> ProjectImportSource.RawPath(File(value), displayName)
+            "treeUri" -> ProjectImportSource.TreeUri(Uri.parse(value), displayName)
+            else -> throw IllegalArgumentException("Unsupported import source kind: $kind")
+        }
+    }
+
+    private fun parseTransferOptions(options: ReadableMap?): ProjectTransferOptions {
+        fun string(name: String, fallback: String): String =
+            if (options?.hasKey(name) == true && !options.isNull(name)) options.getString(name) ?: fallback
+            else fallback
+        fun bool(name: String, fallback: Boolean): Boolean =
+            if (options?.hasKey(name) == true && !options.isNull(name)) options.getBoolean(name)
+            else fallback
+        val mode = when (string("mode", "source").lowercase()) {
+            "source" -> ProjectTransferMode.SOURCE
+            "full" -> ProjectTransferMode.FULL
+            else -> throw IllegalArgumentException("mode must be source or full")
+        }
+        val conflict = when (string("conflictPolicy", "unique").lowercase()) {
+            "unique" -> ProjectConflictPolicy.UNIQUE
+            "merge" -> ProjectConflictPolicy.MERGE
+            "replace" -> ProjectConflictPolicy.REPLACE
+            "cancel" -> ProjectConflictPolicy.CANCEL
+            else -> throw IllegalArgumentException("Unsupported conflict policy")
+        }
+        return ProjectTransferOptions(
+            mode = mode,
+            includeGit = bool("includeGit", false),
+            includeHidden = bool("includeHidden", true),
+            includeSecrets = bool("includeSecrets", false),
+            conflictPolicy = conflict
+        )
+    }
+
+    private fun approvedExternalRoots(): List<File> {
+        val roots = mutableListOf(
+            Environment.getExternalStorageDirectory(),
+            File("/storage/emulated/0"),
+            File("/sdcard"),
+            File("/storage/self/primary")
+        )
+        File("/storage").listFiles()
+            ?.filter { it.name.matches(Regex("[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}")) }
+            ?.let(roots::addAll)
+        File("/mnt/media_rw").listFiles()
+            ?.filter { it.name.matches(Regex("[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}")) }
+            ?.let(roots::addAll)
+        return roots
+    }
+
+    private fun snapshotMap(snapshot: ProjectTransferSnapshot): WritableMap = Arguments.createMap().apply {
+        putString("operationId", snapshot.operationId)
+        putString("direction", snapshot.direction.name.lowercase())
+        putString(
+            "status",
+            when (snapshot.status) {
+                com.mobileide.app.projects.ProjectTransferStatus.PLANNING -> "queued"
+                com.mobileide.app.projects.ProjectTransferStatus.RUNNING,
+                com.mobileide.app.projects.ProjectTransferStatus.FINALIZING -> "running"
+                com.mobileide.app.projects.ProjectTransferStatus.COMPLETE -> "complete"
+                com.mobileide.app.projects.ProjectTransferStatus.FAILED -> "error"
+                com.mobileide.app.projects.ProjectTransferStatus.CANCELLED -> "cancelled"
+            }
+        )
+        putString("phase", snapshot.phase)
+        putDouble("filesCopied", snapshot.filesCopied.toDouble())
+        putDouble("totalFiles", snapshot.totalFiles.toDouble())
+        putDouble("bytesCopied", snapshot.bytesCopied.toDouble())
+        putDouble("totalBytes", snapshot.totalBytes.toDouble())
+        putDouble("skippedEntries", snapshot.skippedEntries.toDouble())
+        snapshot.currentPath?.let { putString("currentPath", it) }
+    }
+
+    private fun transferResultMap(result: ProjectTransferResult): WritableMap = Arguments.createMap().apply {
+        when (result) {
+            is ProjectTransferResult.Import -> {
+                putString("kind", "import")
+                putString("path", result.path)
+                putString("virtualPath", result.virtualPath)
+                putMap("project", projectRecordMap(result.project))
+            }
+            is ProjectTransferResult.Export -> {
+                putString("kind", "export")
+                putString("destinationTreeUri", result.destinationTreeUri)
+                putString("projectDocumentUri", result.projectDocumentUri)
+                putString("exportedName", result.exportedName)
+                putMap("project", projectRecordMap(result.project))
+            }
+        }
+    }
+
+    private fun projectRecordMap(record: ProjectRecord): WritableMap = Arguments.createMap().apply {
+        putString("id", record.id)
+        putString("workspacePath", record.workspacePath)
+        putString("virtualPath", record.virtualPath)
+        putString("projectName", record.projectName)
+        putDouble("importedAt", record.importedAt.toDouble())
+        putString("projectType", record.projectType)
+        record.originalSourceKind?.let { putString("originalSourceKind", it) }
+        record.originalImportedPath?.let { putString("originalImportedPath", it) }
+        record.originalTreeUri?.let { putString("originalTreeUri", it) }
+        record.lastExportUri?.let { putString("lastExportUri", it) }
+        record.lastExportAt?.let { putDouble("lastExportAt", it.toDouble()) }
+    }
+
+    private fun sendEvent(eventName: String, params: WritableMap) {
+        if (!reactApplicationContext.hasActiveReactInstance()) return
+        reactApplicationContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(eventName, params)
+    }
+
+    override fun invalidate() {
+        synchronized(pickerLock) {
+            pendingPickers.values.forEach {
+                it.reject("TREE_PICKER_CANCELLED", "Storage module was invalidated")
+            }
+            pendingPickers.clear()
+        }
+        if (transferManagerDelegate.isInitialized()) transferManager.close()
+        reactApplicationContext.removeActivityEventListener(activityListener)
+        super.invalidate()
     }
 }

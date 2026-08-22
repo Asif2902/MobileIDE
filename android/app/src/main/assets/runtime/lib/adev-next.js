@@ -14,6 +14,7 @@
  * modified.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
 const Module = require('node:module');
@@ -174,7 +175,79 @@ function withWebpack(args, major) {
   return args;
 }
 
-function main() {
+function signalExitCode(signal) {
+  const number = os.constants.signals[signal];
+  return Number.isInteger(number) ? 128 + number : 1;
+}
+
+/**
+ * Run the project CLI as an owned child instead of requiring it into this
+ * wrapper. Next versions are then free to call process.exit(), replace signal
+ * handlers, or fork their own dev worker without taking over the ADEV task
+ * owner. The child remains in the caller's process group so TaskRegistry can
+ * still terminate the complete tree.
+ */
+function launchNext(nextBin, args, options = {}) {
+  const owner = options.owner || process;
+  const spawn = options.spawn || childProcess.spawn;
+  const child = spawn(options.execPath || process.execPath, [nextBin, ...args], {
+    cwd: options.cwd || process.cwd(),
+    env: options.env || process.env,
+    stdio: 'inherit',
+    windowsHide: true,
+  });
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const childIsRunning = () => child.exitCode === null && child.signalCode === null;
+    const forward = signal => {
+      if (!settled && childIsRunning()) {
+        try {
+          child.kill(signal);
+        } catch (error) {
+          process.stderr.write(`adev-next: could not forward ${signal}: ${error.message}\n`);
+        }
+      }
+    };
+    const forwardSigint = () => forward('SIGINT');
+    const forwardSigterm = () => forward('SIGTERM');
+    const terminateOnOwnerExit = () => {
+      if (!settled && childIsRunning()) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // The child may have exited between the state check and kill().
+        }
+      }
+    };
+    const cleanup = () => {
+      owner.removeListener('SIGINT', forwardSigint);
+      owner.removeListener('SIGTERM', forwardSigterm);
+      owner.removeListener('exit', terminateOnOwnerExit);
+    };
+
+    owner.on('SIGINT', forwardSigint);
+    owner.on('SIGTERM', forwardSigterm);
+    owner.once('exit', terminateOnOwnerExit);
+
+    child.once('error', error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+    child.once('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      owner.exitCode = code === null ? signalExitCode(signal) : code;
+      resolve({ code, signal });
+    });
+  });
+}
+
+async function main() {
   const rawArgs = process.argv.slice(2);
   const diagnostic = rawArgs.includes('--adev-diagnose');
   const prepareOnly = rawArgs.includes('--adev-prepare-only');
@@ -218,10 +291,18 @@ function main() {
   }
   if (prepareOnly || dryRun) return;
 
-  process.argv = [process.execPath, next.bin, ...launchedArgs];
-  require(next.bin);
+  try {
+    await launchNext(next.bin, launchedArgs);
+  } catch (error) {
+    fail(
+      `Could not launch Next.js ${next.version}.`,
+      `${error.message} The project was not modified.`,
+    );
+  }
 }
 
-main();
+if (require.main === module) {
+  void main();
+}
 
-module.exports = { findProject, parseNextMajor, withWebpack };
+module.exports = { findProject, parseNextMajor, withWebpack, signalExitCode, launchNext };

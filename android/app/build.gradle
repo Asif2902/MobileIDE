@@ -478,6 +478,7 @@ registerAdevNativeHelpersSync("phoneTest", "RelWithDebInfo")
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation("androidx.documentfile:documentfile:1.0.0")
 
     // JGit - pure Java git implementation for Git UI panel
     implementation("org.eclipse.jgit:org.eclipse.jgit:6.7.0.202309050840-r")

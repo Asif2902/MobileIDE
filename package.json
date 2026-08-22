@@ -1,6 +1,6 @@
 {
   "name": "mobileide",
-  "version": "1.3.13",
+  "version": "1.3.14",
   "private": true,
   "description": "MobileIDE - A desktop-class JavaScript development environment for Android",
   "license": "GPL-3.0-only",
@@ -32,6 +32,7 @@
     "test:agent-env-host": "node scripts/test-agent-env-host.mjs",
     "test:native-sysroot-host": "node scripts/test-native-sysroot-host.mjs",
     "test:phase2-host": "node scripts/test-phase2-host.mjs",
+    "test:workspace-policy-host": "node scripts/test-workspace-policy-host.mjs",
     "test:phase3-host": "node scripts/test-phase3-host.mjs",
     "test:phase4-host": "node scripts/test-phase4-host.mjs",
     "test:phase4-apk": "node scripts/verify-phase4-apk.mjs",
@@ -40,7 +41,7 @@
     "test:nano-android": "node scripts/test-nano-android-host.mjs",
     "verify:release": "node scripts/verify-release-artifacts.mjs",
     "package:release": "node scripts/package-release-artifacts.mjs",
-    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run audit:production"
+    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:workspace-policy-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run audit:production"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",

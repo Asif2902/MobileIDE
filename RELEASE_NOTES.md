@@ -1,4 +1,50 @@
-# A Dev Studio 1.3.13
+# A Dev Studio 1.3.14
+
+This phone-test beta adds a general Android project import/export model and
+repairs the Next.js dev-server ownership bug. It does not patch an individual
+npm package or project.
+
+## Fixed in 1.3.14
+
+- Folders on Android shared storage now present explicit **Open in place** and
+  **Import to ADEV** choices. Open-in-place remains available for simple
+  viewing/editing, with a persistent explanation and one-tap import action.
+- Import copies into the real app-private runtime workspace, then switches the
+  Explorer and opens a new Terminal in that private path. npm can therefore
+  create `node_modules/.bin` symlinks on a filesystem that supports them.
+- Source-only and full transfers have independent Git, hidden-file, and secret
+  controls plus unique/merge/replace/stop-on-conflict behavior. Imports and SAF
+  exports run off the UI thread with file/byte progress, cancellation, staging,
+  containment checks, and no-follow symlink handling.
+- Private projects can be exported through Android's Storage Access Framework
+  to Downloads, Documents, or another user-selected provider. Persisted folder
+  permission and project provenance/export metadata live outside projects and
+  cannot be included accidentally.
+- Shared-storage npm/pnpm/Yarn/Corepack/Next/Vite/native-build and mutating Git
+  routes now stop before partial output with an actionable import message.
+  Interactive functions, PATH trampolines, `command` execution, and background
+  task dispatch use the same physical-path policy.
+- The Next.js launcher owns the real project CLI as a child for its complete
+  lifetime, inherits terminal I/O, forwards `SIGINT`/`SIGTERM`, propagates exit
+  status, and cleans up unexpected-owner exits. Version-aware SWC WASM and
+  Webpack selection are unchanged.
+
+## Verification status
+
+- Host tests cover Next.js 13.2.4, 14.2.35, 15.5.2, 15.5.22, and 16.2.12;
+  process ownership, long-running behavior, exit/signal handling, and cleanup
+  pass.
+- Kotlin project-policy/registry/transfer and shared-command-policy tests,
+  TypeScript, Jest, ESLint, and phone-test Kotlin compilation pass.
+- No ADB device is connected. Real SAF providers, npm install after an imported
+  Downloads project, Next dev/HMR/HTTP/Ctrl+C, and export-to-Downloads remain
+  connected-device gates rather than claimed successes.
+- The API-36 ARM64+x86_64 phone-test APK is 360,839,574 bytes, contains 252 ELF
+  files with minimum `PT_LOAD` alignment `0x4000`, and has SHA-256
+  `A79DEF8A9FBB4BA69CC0F75C8A9076241FA57F3F88388E0006C5450440ADAA91`.
+  It is debug-test signed for direct installation, not a production Play build.
+
+## Previous beta: 1.3.13
 
 This phone-test beta fixes ADEV's platform-wide script interpreter chain. A
 normal globally installed npm command can now be launched by name when its

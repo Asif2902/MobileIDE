@@ -4,8 +4,15 @@ import {
   FileEntry,
   MobileIDENativeModule,
   StorageNativeModule,
+  StorageEventEmitter,
+  STORAGE_EVENTS,
   ExternalRoot,
+  ProjectSource,
+  TransferOptions,
+  TransferSnapshot,
+  WorkspaceAssessment,
 } from '../native';
+import { useTerminalStore } from './terminalStore';
 
 // Best-effort persistence of the last opened workspace so it reopens next launch.
 const WORKSPACE_STATE_FILE = '.adev-last-workspace';
@@ -41,6 +48,7 @@ interface FileState {
   // Current workspace
   currentWorkspace: string | null;
   currentWorkspaceRealPath: string | null;
+  currentWorkspaceAssessment: WorkspaceAssessment | null;
   workspaces: FileEntry[];
 
   // Storage / device folders
@@ -54,6 +62,8 @@ interface FileState {
   // Loading states
   isLoading: boolean;
   error: string | null;
+  activeTransfer: TransferSnapshot | null;
+  transferError: string | null;
   
   // Actions
   loadWorkspaces: () => Promise<void>;
@@ -62,6 +72,20 @@ interface FileState {
   initWorkspace: () => Promise<void>;
   requestStorageAccess: () => Promise<boolean>;
   openFolderFromDevice: () => Promise<ExternalRoot[]>;
+  importProject: (
+    source: ProjectSource,
+    requestedName: string | null,
+    options: TransferOptions,
+  ) => Promise<string>;
+  exportProject: (
+    destinationTreeUri: string,
+    requestedName: string | null,
+    options: TransferOptions,
+  ) => Promise<string>;
+  cancelTransfer: () => Promise<void>;
+  clearTransfer: () => void;
+  handleTransferUpdate: (snapshot: TransferSnapshot) => void;
+  handleTransferComplete: (snapshot: TransferSnapshot) => Promise<void>;
   loadDirectory: (path: string) => Promise<void>;
   toggleFolder: (path: string) => void;
   createFile: (path: string, name: string) => Promise<void>;
@@ -74,6 +98,7 @@ interface FileState {
 export const useFileStore = create<FileState>((set, get) => ({
   currentWorkspace: null,
   currentWorkspaceRealPath: null,
+  currentWorkspaceAssessment: null,
   workspaces: [],
   hasStorageAccess: false,
   externalRoots: [],
@@ -81,6 +106,8 @@ export const useFileStore = create<FileState>((set, get) => ({
   expandedFolders: new Set(),
   isLoading: false,
   error: null,
+  activeTransfer: null,
+  transferError: null,
 
   loadWorkspaces: async () => {
     try {
@@ -111,6 +138,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       // Native resolution is a no-op for already-real paths. A failed virtual
       // resolution means the terminal cannot safely chdir, so opening fails.
       const realPath = await MobileIDENativeModule.resolvePath(path);
+      const assessment = await StorageNativeModule.assessWorkspace(realPath);
 
       set(state => {
         const fileTree = new Map(state.fileTree);
@@ -118,6 +146,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         return {
           currentWorkspace: path,
           currentWorkspaceRealPath: realPath,
+          currentWorkspaceAssessment: assessment,
           fileTree,
           expandedFolders: new Set(state.expandedFolders).add(path),
           isLoading: false,
@@ -215,6 +244,85 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
   },
 
+  importProject: async (source, requestedName, options) => {
+    set({ transferError: null });
+    try {
+      const operationId = await StorageNativeModule.beginImport(
+        source,
+        requestedName,
+        options,
+      );
+      const snapshot = await StorageNativeModule.getTransfer(operationId);
+      set({ activeTransfer: snapshot });
+      return operationId;
+    } catch (error) {
+      const message = (error as Error).message || 'Project import could not start';
+      set({ transferError: message });
+      throw error;
+    }
+  },
+
+  exportProject: async (destinationTreeUri, requestedName, options) => {
+    const workspacePath = get().currentWorkspaceRealPath;
+    if (!workspacePath || !get().currentWorkspaceAssessment?.privateWorkspace) {
+      const error = new Error('Only projects in the private ADEV workspace can be exported.');
+      set({ transferError: error.message });
+      throw error;
+    }
+    set({ transferError: null });
+    try {
+      const operationId = await StorageNativeModule.beginExport(
+        workspacePath,
+        destinationTreeUri,
+        requestedName,
+        options,
+      );
+      const snapshot = await StorageNativeModule.getTransfer(operationId);
+      set({ activeTransfer: snapshot });
+      return operationId;
+    } catch (error) {
+      const message = (error as Error).message || 'Project export could not start';
+      set({ transferError: message });
+      throw error;
+    }
+  },
+
+  cancelTransfer: async () => {
+    const operationId = get().activeTransfer?.operationId;
+    if (!operationId) return;
+    await StorageNativeModule.cancelTransfer(operationId);
+  },
+
+  clearTransfer: () => set({ activeTransfer: null, transferError: null }),
+
+  handleTransferUpdate: snapshot => {
+    if (
+      !get().activeTransfer ||
+      get().activeTransfer?.operationId === snapshot.operationId
+    ) {
+      set({ activeTransfer: snapshot });
+    }
+  },
+
+  handleTransferComplete: async snapshot => {
+    get().handleTransferUpdate(snapshot);
+    if (snapshot.direction !== 'import' || !snapshot.result) return;
+    const result = snapshot.result as { virtualPath?: string; workspacePath?: string; path?: string };
+    const importedPath = result.virtualPath || result.workspacePath || result.path;
+    if (!importedPath) return;
+    await get().loadWorkspaces();
+    if (await get().openWorkspace(importedPath)) {
+      const realPath = get().currentWorkspaceRealPath;
+      if (realPath) {
+        try {
+          await useTerminalStore.getState().createSession(realPath);
+        } catch {
+          // The Explorer is already switched; Terminal displays its own error.
+        }
+      }
+    }
+  },
+
   loadDirectory: async (path: string) => {
     try {
       const entries = await FileSystemNativeModule.listDir(path);
@@ -293,3 +401,36 @@ export const useFileStore = create<FileState>((set, get) => ({
     await get().loadDirectory(path);
   },
 }));
+
+export const setupStorageListeners = () => {
+  const progressSub = StorageEventEmitter.addListener(
+    STORAGE_EVENTS.PROGRESS,
+    (snapshot: TransferSnapshot) => {
+      useFileStore.getState().handleTransferUpdate(snapshot);
+    },
+  );
+  const completeSub = StorageEventEmitter.addListener(
+    STORAGE_EVENTS.COMPLETE,
+    (snapshot: TransferSnapshot) => {
+      useFileStore.getState().handleTransferComplete(snapshot).catch(() => undefined);
+    },
+  );
+  const errorSub = StorageEventEmitter.addListener(
+    STORAGE_EVENTS.ERROR,
+    (snapshot: TransferSnapshot) => {
+      useFileStore.getState().handleTransferUpdate(snapshot);
+      useFileStore.setState({
+        transferError:
+          snapshot.status === 'cancelled'
+            ? null
+            : snapshot.message || 'Project transfer failed',
+      });
+    },
+  );
+
+  return () => {
+    progressSub.remove();
+    completeSub.remove();
+    errorSub.remove();
+  };
+};

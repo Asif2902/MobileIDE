@@ -29,6 +29,7 @@ import {
   useFileStore,
   setupTerminalListeners,
   setupProcessListeners,
+  setupStorageListeners,
 } from '../stores';
 
 // Tablet: both dimensions large enough. Phones in landscape stay on the
@@ -75,10 +76,12 @@ export const IDEScreen: React.FC = () => {
   useEffect(() => {
     const cleanupTerminal = setupTerminalListeners();
     const cleanupProcess = setupProcessListeners();
+    const cleanupStorage = setupStorageListeners();
     checkRuntime();
     return () => {
       cleanupTerminal();
       cleanupProcess();
+      cleanupStorage();
     };
   }, [checkRuntime]);
 

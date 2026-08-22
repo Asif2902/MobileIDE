@@ -1,12 +1,27 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useEditorStore, useFileStore, useRuntimeStore, useUIStore } from '../../stores';
-import { FileSystemNativeModule, FileEntry } from '../../native';
+import {
+  FileSystemNativeModule,
+  FileEntry,
+  ProjectSource,
+  StorageNativeModule,
+  TransferOptions,
+} from '../../native';
 import { FileTreeItem } from './FileTreeItem';
+
+const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+};
 
 export const FileExplorer: React.FC = () => {
   const { 
     currentWorkspace, 
+    currentWorkspaceRealPath,
+    currentWorkspaceAssessment,
     workspaces, 
     fileTree, 
     loadWorkspaces, 
@@ -15,6 +30,12 @@ export const FileExplorer: React.FC = () => {
     externalRoots,
     createFile,
     createFolder,
+    importProject,
+    exportProject,
+    activeTransfer,
+    transferError,
+    cancelTransfer,
+    clearTransfer,
   } = useFileStore();
   const { isReady } = useRuntimeStore();
   const openEditorFile = useEditorStore(state => state.openFile);
@@ -27,6 +48,21 @@ export const FileExplorer: React.FC = () => {
   const [browseDirs, setBrowseDirs] = useState<FileEntry[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transferSetup, setTransferSetup] = useState<{
+    visible: boolean;
+    direction: 'import' | 'export';
+    source?: ProjectSource;
+    destinationTreeUri?: string;
+    requestedName: string;
+  }>({ visible: false, direction: 'import', requestedName: '' });
+  const [transferOptions, setTransferOptions] = useState<TransferOptions>({
+    mode: 'source',
+    includeGit: false,
+    includeHidden: false,
+    includeSecrets: false,
+    conflictPolicy: 'unique',
+  });
+  const [transferStarting, setTransferStarting] = useState(false);
   
   useEffect(() => {
     if (isReady) {
@@ -158,11 +194,131 @@ export const FileExplorer: React.FC = () => {
     }
   }, [browsePath, externalRoots, navigateTo]);
 
-  const openHere = useCallback(() => {
-    if (!browsePath) return;
+  const queueImport = useCallback((source: ProjectSource) => {
+    const fallbackName = source.displayName || source.value.split('/').filter(Boolean).pop() || 'imported-project';
+    setTransferOptions({
+      mode: 'source',
+      includeGit: false,
+      includeHidden: false,
+      includeSecrets: false,
+      conflictPolicy: 'unique',
+    });
+    setTransferSetup({
+      visible: true,
+      direction: 'import',
+      source,
+      requestedName: fallbackName,
+    });
+  }, []);
+
+  const openInPlace = useCallback(async (path: string) => {
     setFolderPickerVisible(false);
-    openWorkspace(browsePath).catch(e => setError('Failed to open folder: ' + e.message));
-  }, [browsePath, openWorkspace]);
+    const opened = await openWorkspace(path);
+    if (!opened) {
+      setError(useFileStore.getState().error || 'Failed to open the external folder.');
+    }
+  }, [openWorkspace]);
+
+  const openHere = useCallback(async () => {
+    if (!browsePath) return;
+    try {
+      const assessment = await StorageNativeModule.assessWorkspace(browsePath);
+      if (!assessment.requiresPrivateImport) {
+        await openInPlace(browsePath);
+        return;
+      }
+      Alert.alert(
+        'Choose how to open this project',
+        'Android shared storage is suitable for viewing and simple editing, but npm, package managers, builds, native tools, and some Git operations need ADEV private storage.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Open in place',
+            onPress: () => { openInPlace(browsePath).catch(() => undefined); },
+          },
+          {
+            text: 'Import to ADEV',
+            onPress: () => {
+              setFolderPickerVisible(false);
+              queueImport({ kind: 'rawPath', value: browsePath });
+            },
+          },
+        ],
+      );
+    } catch (e) {
+      Alert.alert('Cannot assess folder', (e as Error)?.message || String(e));
+    }
+  }, [browsePath, openInPlace, queueImport]);
+
+  const chooseProjectWithAndroid = useCallback(async () => {
+    try {
+      const selection = await StorageNativeModule.pickProjectTree();
+      if (!selection) return;
+      setFolderPickerVisible(false);
+      queueImport(selection);
+    } catch (e) {
+      Alert.alert('Cannot select folder', (e as Error)?.message || String(e));
+    }
+  }, [queueImport]);
+
+  const queueCurrentWorkspaceImport = useCallback(() => {
+    if (!currentWorkspaceRealPath) return;
+    queueImport({
+      kind: 'rawPath',
+      value: currentWorkspaceRealPath,
+      displayName: workspaceName,
+    });
+  }, [currentWorkspaceRealPath, queueImport, workspaceName]);
+
+  const queueExport = useCallback(async () => {
+    if (!currentWorkspaceAssessment?.privateWorkspace) {
+      Alert.alert('Private project required', 'Import this project into the ADEV workspace before exporting it.');
+      return;
+    }
+    try {
+      const selection = await StorageNativeModule.pickExportTree();
+      if (!selection) return;
+      setTransferOptions({
+        mode: 'source',
+        includeGit: false,
+        includeHidden: false,
+        includeSecrets: false,
+        conflictPolicy: 'unique',
+      });
+      setTransferSetup({
+        visible: true,
+        direction: 'export',
+        destinationTreeUri: selection.value,
+        requestedName: workspaceName,
+      });
+    } catch (e) {
+      Alert.alert('Cannot choose export folder', (e as Error)?.message || String(e));
+    }
+  }, [currentWorkspaceAssessment, workspaceName]);
+
+  const beginConfiguredTransfer = useCallback(async () => {
+    const requestedName = transferSetup.requestedName.trim() || null;
+    setTransferStarting(true);
+    try {
+      if (transferSetup.direction === 'import' && transferSetup.source) {
+        await importProject(transferSetup.source, requestedName, transferOptions);
+      } else if (transferSetup.direction === 'export' && transferSetup.destinationTreeUri) {
+        await exportProject(transferSetup.destinationTreeUri, requestedName, transferOptions);
+      } else {
+        throw new Error('The selected transfer source or destination is unavailable.');
+      }
+      setTransferSetup(previous => ({ ...previous, visible: false }));
+    } catch (e) {
+      Alert.alert('Transfer could not start', (e as Error)?.message || String(e));
+    } finally {
+      setTransferStarting(false);
+    }
+  }, [exportProject, importProject, transferOptions, transferSetup]);
+
+  const transferBusy = activeTransfer?.status === 'queued' || activeTransfer?.status === 'running';
+  const transferPercent = activeTransfer && activeTransfer.totalBytes > 0
+    ? Math.min(100, Math.round((activeTransfer.bytesCopied / activeTransfer.totalBytes) * 100))
+    : 0;
 
   return (
     <View style={styles.container}>
@@ -194,15 +350,65 @@ export const FileExplorer: React.FC = () => {
           </Text>
           <Text style={styles.dotfilesVisible}>Dotfiles visible in the file tree</Text>
         </View>
-        <TouchableOpacity style={styles.envButton} onPress={handleOpenEnv}>
-          <Text style={styles.envButtonText}>Open .env</Text>
-        </TouchableOpacity>
+        <View style={styles.workspaceHeaderButtons}>
+          {currentWorkspaceAssessment?.privateWorkspace && (
+            <TouchableOpacity style={styles.envButton} onPress={queueExport}>
+              <Text style={styles.envButtonText}>Export</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.envButton} onPress={handleOpenEnv}>
+            <Text style={styles.envButtonText}>Open .env</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
       {/* Error display */}
       {error && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {currentWorkspaceAssessment?.requiresPrivateImport && (
+        <View style={styles.sharedStorageBanner}>
+          <View style={styles.bannerCopy}>
+            <Text style={styles.sharedStorageTitle}>Viewing shared-storage project</Text>
+            <Text style={styles.sharedStorageText}>
+              npm, pnpm, Yarn, Next/Vite builds, native compilation, and some Git operations require an ADEV private workspace.
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.importButton} onPress={queueCurrentWorkspaceImport}>
+            <Text style={styles.importButtonText}>Import</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {(activeTransfer || transferError) && (
+        <View style={styles.transferBanner}>
+          <View style={styles.bannerCopy}>
+            <Text style={styles.transferTitle}>
+              {activeTransfer
+                ? `${activeTransfer.direction === 'import' ? 'Import' : 'Export'}: ${activeTransfer.phase}`
+                : 'Project transfer'}
+            </Text>
+            {activeTransfer && (
+              <Text style={styles.transferText}>
+                {activeTransfer.filesCopied}/{activeTransfer.totalFiles || '?'} files · {formatBytes(activeTransfer.bytesCopied)} / {formatBytes(activeTransfer.totalBytes)}
+                {activeTransfer.totalBytes > 0 ? ` · ${transferPercent}%` : ''}
+                {activeTransfer.skippedEntries > 0 ? ` · ${activeTransfer.skippedEntries} skipped` : ''}
+              </Text>
+            )}
+            {!!transferError && <Text style={styles.transferError}>{transferError}</Text>}
+          </View>
+          {transferBusy ? (
+            <TouchableOpacity style={styles.transferAction} onPress={() => { cancelTransfer().catch(() => undefined); }}>
+              <Text style={styles.transferActionText}>Cancel</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.transferAction} onPress={clearTransfer}>
+              <Text style={styles.transferActionText}>Dismiss</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
       
@@ -331,6 +537,118 @@ export const FileExplorer: React.FC = () => {
         </View>
       </Modal>
 
+      {/* Import/export choices. Source-only is safe by default; secrets opt in. */}
+      <Modal
+        visible={transferSetup.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!transferStarting) {
+            setTransferSetup(previous => ({ ...previous, visible: false }));
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>
+              {transferSetup.direction === 'import' ? 'Import to ADEV Workspace' : 'Export Project'}
+            </Text>
+            <Text style={styles.pickerHint}>
+              {transferSetup.direction === 'import'
+                ? 'The copied project becomes independent from the original folder. A new Terminal will open in the private workspace.'
+                : 'Choose exactly what may leave ADEV private storage.'}
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={transferSetup.requestedName}
+              onChangeText={requestedName => setTransferSetup(previous => ({ ...previous, requestedName }))}
+              placeholder="project-name"
+              placeholderTextColor="#666666"
+              editable={!transferStarting}
+            />
+
+            <Text style={styles.optionLabel}>Copy mode</Text>
+            <View style={styles.segmentRow}>
+              {(['source', 'full'] as const).map(mode => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.segmentButton, transferOptions.mode === mode && styles.segmentButtonSelected]}
+                  onPress={() => setTransferOptions(previous => ({ ...previous, mode }))}
+                >
+                  <Text style={styles.segmentText}>{mode === 'source' ? 'Source only' : 'Full project'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.optionHint}>
+              {transferOptions.mode === 'source'
+                ? 'Excludes generated directories such as node_modules, .next, dist, build, caches, coverage, and .gradle.'
+                : 'Copies generated and heavy directories too. Large projects can take substantial time and space.'}
+            </Text>
+
+            {([
+              ['includeGit', 'Include .git history'],
+              ['includeHidden', 'Include other hidden files'],
+              ['includeSecrets', 'Include .env and secret-like files'],
+            ] as const).map(([key, label]) => (
+              <TouchableOpacity
+                key={key}
+                style={styles.optionRow}
+                onPress={() => setTransferOptions(previous => ({ ...previous, [key]: !previous[key] }))}
+              >
+                <Text style={styles.optionCheckbox}>{transferOptions[key] ? '☑' : '☐'}</Text>
+                <Text style={styles.optionText}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+
+            <Text style={styles.optionLabel}>If the destination already exists</Text>
+            <View style={styles.conflictRow}>
+              {([
+                ['unique', 'New name'],
+                ['merge', 'Merge'],
+                ['replace', 'Replace'],
+                ['cancel', 'Stop'],
+              ] as const).map(([policy, label]) => (
+                <TouchableOpacity
+                  key={policy}
+                  style={[styles.conflictButton, transferOptions.conflictPolicy === policy && styles.segmentButtonSelected]}
+                  onPress={() => setTransferOptions(previous => ({ ...previous, conflictPolicy: policy }))}
+                >
+                  <Text style={styles.conflictText}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {transferOptions.includeSecrets && (
+              <Text style={styles.secretWarning}>
+                Warning: this can copy tokens, private endpoints, or passwords stored in project files.
+              </Text>
+            )}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                disabled={transferStarting}
+                onPress={() => setTransferSetup(previous => ({ ...previous, visible: false }))}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                disabled={transferStarting}
+                onPress={() => { beginConfiguredTransfer().catch(() => undefined); }}
+              >
+                {transferStarting ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
+                    {transferSetup.direction === 'import' ? 'Import' : 'Export'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Device folder picker */}
       <Modal
         visible={folderPickerVisible}
@@ -388,6 +706,12 @@ export const FileExplorer: React.FC = () => {
             </ScrollView>
 
             <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={chooseProjectWithAndroid}
+              >
+                <Text style={styles.modalButtonText}>Android picker</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalButton}
                 onPress={() => setFolderPickerVisible(false)}
@@ -456,6 +780,10 @@ const styles = StyleSheet.create({
   workspaceHeaderInfo: {
     flex: 1,
   },
+  workspaceHeaderButtons: {
+    flexDirection: 'row',
+    gap: 6,
+  },
   workspaceName: {
     fontSize: 13,
     fontWeight: '600',
@@ -490,6 +818,79 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 11,
     color: '#f87171',
+  },
+  sharedStorageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#4a3517',
+    borderBottomWidth: 1,
+    borderBottomColor: '#7c5a22',
+  },
+  bannerCopy: {
+    flex: 1,
+  },
+  sharedStorageTitle: {
+    color: '#fbbf24',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sharedStorageText: {
+    color: '#f5d78e',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  importButton: {
+    backgroundColor: '#8b5cf6',
+    borderRadius: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  importButtonText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  transferBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#25344a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#36557f',
+  },
+  transferTitle: {
+    color: '#bfdbfe',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  transferText: {
+    color: '#93c5fd',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  transferError: {
+    color: '#fca5a5',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  transferAction: {
+    borderWidth: 1,
+    borderColor: '#60a5fa',
+    borderRadius: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  transferActionText: {
+    color: '#dbeafe',
+    fontSize: 10,
+    fontWeight: '600',
   },
   treeContainer: {
     flex: 1,
@@ -616,6 +1017,80 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3f3f46',
     marginBottom: 16,
+  },
+  optionLabel: {
+    color: '#d4d4d8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 7,
+  },
+  optionHint: {
+    color: '#888888',
+    fontSize: 10,
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 7,
+  },
+  segmentButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    backgroundColor: '#1e1e1e',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+    borderRadius: 5,
+  },
+  segmentButtonSelected: {
+    backgroundColor: '#4c3b78',
+    borderColor: '#8b5cf6',
+  },
+  segmentText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  optionCheckbox: {
+    color: '#a78bfa',
+    fontSize: 18,
+    width: 28,
+  },
+  optionText: {
+    color: '#dddddd',
+    fontSize: 12,
+  },
+  conflictRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  conflictButton: {
+    backgroundColor: '#1e1e1e',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+    borderRadius: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  conflictText: {
+    color: '#eeeeee',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  secretWarning: {
+    color: '#fbbf24',
+    fontSize: 10,
+    lineHeight: 14,
+    marginBottom: 10,
   },
   modalButtons: {
     flexDirection: 'row',

@@ -210,6 +210,11 @@ async function testNext(version, router, port) {
       );
   forward(child);
   await waitHttp(port, `${version}-${router}-one`, 180_000);
+  assert.equal(
+    child.exitCode,
+    null,
+    `Next.js ${version} ${router} launcher exited while its dev server was still active`,
+  );
   nextFiles(dir, router, `${version}-${router}-two`);
   await waitHttp(port, `${version}-${router}-two`, 120_000);
   await stop(child, port);

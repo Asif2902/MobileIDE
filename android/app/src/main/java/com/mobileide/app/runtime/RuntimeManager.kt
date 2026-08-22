@@ -543,17 +543,25 @@ class RuntimeManager(private val context: Context) {
             sb.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
             sb.appendLine()
 
+            // Use the same physical-path policy as PATH trampolines so normal,
+            // `command`, env, and background routes reject before npm creates
+            // partial output on Android shared storage.
+            val workspaceGuard = File(binDir, ".adev-workspace-guard").absolutePath
+            sb.appendLine("adev-workspace-guard() { . \"$workspaceGuard\"; adev_guard \"\$@\"; }")
+            sb.appendLine("adev-require-private-workspace() { adev-workspace-guard generic \"\$@\"; }")
+            sb.appendLine()
+
             if (hasNode) {
                 sb.appendLine("node() { \"$node\" \"\$@\"; }")
-                sb.appendLine("npm() { \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npm-cli.js\" \"\$@\"; }")
-                sb.appendLine("npx() { \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" \"\$@\"; }")
+                sb.appendLine("npm() { adev-workspace-guard npm \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npm-cli.js\" \"\$@\"; }")
+                sb.appendLine("npx() { adev-workspace-guard npx \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" \"\$@\"; }")
                 if (nodeGyp.exists()) {
-                    sb.appendLine("node-gyp() { \"$node\" \"${nodeGyp.absolutePath}\" \"\$@\"; }")
+                    sb.appendLine("node-gyp() { adev-workspace-guard native \"\$@\" || return \$?; \"$node\" \"${nodeGyp.absolutePath}\" \"\$@\"; }")
                 }
                 sb.appendLine("if [ -f \"${packageManagerLauncher.absolutePath}\" ]; then")
-                sb.appendLine("  corepack() { \"$node\" \"${packageManagerLauncher.absolutePath}\" corepack \"\$@\"; }")
-                sb.appendLine("  yarn() { \"$node\" \"${packageManagerLauncher.absolutePath}\" yarn \"\$@\"; }")
-                sb.appendLine("  pnpm() { \"$node\" \"${packageManagerLauncher.absolutePath}\" pnpm \"\$@\"; }")
+                sb.appendLine("  corepack() { adev-workspace-guard corepack \"\$@\" || return \$?; \"$node\" \"${packageManagerLauncher.absolutePath}\" corepack \"\$@\"; }")
+                sb.appendLine("  yarn() { adev-workspace-guard yarn \"\$@\" || return \$?; \"$node\" \"${packageManagerLauncher.absolutePath}\" yarn \"\$@\"; }")
+                sb.appendLine("  pnpm() { adev-workspace-guard pnpm \"\$@\" || return \$?; \"$node\" \"${packageManagerLauncher.absolutePath}\" pnpm \"\$@\"; }")
                 sb.appendLine("fi")
                 if (bunBoundary.exists()) {
                     sb.appendLine("bun() { \"$node\" \"${bunBoundary.absolutePath}\" \"\$@\"; }")
@@ -561,11 +569,11 @@ class RuntimeManager(private val context: Context) {
                 if (sshLauncher.exists()) {
                     sb.appendLine("ssh() { \"$node\" \"${sshLauncher.absolutePath}\" \"\$@\"; }")
                 }
-                sb.appendLine("tsc() { npx --no-install tsc \"\$@\" 2>/dev/null || npx --yes tsc \"\$@\"; }")
-                sb.appendLine("eslint() { npx --no-install eslint \"\$@\" 2>/dev/null || npx --yes eslint \"\$@\"; }")
-                sb.appendLine("vite() { npx --no-install vite \"\$@\" 2>/dev/null || npx --yes vite \"\$@\"; }")
+                sb.appendLine("tsc() { adev-require-private-workspace \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install tsc \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes tsc \"\$@\"; }")
+                sb.appendLine("eslint() { adev-require-private-workspace \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install eslint \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes eslint \"\$@\"; }")
+                sb.appendLine("vite() { adev-workspace-guard vite \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install vite \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes vite \"\$@\"; }")
                 if (nextLauncher.exists()) {
-                    sb.appendLine("next() { \"$node\" \"${nextLauncher.absolutePath}\" \"\$@\"; }")
+                    sb.appendLine("next() { adev-workspace-guard next \"\$@\" || return \$?; \"$node\" \"${nextLauncher.absolutePath}\" \"\$@\"; }")
                 }
                 sb.appendLine()
             }
@@ -573,13 +581,13 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine("python() { \"${it.absolutePath}\" \"\$@\"; }")
                 sb.appendLine("python3() { \"${it.absolutePath}\" \"\$@\"; }")
             }
-            make?.let { sb.appendLine("make() { \"${it.absolutePath}\" \"\$@\"; }") }
+            make?.let { sb.appendLine("make() { adev-workspace-guard native \"\$@\" || return \$?; \"${it.absolutePath}\" \"\$@\"; }") }
             clang?.let {
                 val common = clangDriverFlags(clangResourceDir)
-                sb.appendLine("clang() { \"${it.absolutePath}\" $common \"\$@\"; }")
-                sb.appendLine("cc() { \"${it.absolutePath}\" $common \"\$@\"; }")
-                sb.appendLine("clang++() { \"${it.absolutePath}\" --driver-mode=g++ $common \"\$@\"; }")
-                sb.appendLine("c++() { \"${it.absolutePath}\" --driver-mode=g++ $common \"\$@\"; }")
+                sb.appendLine("clang() { adev-workspace-guard native \"\$@\" || return \$?; \"${it.absolutePath}\" $common \"\$@\"; }")
+                sb.appendLine("cc() { adev-workspace-guard native \"\$@\" || return \$?; \"${it.absolutePath}\" $common \"\$@\"; }")
+                sb.appendLine("clang++() { adev-workspace-guard native \"\$@\" || return \$?; \"${it.absolutePath}\" --driver-mode=g++ $common \"\$@\"; }")
+                sb.appendLine("c++() { adev-workspace-guard native \"\$@\" || return \$?; \"${it.absolutePath}\" --driver-mode=g++ $common \"\$@\"; }")
                 sb.appendLine("gcc() { clang \"\$@\"; }")
                 sb.appendLine("g++() { clang++ \"\$@\"; }")
             }
@@ -600,7 +608,7 @@ class RuntimeManager(private val context: Context) {
             }
             if (python != null || make != null || clang != null) sb.appendLine()
             if (hasGit) {
-                sb.appendLine("git() { \"$git\" \"\$@\"; }")
+                sb.appendLine("git() { adev-workspace-guard git \"\$@\" || return \$?; \"$git\" \"\$@\"; }")
                 sb.appendLine()
             }
             if (File(nativeLibDir, "libbin_bash.so").exists()) {
@@ -627,7 +635,7 @@ class RuntimeManager(private val context: Context) {
             sb.appendLine("adev-build() { npm run build \"\$@\"; }")
             sb.appendLine("adev-test() { npm test \"\$@\"; }")
             sb.appendLine("adev-lint() { npm run lint 2>/dev/null || npx --yes eslint . \"\$@\"; }")
-            sb.appendLine("adev-dev() { npm run dev -- --host 0.0.0.0 \"\$@\" 2>/dev/null || npm start \"\$@\"; }")
+            sb.appendLine("adev-dev() { adev-require-private-workspace || return \$?; npm run dev -- --host 0.0.0.0 \"\$@\" 2>/dev/null || npm start \"\$@\"; }")
             sb.appendLine("adev-run-web() {")
             sb.appendLine("  cd \"\$PREFIX/workspaces/demo-web\" || return 1")
             sb.appendLine("  [ -d node_modules ] || npm install")
@@ -824,34 +832,87 @@ class RuntimeManager(private val context: Context) {
                 }
             }
 
+            val workspaceGuard = File(binDir, ".adev-workspace-guard").absolutePath
+            writeScript(
+                ".adev-workspace-guard",
+                """#!/system/bin/sh
+adev_guard_is_shared() {
+  physical="${'$'}(pwd -P 2>/dev/null || pwd)"
+  case "${'$'}physical/" in
+    /storage/*|/sdcard/*|/mnt/media_rw/*|/mnt/runtime/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+adev_guard_is_diagnostic() {
+  for argument in "${'$'}@"; do
+    case "${'$'}argument" in --help|-h|--version|-v) return 0 ;; esac
+  done
+  return 1
+}
+adev_guard_first_command() {
+  skip=0
+  for argument in "${'$'}@"; do
+    if [ "${'$'}skip" = 1 ]; then skip=0; continue; fi
+    case "${'$'}argument" in
+      --prefix|--workspace|--registry|--cache|--userconfig|--filter|--dir|--cwd|-c|-C|-w)
+        skip=1 ;;
+      --) ;;
+      -*) ;;
+      *) printf '%s' "${'$'}argument"; return 0 ;;
+    esac
+  done
+}
+adev_guard() {
+  tool="${'$'}1"; shift
+  adev_guard_is_shared || return 0
+  adev_guard_is_diagnostic "${'$'}@" && return 0
+  sub="${'$'}(adev_guard_first_command "${'$'}@")"
+  case "${'$'}tool:${'$'}sub" in
+    npm:|npm:help|npm:view|npm:info|npm:search|npm:list|npm:ls|npm:outdated|npm:doctor|npm:config) return 0 ;;
+    pnpm:help|pnpm:why|pnpm:list|pnpm:ls|pnpm:info|pnpm:view|pnpm:outdated|pnpm:config) return 0 ;;
+    yarn:help|yarn:why|yarn:list|yarn:ls|yarn:info|yarn:view|yarn:outdated|yarn:config) return 0 ;;
+    git:|git:status|git:log|git:diff|git:show|git:rev-parse|git:describe|git:ls-files|git:ls-tree|git:grep|git:blame|git:shortlog) return 0 ;;
+    generic:*) ;;
+    npm:*|npx:*|pnpm:*|pnpx:*|yarn:*|corepack:*|next:*|vite:*|native:*|git:*) ;;
+    *) return 0 ;;
+  esac
+  echo "This project is stored on Android shared storage. Some development tools require filesystem features that are unavailable here, including symbolic links. Import this project into the ADEV workspace to continue." >&2
+  return 73
+}
+""".trimIndent() + "\n"
+            )
+
+            fun guarded(tool: String, command: String): String =
+                "#!/system/bin/sh\n. \"$workspaceGuard\"\nadev_guard $tool \"\$@\" || exit \$?\n$command\n"
+
             if (node.exists()) {
                 val n = node.absolutePath
                 writeScript("node", "#!/system/bin/sh\nexec \"$n\" \"\$@\"\n")
                 if (npmCli.exists()) {
                     writeScript(
                         "npm",
-                        "#!/system/bin/sh\nexec \"$n\" \"${npmCli.absolutePath}\" \"\$@\"\n"
+                        guarded("npm", "exec \"$n\" \"${npmCli.absolutePath}\" \"\$@\"")
                     )
                 }
                 if (npxCli.exists()) {
                     writeScript(
                         "npx",
-                        "#!/system/bin/sh\nexec \"$n\" \"${npxCli.absolutePath}\" \"\$@\"\n"
+                        guarded("npx", "exec \"$n\" \"${npxCli.absolutePath}\" \"\$@\"")
                     )
                 }
                 if (nodeGyp.exists()) {
                     writeScript(
                         "node-gyp",
-                        "#!/system/bin/sh\nexec \"$n\" \"${nodeGyp.absolutePath}\" \"\$@\"\n"
+                        guarded("native", "exec \"$n\" \"${nodeGyp.absolutePath}\" \"\$@\"")
                     )
                 }
                 if (corepackJs.exists() && packageManagerLauncher.exists()) {
                     val launcher = packageManagerLauncher.absolutePath
-                    writeScript("corepack", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" corepack \"\$@\"\n")
-                    writeScript("yarn", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" yarn \"\$@\"\n")
-                    writeScript("yarnpkg", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" yarn \"\$@\"\n")
-                    writeScript("pnpm", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" pnpm \"\$@\"\n")
-                    writeScript("pnpx", "#!/system/bin/sh\nexec \"$n\" \"$launcher\" pnpm dlx \"\$@\"\n")
+                    writeScript("corepack", guarded("corepack", "exec \"$n\" \"$launcher\" corepack \"\$@\""))
+                    writeScript("yarn", guarded("yarn", "exec \"$n\" \"$launcher\" yarn \"\$@\""))
+                    writeScript("yarnpkg", guarded("yarn", "exec \"$n\" \"$launcher\" yarn \"\$@\""))
+                    writeScript("pnpm", guarded("pnpm", "exec \"$n\" \"$launcher\" pnpm \"\$@\""))
+                    writeScript("pnpx", guarded("pnpx", "exec \"$n\" \"$launcher\" pnpm dlx \"\$@\""))
                 }
                 if (bunBoundary.exists()) {
                     writeScript(
@@ -886,11 +947,11 @@ class RuntimeManager(private val context: Context) {
                 if (nextLauncher.exists()) {
                     writeScript(
                         "next",
-                        "#!/system/bin/sh\nexec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"\n"
+                        guarded("next", "exec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"")
                     )
                     writeScript(
                         "adev-next",
-                        "#!/system/bin/sh\nexec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"\n"
+                        guarded("next", "exec \"$n\" \"${nextLauncher.absolutePath}\" \"\$@\"")
                     )
                 }
                 if (phase2Test.exists()) {
@@ -913,7 +974,7 @@ class RuntimeManager(private val context: Context) {
                 }
             }
             if (git.exists()) {
-                writeScript("git", "#!/system/bin/sh\nexec \"${git.absolutePath}\" \"\$@\"\n")
+                writeScript("git", guarded("git", "exec \"${git.absolutePath}\" \"\$@\""))
             }
             if (bash.exists()) {
                 writeScript("bash", "#!/system/bin/sh\nexec \"${bash.absolutePath}\" \"\$@\"\n")
@@ -946,23 +1007,23 @@ class RuntimeManager(private val context: Context) {
                 writeScript("python3", "#!/system/bin/sh\nexec \"$p\" \"\$@\"\n")
             }
             make?.let {
-                writeScript("make", "#!/system/bin/sh\nexec \"${it.absolutePath}\" \"\$@\"\n")
+                writeScript("make", guarded("native", "exec \"${it.absolutePath}\" \"\$@\""))
             }
             clang?.let {
                 val common = clangDriverFlags(clangResourceDir)
                 val c = it.absolutePath
-                writeScript("clang", "#!/system/bin/sh\nexec \"$c\" $common \"\$@\"\n")
-                writeScript("cc", "#!/system/bin/sh\nexec \"$c\" $common \"\$@\"\n")
-                writeScript("gcc", "#!/system/bin/sh\nexec \"$c\" $common \"\$@\"\n")
-                writeScript("clang++", "#!/system/bin/sh\nexec \"$c\" --driver-mode=g++ $common \"\$@\"\n")
-                writeScript("c++", "#!/system/bin/sh\nexec \"$c\" --driver-mode=g++ $common \"\$@\"\n")
-                writeScript("g++", "#!/system/bin/sh\nexec \"$c\" --driver-mode=g++ $common \"\$@\"\n")
+                writeScript("clang", guarded("native", "exec \"$c\" $common \"\$@\""))
+                writeScript("cc", guarded("native", "exec \"$c\" $common \"\$@\""))
+                writeScript("gcc", guarded("native", "exec \"$c\" $common \"\$@\""))
+                writeScript("clang++", guarded("native", "exec \"$c\" --driver-mode=g++ $common \"\$@\""))
+                writeScript("c++", guarded("native", "exec \"$c\" --driver-mode=g++ $common \"\$@\""))
+                writeScript("g++", guarded("native", "exec \"$c\" --driver-mode=g++ $common \"\$@\""))
             }
             llvmAr?.let {
-                writeScript("ar", "#!/system/bin/sh\nexec \"${it.absolutePath}\" \"\$@\"\n")
+                writeScript("ar", guarded("native", "exec \"${it.absolutePath}\" \"\$@\""))
             }
             lld?.let {
-                writeScript("ld.lld", "#!/system/bin/sh\nexec \"${it.absolutePath}\" \"\$@\"\n")
+                writeScript("ld.lld", guarded("native", "exec \"${it.absolutePath}\" \"\$@\""))
             }
             pkgConfig?.let {
                 writeScript("pkg-config", "#!/system/bin/sh\nexec \"${it.absolutePath}\" \"\$@\"\n")
@@ -1758,6 +1819,10 @@ class RuntimeManager(private val context: Context) {
         command_not_found_handle() {
             local cmd="${'$'}1"; shift
             local base f
+            case "${'$'}cmd" in
+                next|vite|webpack|rollup|esbuild|turbo|nx|tsc|eslint|node-gyp|node-gyp-build|cmake|ninja|cargo|rustc)
+                    adev-require-private-workspace || return ${'$'}? ;;
+            esac
             for base in "${'$'}HOME/.npm-global/bin" "${'$'}HOME/.local/bin"; do
                 f="${'$'}base/${'$'}cmd"
                 if [ -f "${'$'}f" ]; then
