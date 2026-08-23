@@ -22,11 +22,14 @@
 #define ADEV_WRITABLE_DIRECTORY_MODE 2
 #define ADEV_REALPATH(path, output) _fullpath(output, path, PATH_MAX)
 #else
+#include <sys/syscall.h>
 #include <unistd.h>
 #define ADEV_ACCESS access
 #define ADEV_EXEC_ACCESS X_OK
 #define ADEV_WRITABLE_DIRECTORY_MODE (W_OK | X_OK)
 #define ADEV_REALPATH(path, output) realpath(path, output)
+
+extern char** environ;
 #endif
 
 namespace {
@@ -174,11 +177,14 @@ int launch_payload(int argc, char** argv) {
     const std::string tagfix = join_path(native_dir, "liblib_opencode_tagfix.so");
     const std::string compat = join_path(native_dir, "liblib_adev_opencode_compat.so");
     const std::string opentui = join_path(native_dir, "liblib_opencode_opentui.so");
+    const std::string ripgrep = join_path(native_dir, "libbin_rg.so");
+    const std::string xdg_open = join_path(native_dir, "libbin_adev_xdg_open.so");
     if (ADEV_ACCESS(runtime.c_str(), ADEV_EXEC_ACCESS) != 0) {
         return unavailable("the Android runtime payload is not installed for this ABI.");
     }
     if (ADEV_ACCESS(tagfix.c_str(), 4) != 0 || ADEV_ACCESS(compat.c_str(), 4) != 0 ||
-        ADEV_ACCESS(opentui.c_str(), 4) != 0) {
+        ADEV_ACCESS(opentui.c_str(), 4) != 0 || ADEV_ACCESS(ripgrep.c_str(), 4) != 0 ||
+        ADEV_ACCESS(xdg_open.c_str(), ADEV_EXEC_ACCESS) != 0) {
         return unavailable("one or more required Android compatibility libraries are missing.");
     }
 
@@ -187,13 +193,36 @@ int launch_payload(int argc, char** argv) {
         ? canonical_private_directory(home_value)
         : std::string{};
     const std::string private_tmp = select_private_tmp();
+    // Capture the URL broker capability before setenv() grows/reallocates the
+    // inherited environment. The Android Bun standalone only exposed values
+    // explicitly refreshed by this launcher on affected devices, even though
+    // the same inherited values were visible to the launcher and ADEV shell.
+    // Copying first avoids retaining pointers that setenv() may invalidate.
+    const char* url_opener_port_value = std::getenv("ADEV_URL_OPENER_PORT");
+    const char* url_opener_session_value = std::getenv("ADEV_URL_OPENER_SESSION");
+    const std::string url_opener_port =
+        url_opener_port_value == nullptr ? std::string{} : url_opener_port_value;
+    const std::string url_opener_session =
+        url_opener_session_value == nullptr ? std::string{} : url_opener_session_value;
     if (home.empty() || private_tmp.empty()) {
         return unavailable("HOME or the temporary directory is not writable app-private storage.");
     }
-
     const std::vector<std::pair<const char*, std::string>> environment = {
         {"ANDROID_ROOT", "/system"},
         {"TERMUX_VERSION", "adev-opencode"},
+        /*
+         * Android has no /bin/sh. ADEV's general exec layer can translate that
+         * virtual path, but the inherited termux-exec translation route fails
+         * for Bun's direct `execve("/bin/sh", ...)` and reports
+         * `/bin/sh[3]: syntax error: unexpected '('`. Point OpenCode at
+         * Android's real shell so every agent command uses a valid,
+         * directly executable interpreter. This is process-scoped and does not
+         * change the user's interactive-shell preference.
+         */
+        {"SHELL", "/system/bin/sh"},
+        {"ADEV_PYTHON_SHELL", "/system/bin/sh"},
+        {"ADEV_OPENCODE_RG", ripgrep},
+        {"ADEV_OPENCODE_XDG_OPEN", xdg_open},
         {"OPENCODE_DISABLE_TUI_AUDIO", "1"},
         {"OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER", "true"},
         {"OPENTUI_LIB_PATH", opentui},
@@ -218,6 +247,14 @@ int launch_payload(int argc, char** argv) {
             return 71;
         }
     }
+    if ((!url_opener_port.empty() &&
+         !set_environment("ADEV_URL_OPENER_PORT", url_opener_port)) ||
+        (!url_opener_session.empty() &&
+         !set_environment("ADEV_URL_OPENER_SESSION", url_opener_session))) {
+        std::fprintf(stderr, "opencode: cannot preserve Android URL broker capability: %s\n",
+                     std::strerror(errno));
+        return 71;
+    }
     if (!prepend_environment("LD_LIBRARY_PATH", {native_dir}) ||
         !prepend_environment("LD_PRELOAD", {tagfix, compat})) {
         std::fprintf(stderr, "opencode: cannot configure Android dynamic libraries: %s\n",
@@ -232,10 +269,17 @@ int launch_payload(int argc, char** argv) {
             "opentui=%s\n"
             "tagfix=%s\n"
             "compat=%s\n"
+            "ripgrep=%s\n"
+            "xdg_open=%s\n"
+            "url_opener_port=%s\n"
+            "url_opener_session=%s\n"
             "temp=%s\n"
             "home=%s\n",
             ADEV_OPENCODE_VERSION, runtime.c_str(), opentui.c_str(), tagfix.c_str(),
-            compat.c_str(), private_tmp.c_str(), home.c_str());
+            compat.c_str(), ripgrep.c_str(), xdg_open.c_str(),
+            url_opener_port.empty() ? "missing" : url_opener_port.c_str(),
+            url_opener_session.empty() ? "missing" : "present", private_tmp.c_str(),
+            home.c_str());
         return 0;
     }
 
@@ -248,6 +292,18 @@ int launch_payload(int argc, char** argv) {
 #ifdef _WIN32
     const intptr_t result = _spawnv(_P_WAIT, runtime.c_str(), forwarded.data());
     if (result >= 0) return static_cast<int>(result);
+#elif defined(__ANDROID__) && defined(SYS_execve)
+    /*
+     * The launcher itself inherits ADEV's generic exec compatibility preloads.
+     * Calling execv() here lets that generic layer rewrite the already-valid
+     * APK-native OpenCode PIE. On affected Android builds the rewrite reaches
+     * Bun but drops the launcher-added OpenCode preload, so Bun's literal
+     * mkdir("/tmp") bypasses our private-temp mapping. This payload is a pinned,
+     * verified Android/Bionic executable in the APK native-library directory;
+     * enter it directly and let the fresh Android linker load the complete
+     * LD_PRELOAD value assembled above.
+     */
+    syscall(SYS_execve, runtime.c_str(), forwarded.data(), environ);
 #else
     execv(runtime.c_str(), forwarded.data());
 #endif

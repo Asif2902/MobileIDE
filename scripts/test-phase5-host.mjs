@@ -60,13 +60,18 @@ assert.ok(policy.requiredApkEntries.includes('assets/runtime/lib/adev-phase5-tes
 for (const requiredRuntimeEntry of [
   'assets/runtime/lib/adev-busybox.json',
   'assets/runtime/lib/adev-nano.json',
+  'assets/runtime/lib/adev-ripgrep.json',
   'assets/runtime/etc/nanorc.termux',
   'assets/runtime/share/nano/javascript.nanorc',
+  'assets/runtime/share/licenses/ripgrep/copyright',
+  'assets/runtime/share/licenses/ripgrep/LICENSE-MIT',
   'assets/runtime/share/terminfo/x/xterm-256color',
   'lib/arm64-v8a/libbin_adev_busybox.so',
   'lib/arm64-v8a/libbin_busybox.so',
   'lib/arm64-v8a/liblib_libbusybox_so_1_38_0.so',
   'lib/arm64-v8a/libbin_nano.so',
+  'lib/arm64-v8a/libbin_rg.so',
+  'lib/arm64-v8a/libbin_adev_xdg_open.so',
 ]) {
   assert.ok(
     policy.requiredApkEntries.includes(requiredRuntimeEntry),

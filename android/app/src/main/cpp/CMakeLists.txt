@@ -110,6 +110,30 @@ set_target_properties(adev_busybox PROPERTIES
     SUFFIX ".so"
 )
 
+# APK-native /usr/bin/env bridge. Standard npm CLIs use `#!/usr/bin/env node`;
+# a shell-script env trampoline can be misclassified as an ELF by native
+# callers, while BusyBox's internal exec path bypasses recursive shebang
+# handling. This executable resolves the verified native interpreters directly.
+add_executable(adev_env adev_env.cpp)
+
+target_link_options(adev_env PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_env PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_env PRIVATE NDEBUG)
+
+set_target_properties(adev_env PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_env"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Android-native GNU Make entrypoint. The Termux Make ELF has its original
 # package's shell path compiled in; this launcher supplies the app's APK-native
 # Bash as a command-line SHELL override for node-gyp and direct Make builds.
@@ -178,6 +202,28 @@ set_target_properties(adev_git_credential PROPERTIES
     SUFFIX ".so"
 )
 
+# Android xdg-open bridge. The CLI connects to an authenticated loopback
+# broker in the app process; that broker performs the validated ACTION_VIEW.
+add_executable(adev_xdg_open adev_xdg_open.cpp)
+
+target_link_options(adev_xdg_open PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_xdg_open PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_xdg_open PRIVATE NDEBUG)
+
+set_target_properties(adev_xdg_open PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_xdg_open"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Android-native OpenCode entrypoint. The launcher is built for every app ABI;
 # the large, source-pinned Bionic runtime is currently delivered for ARM64.
 if(NOT DEFINED ADEV_OPENCODE_VERSION OR ADEV_OPENCODE_VERSION STREQUAL "")
@@ -209,6 +255,7 @@ target_link_libraries(adev_opencode_compat PRIVATE dl)
 target_link_options(adev_opencode_compat PRIVATE
     "-Wl,-z,max-page-size=16384"
     "-Wl,-z,common-page-size=16384"
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/adev_opencode_compat.map"
     "-Wl,--strip-all"
 )
 target_compile_options(adev_opencode_compat PRIVATE "-O2" "-g0")

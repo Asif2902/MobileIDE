@@ -24,7 +24,8 @@ assert.equal(manifest.runtime.interpreter, '/system/bin/linker64');
 assert.equal(manifest.runtime.pie, true);
 assert.equal(manifest.runtime.minimumLoadAlignment, 16384);
 assert.equal(manifest.runtime.globalLinuxSpoof, false);
-assert.match(manifest.runtime.tempPathPolicy, /process-scoped \/tmp remap/);
+assert.match(manifest.runtime.tempPathPolicy, /app-private XDG cache temp/);
+assert.match(manifest.runtime.heapPointerTaggingPolicy, /API 29\/30/);
 assert.match(manifest.runtime.preloadOrder, /upstream tagfix/);
 for (const capability of [
   'version',
@@ -63,6 +64,11 @@ const compat = text('android/app/src/main/cpp/adev_opencode_compat.c');
 const launcherTemplate = text('android/app/src/main/cpp/adev_opencode_version.h.in');
 const cmake = text('android/app/src/main/cpp/CMakeLists.txt');
 const gradle = text('android/app/build.gradle');
+const androidManifest = text('android/app/src/main/AndroidManifest.xml');
+const externalUrlBroker = text(
+  'android/app/src/main/java/com/mobileide/app/runtime/ExternalUrlBroker.kt',
+);
+const xdgOpenHelper = text('android/app/src/main/cpp/adev_xdg_open.cpp');
 assert.match(launcher, /#include "adev_opencode_version\.h"/);
 assert.doesNotMatch(launcher, /1\.17\.9/);
 assert.match(launcherTemplate, /@ADEV_OPENCODE_VERSION@/);
@@ -70,12 +76,17 @@ assert.match(cmake, /add_library\(adev_opencode_compat SHARED/);
 assert.match(cmake, /OUTPUT_NAME "lib_adev_opencode_compat"/);
 assert.match(gradle, /liblib_adev_opencode_compat\.so/);
 assert.match(launcher, /execv\(runtime\.c_str\(\), forwarded\.data\(\)\)/);
+assert.match(launcher, /syscall\(SYS_execve, runtime\.c_str\(\), forwarded\.data\(\), environ\)/);
 assert.match(launcher, /libbin_opencode_runtime\.so/);
 assert.match(launcher, /liblib_opencode_tagfix\.so/);
 assert.match(launcher, /liblib_adev_opencode_compat\.so/);
 assert.match(launcher, /OPENTUI_LIB_PATH/);
 assert.match(launcher, /ADEV_OPENCODE_TMPDIR/);
 assert.match(launcher, /BUN_TMPDIR/);
+assert.match(launcher, /\{"SHELL", "\/system\/bin\/sh"\}/);
+assert.match(launcher, /\{"ADEV_PYTHON_SHELL", "\/system\/bin\/sh"\}/);
+assert.match(launcher, /ADEV_OPENCODE_RG/);
+assert.match(launcher, /ADEV_OPENCODE_XDG_OPEN/);
 assert.match(launcher, /TERMUX_EXEC__PROC_SELF_EXE/);
 assert.doesNotMatch(launcher, /unsupported_mode|unsafe modes|abort in native code/);
 assert.match(compat, /strncmp\(path, "\/tmp", 4\)/);
@@ -83,6 +94,20 @@ assert.match(compat, /mkdir\(const char \*path/);
 assert.match(compat, /openat\(int directory_fd/);
 assert.match(compat, /realpath\(const char \*path/);
 assert.match(compat, /Never let a virtual \/tmp\/\.\.\/ path escape/);
+assert.match(compat, /dlsym\(RTLD_DEFAULT, "android_mallopt"\)/);
+assert.match(compat, /ADEV_M_SET_HEAP_TAGGING_LEVEL = 8/);
+assert.match(compat, /ADEV_M_BIONIC_SET_HEAP_TAGGING_LEVEL = -204/);
+assert.match(androidManifest, /android:allowNativeHeapPointerTagging="false"/);
+assert.match(externalUrlBroker, /CAPABILITY_FILE_NAME = "\.adev-url-opener-v1"/);
+assert.match(externalUrlBroker, /Os\.chmod\(capabilityFile\.absolutePath, 0x180\)/);
+assert.match(externalUrlBroker, /OsConstants\.O_EXCL/);
+assert.match(externalUrlBroker, /OsConstants\.O_NOFOLLOW/);
+assert.match(externalUrlBroker, /Os\.rename\(temporary\.absolutePath, capabilityFile\.absolutePath\)/);
+assert.match(xdgOpenHelper, /O_NOFOLLOW/);
+assert.match(xdgOpenHelper, /metadata\.st_uid != geteuid\(\)/);
+assert.match(xdgOpenHelper, /metadata\.st_nlink != 1/);
+assert.match(xdgOpenHelper, /S_IRWXG \| S_IRWXO/);
+assert.match(xdgOpenHelper, /--capability-file/);
 
 const runtimeManager = text(
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
@@ -96,6 +121,26 @@ assert.match(runtimeManager, /"opencode-temp-remap" to openCodeCompat\.isFile/);
 assert.match(runtimeManager, /"opencode-runtime-ready" to openCodeRuntimeReady/);
 assert.match(runtimeManager, /"opencode-device-certified" to false/);
 assert.match(runtimeManager, /"opencode-interactive" to openCodeRuntimeReady/);
+assert.match(runtimeManager, /"ADEV_OPENCODE_RG" to File\(nativeLibDir, "libbin_rg\.so"\)/);
+assert.match(
+  runtimeManager,
+  /"ADEV_OPENCODE_XDG_OPEN" to\s*File\(nativeLibDir, "libbin_adev_xdg_open\.so"\)/,
+);
+assert.match(runtimeManager, /RUNTIME_NATIVE_LIBRARY_DIR_FILE/);
+assert.match(
+  runtimeManager,
+  /marker\.readText\(\)\.trim\(\) != nativeLibDir\.absolutePath/,
+  'APK reinstall must invalidate wrappers bound to the prior randomized nativeLibraryDir',
+);
+assert.match(runtimeManager, /refreshInstallPathBindings\(\)/);
+assert.match(runtimeManager, /writeNativeLibraryDirBinding\(\)/);
+assert.match(runtimeManager, /File\(binDir, "opencode"\)/);
+assert.match(runtimeManager, /File\(homeDir, "\.adev-agent-env"\)/);
+assert.match(
+  runtimeManager,
+  /Generated runtime executable bindings are incomplete/,
+  'The install-path marker must only be written after generated bindings validate',
+);
 
 const compilerCandidates = process.platform === 'win32'
   ? ['g++', 'clang++']
@@ -177,7 +222,7 @@ try {
   fs.writeFileSync(
     payloadSource,
     `#include <cstdio>\n#include <cstdlib>\nint main(int argc, char** argv) {\n` +
-      `  const char* names[] = {"TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
+      `  const char* names[] = {"TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
       `  for (const char* name : names) std::printf("env:%s=%s\\n", name, std::getenv(name) ? std::getenv(name) : "");\n` +
       `  for (int i = 0; i < argc; ++i) std::printf("arg:%d=%s\\n", i, argv[i]);\n` +
       `  return (argc == 2 && std::string(argv[1]) == "exit23") ? 23 : 0;\n}\n`,
@@ -191,8 +236,10 @@ try {
     'liblib_opencode_tagfix.so',
     'liblib_adev_opencode_compat.so',
     'liblib_opencode_opentui.so',
+    'libbin_rg.so',
+    'libbin_adev_xdg_open.so',
   ]) {
-    fs.writeFileSync(path.join(nativeDir, name), 'host-test-placeholder');
+    fs.writeFileSync(path.join(nativeDir, name), 'host-test-placeholder', {mode: 0o755});
   }
 
   const launcherEnvironment = {
@@ -206,6 +253,8 @@ try {
     TMP: '/tmp',
     TEMP: '/tmp',
     BUN_TMPDIR: '/tmp',
+    ADEV_URL_OPENER_PORT: '41234',
+    ADEV_URL_OPENER_SESSION: 'host-test-url-session',
     LD_PRELOAD: 'inherited-termux-exec.so',
   };
   const runLauncher = args => spawnSync(hostLauncher, args, {
@@ -219,6 +268,10 @@ try {
   assert.equal(doctor.status, 0, launchFailure(doctor));
   assert.match(doctor.stdout, new RegExp(`launcher_version=${manifest.version}`));
   assert.match(doctor.stdout, /liblib_adev_opencode_compat\.so/);
+  assert.match(doctor.stdout, /ripgrep=.*libbin_rg\.so/);
+  assert.match(doctor.stdout, /xdg_open=.*libbin_adev_xdg_open\.so/);
+  assert.match(doctor.stdout, /url_opener_port=41234/);
+  assert.match(doctor.stdout, /url_opener_session=present/);
   assert.doesNotMatch(doctor.stdout, /temp=\/tmp(?:\r?\n|$)/);
 
   for (const args of [
@@ -245,6 +298,11 @@ try {
       assert.doesNotMatch(result.stdout, new RegExp(`env:${variable}=/tmp(?:\\r?\\n|$)`));
     }
     assert.match(result.stdout, /env:OPENTUI_LIB_PATH=.*liblib_opencode_opentui\.so/);
+    assert.match(result.stdout, /env:ADEV_OPENCODE_RG=.*libbin_rg\.so/);
+    assert.match(result.stdout, /env:ADEV_OPENCODE_XDG_OPEN=.*libbin_adev_xdg_open\.so/);
+    assert.match(result.stdout, /env:ADEV_URL_OPENER_PORT=41234/);
+    assert.match(result.stdout, /env:ADEV_URL_OPENER_SESSION=host-test-url-session/);
+    assert.match(result.stdout, /env:SHELL=\/system\/bin\/sh/);
     assert.match(
       result.stdout,
       /env:LD_PRELOAD=.*liblib_opencode_tagfix\.so:.*liblib_adev_opencode_compat\.so:inherited-termux-exec\.so/,
@@ -316,6 +374,17 @@ const runtimeHeaders = execFileSync(
 assert.match(runtimeHeaders, /Requesting program interpreter: \/system\/bin\/linker64/);
 assert.match(runtimeHeaders, /FLAGS_1\).*\bPIE\b/);
 assert.doesNotMatch(runtimeHeaders, /ld-linux|GLIBC_/);
+const runtimePayload = read(
+  'android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so',
+);
+assert.ok(runtimePayload.includes(Buffer.from('ADEV_OPENCODE_RG')));
+assert.ok(runtimePayload.includes(Buffer.from('Bun.env.ADEV_OPENCODE_RG')));
+assert.ok(runtimePayload.includes(Buffer.from('dirname(process.execPath)')));
+assert.ok(runtimePayload.includes(Buffer.from('Bun.spawn([sibling')));
+assert.ok(runtimePayload.includes(Buffer.from('--capability-file')));
+assert.ok(runtimePayload.includes(Buffer.from('.adev-url-opener-v1')));
+assert.ok(runtimePayload.includes(Buffer.from('@opentui/core-linux-arm64')));
+assert.ok(!runtimePayload.includes(Buffer.from('@opentui/core-linux-x64')));
 const runtimeSymbols = execFileSync(
   readelf,
   ['-Ws', path.join(arm64, 'libbin_opencode_runtime.so')],

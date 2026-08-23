@@ -249,6 +249,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         val directTools = mapOf(
             "curl" to "libbin_curl.so",
             "nano" to "libbin_nano.so",
+            "rg" to "libbin_rg.so",
             "make" to "libbin_adev_make.so",
             "llvm-ar" to "libbin_llvm_ar.so",
             "ar" to "libbin_llvm_ar.so",
@@ -256,6 +257,8 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "ld.lld" to "libbin_adev_ld_lld.so",
             "pkg-config" to "libbin_pkg_config.so",
             "adev-npm-shell" to "libbin_adev_npm_shell.so",
+            "env" to "libbin_adev_env.so",
+            "xdg-open" to "libbin_adev_xdg_open.so",
             "opencode" to "libbin_opencode.so"
         )
         fun findNative(prefix: String): File? =

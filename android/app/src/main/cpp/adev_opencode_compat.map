@@ -1,0 +1,21 @@
+LIBC {
+    global:
+        access;
+        fstatat;
+        lstat;
+        mkdir;
+        mkdirat;
+        open;
+        openat;
+        opendir;
+        readlink;
+        realpath;
+        rename;
+        renameat;
+        rmdir;
+        stat;
+        unlink;
+        unlinkat;
+    local:
+        *;
+};

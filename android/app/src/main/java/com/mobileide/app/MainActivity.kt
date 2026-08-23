@@ -5,6 +5,7 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.mobileide.app.runtime.ExternalUrlBroker
 
 class MainActivity : ReactActivity() {
 
@@ -15,5 +16,15 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    ExternalUrlBroker.setAppVisible(true)
+  }
+
+  override fun onPause() {
+    ExternalUrlBroker.setAppVisible(false)
+    super.onPause()
   }
 }

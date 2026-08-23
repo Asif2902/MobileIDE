@@ -76,6 +76,13 @@ const nanoManifestPath = path.join(
 const nanoManifest = fs.existsSync(nanoManifestPath)
   ? JSON.parse(fs.readFileSync(nanoManifestPath, 'utf8'))
   : null;
+const ripgrepManifestPath = path.join(
+  root,
+  'android/app/src/main/assets/runtime/lib/adev-ripgrep.json',
+);
+const ripgrepManifest = fs.existsSync(ripgrepManifestPath)
+  ? JSON.parse(fs.readFileSync(ripgrepManifestPath, 'utf8'))
+  : null;
 const appRepository =
   typeof packageJson.repository === 'string'
     ? packageJson.repository
@@ -101,6 +108,11 @@ const nanoComponents = new Map(
     .filter(component => component.packagedName)
     .map(component => [component.packagedName, component]),
 );
+const ripgrepComponents = new Map(
+  (ripgrepManifest?.components ?? [])
+    .filter(component => component.packagedName)
+    .map(component => [component.packagedName, component]),
+);
 const exactProvenance = new Map(
   (runtimeProvenance.artifacts ?? []).map(artifact => [
     `${artifact.abi}/${artifact.packagedName}`,
@@ -115,6 +127,7 @@ const nativeRuntimeArtifacts = Object.entries(runtimeLock.abis)
       const openCode = openCodeComponents.get(entry.packagedName);
       const busybox = busyboxComponents.get(entry.packagedName);
       const nano = nanoComponents.get(entry.packagedName);
+      const ripgrep = ripgrepComponents.get(entry.packagedName);
       const appOwned =
         entry.packagedName.startsWith('libbin_adev_') ||
         entry.packagedName.startsWith('liblib_adev_') ||
@@ -136,6 +149,12 @@ const nativeRuntimeArtifacts = Object.entries(runtimeLock.abis)
         throw new Error(
           `Nano manifest hash mismatch for ${abi}/${entry.packagedName}: ` +
             `${nano.sha256} != ${entry.sha256}`,
+        );
+      }
+      if (ripgrep?.sha256 && ripgrep.sha256 !== entry.sha256) {
+        throw new Error(
+          `ripgrep manifest hash mismatch for ${abi}/${entry.packagedName}: ` +
+            `${ripgrep.sha256} != ${entry.sha256}`,
         );
       }
 
@@ -194,6 +213,22 @@ const nativeRuntimeArtifacts = Object.entries(runtimeLock.abis)
           soname: null,
           needed: nanoManifest.runtime.needed,
           minimumLoadAlignment: nanoManifest.runtime.minimumLoadAlignment,
+        };
+      } else if (ripgrep) {
+        metadata = {
+          package: ripgrepManifest.package,
+          version: ripgrepManifest.version,
+          license: ripgrepManifest.license,
+          source: ripgrepManifest.source.archiveUrl,
+          metadataStatus: 'exact',
+          architecture: abi,
+          platform: ripgrepManifest.platform,
+          archiveSha256: ripgrepManifest.source.archiveSha256,
+          interpreter: ripgrepManifest.runtime.interpreter,
+          soname: null,
+          needed: ripgrepManifest.runtime.needed,
+          minimumLoadAlignment:
+            ripgrepManifest.runtime.minimumLoadAlignment,
         };
       } else if (openCode) {
         metadata = {

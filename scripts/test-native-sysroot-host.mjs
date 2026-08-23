@@ -22,6 +22,7 @@ const requiredHeaders = [
   `${targetTriple}/asm/types.h`,
   'asm-generic/types.h',
   'node/node.h',
+  'c++/v1/memory',
 ];
 for (const header of requiredHeaders) {
   assert.ok(
@@ -48,6 +49,11 @@ const runtimeManager = source(
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
 );
 assert.match(
+  source('android/app/src/main/assets/runtime/fixtures/phase1/v8/binding.gyp'),
+  /-std=c\+\+20/,
+  'Node 26 V8 headers require the C++20 language mode',
+);
+assert.match(
   runtimeManager,
   /private const val NATIVE_BUILD_TRIPLE = "aarch64-linux-android"/,
 );
@@ -60,7 +66,14 @@ assert.match(
   runtimeManager,
   /--target=\$NATIVE_BUILD_TRIPLE\$NATIVE_BUILD_API/,
 );
+assert.match(
+  runtimeManager,
+  /--sysroot=\$prefix \$cxxIncludes \$systemIncludes/,
+  'libc++ must precede Bionic so include_next reaches the C provider headers',
+);
 assert.match(runtimeManager, /env\["CPATH"\] = nativeSysrootIncludePath\(\)/);
+assert.match(runtimeManager, /env\["CPLUS_INCLUDE_PATH"\] = nativeCxxIncludeDir\(\)\.absolutePath/);
+assert.match(runtimeManager, /-isystem \$it/);
 assert.match(runtimeManager, /nativeSysrootHeadersReady\(\)/);
 assert.match(
   runtimeManager,

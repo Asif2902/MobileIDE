@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "termux-ripgrep-android",
+  "package": "ripgrep",
+  "version": "15.2.0",
+  "platform": "android-bionic",
+  "supportedAbis": [
+    "arm64-v8a"
+  ],
+  "unsupportedAbis": {
+    "x86_64": "The signed x86_64 developer-runtime feature pack does not yet include ripgrep."
+  },
+  "license": "MIT",
+  "source": {
+    "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+    "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/r/ripgrep/ripgrep_15.2.0_aarch64.deb",
+    "archiveSha256": "38e28bc297000517b24702568a483eca7dc3323eb6bdccc9033f031776bdcc6c",
+    "upstreamRepository": "https://github.com/BurntSushi/ripgrep",
+    "termuxBuildRecipe": "https://github.com/termux/termux-packages/blob/master/packages/ripgrep/build.sh"
+  },
+  "runtime": {
+    "interpreter": "/system/bin/linker64",
+    "minimumLoadAlignment": 16384,
+    "needed": [
+      "libpcre2-8.so",
+      "libdl.so",
+      "libc.so"
+    ],
+    "closurePolicy": "LD_LIBRARY_PATH resolves the pinned libpcre2-8.so from native-map; libdl.so and libc.so are Android/Bionic system libraries.",
+    "openCodePolicy": "The Android graph validates launcher-provided ADEV_OPENCODE_RG before PATH, cache, or any desktop download fallback."
+  },
+  "dependencies": [
+    {
+      "package": "pcre2",
+      "version": "10.47",
+      "license": "BSD-3-Clause WITH PCRE2-exception",
+      "packagedName": "liblib_libpcre2_8_so.so",
+      "sha256": "a6bbeb410e269e50aee795b4fd1b11cbddb8b54959d1cfcd927b55b04dc19f5c"
+    }
+  ],
+  "components": [
+    {
+      "packagedName": "libbin_rg.so",
+      "sourcePath": "data/data/com.termux/files/usr/bin/rg",
+      "runtimePaths": [
+        "bin/rg"
+      ],
+      "bytes": 4868920,
+      "sha256": "5adfd20e4c350aecd718bbef048a57a3fbabe0402c9c39a25eb40a28f1b19543",
+      "license": "MIT",
+      "role": "ELF64 AArch64 PIE executable"
+    },
+    {
+      "runtimePath": "share/licenses/ripgrep/copyright",
+      "bytes": 126,
+      "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+      "license": "Unlicense OR MIT",
+      "role": "Upstream dual-license notice"
+    },
+    {
+      "runtimePath": "share/licenses/ripgrep/LICENSE-MIT",
+      "bytes": 1081,
+      "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+      "license": "MIT",
+      "role": "Upstream MIT license text"
+    }
+  ]
+}

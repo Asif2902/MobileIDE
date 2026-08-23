@@ -21,6 +21,7 @@
     "bin/node": "libbin_node.so",
     "bin/pkg-config": "libbin_pkg_config.so",
     "bin/python3.14": "libbin_python3_14.so",
+    "bin/rg": "libbin_rg.so",
     "lib/clang/21/lib/linux/libclang_rt.asan-aarch64-android.so": "liblib_clang_21_lib_linux_libclang_rt_asan_aarch64_android_so.so",
     "lib/clang/21/lib/linux/libclang_rt.hwasan-aarch64-android.so": "liblib_clang_21_lib_linux_libclang_rt_hwasan_aarch64_android_so.so",
     "lib/clang/21/lib/linux/libclang_rt.tsan-aarch64-android.so": "liblib_clang_21_lib_linux_libclang_rt_tsan_aarch64_android_so.so",

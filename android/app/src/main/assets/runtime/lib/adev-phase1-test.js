@@ -126,6 +126,22 @@ try {
     throw new Error('system shell shebang did not reach /system/bin/sh');
   }
 
+  const androidShell = run(
+    'Android shell direct path',
+    '/system/bin/sh',
+    ['-c', 'pwd'],
+    workRoot,
+  );
+  const virtualShell = run(
+    'virtual /bin/sh direct path',
+    '/bin/sh',
+    ['-c', 'pwd'],
+    workRoot,
+  );
+  if (androidShell.stdout.trim() !== virtualShell.stdout.trim()) {
+    throw new Error('virtual /bin/sh did not resolve to the Android shell cwd');
+  }
+
   run(
     'python subprocess shell',
     process.env.PYTHON,

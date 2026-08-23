@@ -1,5 +1,6 @@
 param(
-    [string]$ArchivePath = ""
+    [string]$ArchivePath = "",
+    [string]$GraphRuntimePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,10 +18,20 @@ $ComponentHashes = @{
     "libopentui.so" = "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44"
     "libtagfix.so" = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
 }
+$GraphRuntimeSha256 = "0f2a647620afd42b237092daadcba11d434ff87bb55acd048cde0b03fcf3e2c9"
+$GraphRuntimeBytes = 152589245
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $Destination = Join-Path $RepositoryRoot "android/app/src/main/jniLibs/arm64-v8a"
 $ManifestPath = Join-Path $RepositoryRoot "android/app/src/main/assets/runtime/lib/adev-opencode.json"
+$DefaultGraphRuntime = Join-Path $Destination "libbin_opencode_runtime.so"
+$GraphRuntime = if ($GraphRuntimePath) {
+    (Resolve-Path -LiteralPath $GraphRuntimePath).Path
+} elseif (Test-Path -LiteralPath $DefaultGraphRuntime -PathType Leaf) {
+    $DefaultGraphRuntime
+} else {
+    throw "The pinned ARM64 source-built graph payload is required. Supply -GraphRuntimePath."
+}
 $WorkDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("adev-opencode-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $WorkDirectory | Out-Null
 
@@ -107,10 +118,20 @@ try {
     Assert-AndroidElf (Join-Path $Expanded "opencode.bin") $true
     Assert-AndroidElf (Join-Path $Expanded "libopentui.so") $false
     Assert-AndroidElf (Join-Path $Expanded "libtagfix.so") $false
+    Assert-AndroidElf $GraphRuntime $true
+    if ((Get-Item -LiteralPath $GraphRuntime).Length -ne $GraphRuntimeBytes) {
+        throw "Source-built OpenCode graph payload size mismatch."
+    }
+    $actualGraphHash = Get-LowerSha256 $GraphRuntime
+    if ($actualGraphHash -ne $GraphRuntimeSha256) {
+        throw "Source-built OpenCode graph payload SHA-256 mismatch: expected $GraphRuntimeSha256, got $actualGraphHash"
+    }
 
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    Copy-Item -Force -LiteralPath (Join-Path $Expanded "opencode.bin") `
-        -Destination (Join-Path $Destination "libbin_opencode_runtime.so")
+    $runtimeDestination = Join-Path $Destination "libbin_opencode_runtime.so"
+    if ([IO.Path]::GetFullPath($GraphRuntime) -ne [IO.Path]::GetFullPath($runtimeDestination)) {
+        Copy-Item -Force -LiteralPath $GraphRuntime -Destination $runtimeDestination
+    }
     Copy-Item -Force -LiteralPath (Join-Path $Expanded "libopentui.so") `
         -Destination (Join-Path $Destination "liblib_opencode_opentui.so")
     Copy-Item -Force -LiteralPath (Join-Path $Expanded "libtagfix.so") `
@@ -134,6 +155,20 @@ try {
             androidPortCommit = $PortCommit
             archiveUrl = $ArchiveUrl
             archiveSha256 = $ArchiveSha256
+            androidBunPrefixSha256 = "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde"
+            graphBuildBunVersion = "1.3.2"
+            graphBuildBunArchiveSha256 = "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6"
+            modelsSnapshotSha256 = "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1"
+            graphBuildTarget = "bun-linux-arm64"
+            graphRuntimeSha256 = $GraphRuntimeSha256
+            graphRuntimeBytes = $GraphRuntimeBytes
+            androidGraphPatches = @(
+                "use the launcher-provided app-private XDG cache for OpenCode temporary files",
+                "skip background plugin dependency installation on Android",
+                "compile the module graph for ARM64 and route OpenTUI through OPENTUI_LIB_PATH",
+                "resolve the sibling APK-native ripgrep before environment, PATH, cache, or desktop downloads"
+                "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
+            )
             upstreamSignature = "not-published; exact SHA-256 and source commits are pinned"
         }
         runtime = [ordered]@{
@@ -159,8 +194,9 @@ try {
         components = @(
             [ordered]@{
                 packagedName = "libbin_opencode_runtime.so"
-                sourceName = "opencode.bin"
-                sha256 = $ComponentHashes["opencode.bin"]
+                sourceName = "source-rebuilt OpenCode 1.17.9 ARM64 module graph plus pinned Android Bun prefix"
+                sha256 = $GraphRuntimeSha256
+                bytes = $GraphRuntimeBytes
                 license = "MIT plus embedded dependency notices"
             },
             [ordered]@{

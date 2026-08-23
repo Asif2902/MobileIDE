@@ -81,6 +81,7 @@ int main(int argc, char **argv) {
 #include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <malloc.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <sys/stat.h>
@@ -104,6 +105,53 @@ static int (*adev_real_rename)(const char *, const char *);
 static int (*adev_real_renameat)(int, const char *, int, const char *);
 static char *(*adev_real_realpath)(const char *, char *);
 static DIR *(*adev_real_opendir)(const char *);
+
+/*
+ * Android 10 and 11 expose heap-tag control through the Bionic-private
+ * android_mallopt() entry point. The public mallopt(-204, NONE) API used by
+ * the upstream OpenCode tagfix did not arrive until API 31, so that preload is
+ * a no-op on our API 29/30 baseline. Bun's bundled HTTP client masks pointers
+ * to 48 bits before freeing them; API 30's default TBI heap tag consequently
+ * aborts with "Pointer tag ... was truncated".
+ *
+ * Run this during single-threaded process startup, which is the contract of
+ * the API-30 M_SET_HEAP_TAGGING_LEVEL operation. Resolve it dynamically so the
+ * compatibility preload remains loadable on newer Android releases where the
+ * public mallopt operation is the supported interface.
+ */
+static int adev_disable_heap_pointer_tagging(void) {
+    typedef int (*adev_android_mallopt_fn)(int, void *, size_t);
+    enum {
+        ADEV_M_SET_HEAP_TAGGING_LEVEL = 8,
+        ADEV_M_HEAP_TAGGING_LEVEL_NONE = 0,
+        ADEV_M_BIONIC_SET_HEAP_TAGGING_LEVEL = -204,
+    };
+
+    void *symbol = dlsym(RTLD_DEFAULT, "android_mallopt");
+    if (symbol != NULL) {
+        adev_android_mallopt_fn android_mallopt_fn;
+        memcpy(&android_mallopt_fn, &symbol, sizeof(android_mallopt_fn));
+        int level = ADEV_M_HEAP_TAGGING_LEVEL_NONE;
+        if (android_mallopt_fn(
+                ADEV_M_SET_HEAP_TAGGING_LEVEL, &level, sizeof(level)) != 0) {
+            return 1;
+        }
+    }
+
+    return mallopt(
+        ADEV_M_BIONIC_SET_HEAP_TAGGING_LEVEL,
+        ADEV_M_HEAP_TAGGING_LEVEL_NONE);
+}
+
+__attribute__((constructor)) static void adev_opencode_compat_loaded(void) {
+    const int heap_tagging_disabled = adev_disable_heap_pointer_tagging();
+    const char *trace = getenv("ADEV_OPENCODE_TRACE");
+    if (trace == NULL || strcmp(trace, "1") != 0) return;
+    const char *message = heap_tagging_disabled
+        ? "adev-opencode: API-compatible heap tag disable active; private /tmp preload active\n"
+        : "adev-opencode: failed to disable heap pointer tagging; private /tmp preload active\n";
+    (void)write(STDERR_FILENO, message, strlen(message));
+}
 
 static void adev_resolve_symbols(void) {
     adev_real_mkdir = dlsym(RTLD_NEXT, "mkdir");

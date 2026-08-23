@@ -57,6 +57,7 @@ class RuntimeManager(private val context: Context) {
         private val CURRENT_RUNTIME_VERSION = BuildConfig.ADEV_RUNTIME_VERSION
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
+        private const val RUNTIME_NATIVE_LIBRARY_DIR_FILE = ".runtime_native_library_dir"
         // Keep addons compatible with the app's minimum supported Android.
         private const val NATIVE_BUILD_API = 29
         private const val NATIVE_BUILD_TRIPLE = "aarch64-linux-android"
@@ -112,28 +113,86 @@ class RuntimeManager(private val context: Context) {
      * Check if runtime is already installed and up-to-date
      */
     fun isRuntimeReady(): Boolean {
-        val versionFile = File(runtimeRoot, RUNTIME_VERSION_FILE)
-        if (!versionFile.exists()) return false
-        if (versionFile.readText().trim() != CURRENT_RUNTIME_VERSION) return false
-        if (!binDir.exists() || !binDir.isDirectory) return false
+        if (!isRuntimeContentReady()) return false
+        return installPathBindingsCurrent(requireMarker = true)
+    }
 
-        // Re-initialize whenever the bundled binary/library set changes, even if
-        // the version string is unchanged. The fingerprint of native-map.json
-        // (shipped in the APK) is compared against the fingerprint captured at the
-        // last successful init; a mismatch means .so files were added/changed and
-        // the symlink farm must be rebuilt. This self-heals the case where a newer
-        // APK adds shared libraries but reuses the same runtime version.
-        val stored = File(runtimeRoot, RUNTIME_FINGERPRINT_FILE)
-        if (!stored.exists()) return false
-        val current = assetNativeMapFingerprint() ?: return false
-        if (stored.readText().trim() != current) return false
+    /** Runtime assets are current even if APK-native absolute paths need rebinding. */
+    private fun isRuntimeContentReady(): Boolean {
+        return try {
+            val versionFile = File(runtimeRoot, RUNTIME_VERSION_FILE)
+            if (!versionFile.isFile) return false
+            if (versionFile.readText().trim() != CURRENT_RUNTIME_VERSION) return false
+            if (!binDir.isDirectory) return false
 
-        // Guard against a partial/corrupted prior init: the node binary symlink
-        // must resolve to a real file (File.exists() follows symlinks, so a
-        // dangling link returns false and triggers a rebuild).
-        if (!File(binDir, "node").exists()) return false
+            // Re-initialize whenever the bundled binary/library set changes, even if
+            // the version string is unchanged. The fingerprint of native-map.json
+            // (shipped in the APK) is compared against the fingerprint captured at the
+            // last successful init; a mismatch means .so files were added/changed and
+            // the symlink farm must be rebuilt. This self-heals the case where a newer
+            // APK adds shared libraries but reuses the same runtime version.
+            val stored = File(runtimeRoot, RUNTIME_FINGERPRINT_FILE)
+            if (!stored.isFile) return false
+            val current = assetNativeMapFingerprint() ?: return false
+            stored.readText().trim() == current
+        } catch (e: Exception) {
+            Log.w(TAG, "Runtime readiness metadata is unreadable: ${e.message}")
+            false
+        }
+    }
 
-        return true
+    /**
+     * Verify every generated file that embeds Android's randomized install path.
+     * The marker is a completion record, not the source of truth: a partial
+     * refresh cannot become ready merely because the marker was written.
+     */
+    private fun installPathBindingsCurrent(requireMarker: Boolean): Boolean {
+        return try {
+            if (requireMarker) {
+                val marker = File(runtimeRoot, RUNTIME_NATIVE_LIBRARY_DIR_FILE)
+                if (!marker.isFile || marker.readText().trim() != nativeLibDir.absolutePath) {
+                    return false
+                }
+            }
+
+            val bindings = mutableListOf(
+                File(binDir, "node"),
+                File(homeDir, ".adev-wrappers"),
+                File(homeDir, ".adev-agent-env")
+            )
+            if (File(nativeLibDir, "libbin_opencode.so").isFile) {
+                bindings += File(binDir, "opencode")
+            }
+            if (File(nativeLibDir, "libbin_adev_xdg_open.so").isFile) {
+                bindings += File(binDir, "xdg-open")
+            }
+
+            bindings.all { file ->
+                if (!file.isFile) return@all false
+                val content = file.readText()
+                if (!content.contains(nativeLibDir.absolutePath)) return@all false
+
+                // Generated binding files may contain several APK-native tools,
+                // but every /data/app path must belong to this exact install.
+                var position = content.indexOf("/data/app/")
+                while (position >= 0) {
+                    if (!content.regionMatches(
+                            position,
+                            nativeLibDir.absolutePath,
+                            0,
+                            nativeLibDir.absolutePath.length
+                        )
+                    ) {
+                        return@all false
+                    }
+                    position = content.indexOf("/data/app/", position + 1)
+                }
+                true
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Runtime executable binding validation failed: ${e.message}")
+            false
+        }
     }
 
     /**
@@ -159,6 +218,14 @@ class RuntimeManager(private val context: Context) {
     @Throws(IOException::class)
     fun initializeRuntime(onProgress: ((String, Float) -> Unit)? = null) {
         Log.i(TAG, "Initializing runtime v$CURRENT_RUNTIME_VERSION")
+
+        if (isRuntimeContentReady()) {
+            onProgress?.invoke("Refreshing Android executable paths...", 0.1f)
+            refreshInstallPathBindings()
+            onProgress?.invoke("Runtime ready!", 1.0f)
+            Log.i(TAG, "Runtime executable paths rebound to ${nativeLibDir.absolutePath}")
+            return
+        }
 
         onProgress?.invoke("Creating directories...", 0.05f)
         createDirectoryStructure()
@@ -190,6 +257,10 @@ class RuntimeManager(private val context: Context) {
         setupShellWrappers()
         setupNpmrc()
 
+        if (!installPathBindingsCurrent(requireMarker = false)) {
+            throw IOException("Generated runtime executable bindings are incomplete")
+        }
+
         onProgress?.invoke("Preparing certificates...", 0.95f)
         setupCaBundle()
 
@@ -204,9 +275,40 @@ class RuntimeManager(private val context: Context) {
         assetNativeMapFingerprint()?.let {
             File(runtimeRoot, RUNTIME_FINGERPRINT_FILE).writeText(it)
         }
+        writeNativeLibraryDirBinding()
 
         onProgress?.invoke("Runtime ready!", 1.0f)
         Log.i(TAG, "Runtime initialization complete")
+    }
+
+    /**
+     * Recreate only install-location-dependent state after an APK upgrade.
+     * User workspaces, caches, package installs, and extracted runtime content
+     * remain untouched.
+     */
+    private fun refreshInstallPathBindings() {
+        createDirectoryStructure()
+        restoreBinWritability()
+        buildSymlinkFarm()
+        createDropbearAliases()
+        createGitRemoteAliases()
+        createBusyboxAliases()
+        createNpmShellAlias()
+        createPathTrampolines()
+        setExecutablePermissions()
+        setupShellWrappers()
+        protectBinDirectory()
+        if (!installPathBindingsCurrent(requireMarker = false)) {
+            throw IOException("Refreshed runtime executable bindings are incomplete")
+        }
+        writeNativeLibraryDirBinding()
+    }
+
+    private fun writeNativeLibraryDirBinding() {
+        val marker = File(runtimeRoot, RUNTIME_NATIVE_LIBRARY_DIR_FILE)
+        val temporary = File(runtimeRoot, "$RUNTIME_NATIVE_LIBRARY_DIR_FILE.tmp")
+        temporary.writeText(nativeLibDir.absolutePath + "\n")
+        Os.rename(temporary.absolutePath, marker.absolutePath)
     }
 
     /**
@@ -481,7 +583,9 @@ class RuntimeManager(private val context: Context) {
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
             val nano = File(nativeLibDir, "libbin_nano.so")
+            val ripgrep = File(nativeLibDir, "libbin_rg.so")
             val openCode = File(nativeLibDir, "libbin_opencode.so")
+            val xdgOpen = File(nativeLibDir, "libbin_adev_xdg_open.so")
             val clangResourceDir = findClangResourceDir()
             val nodeGyp = File(libDir, "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js")
             val doctor = File(libDir, "adev-doctor.js")
@@ -603,8 +707,14 @@ class RuntimeManager(private val context: Context) {
             if (nano.exists()) {
                 sb.appendLine("nano() { \"${nano.absolutePath}\" \"\$@\"; }")
             }
+            if (ripgrep.exists()) {
+                sb.appendLine("rg() { \"${ripgrep.absolutePath}\" \"\$@\"; }")
+            }
             if (openCode.exists()) {
                 sb.appendLine("opencode() { \"${openCode.absolutePath}\" \"\$@\"; }")
+            }
+            if (xdgOpen.exists()) {
+                sb.appendLine("xdg-open() { \"${xdgOpen.absolutePath}\" \"\$@\"; }")
             }
             if (python != null || make != null || clang != null) sb.appendLine()
             if (hasGit) {
@@ -714,6 +824,12 @@ class RuntimeManager(private val context: Context) {
             if (nano.exists()) {
                 agentEnv.appendLine("export MOBILEIDE_NANO=\"${nano.absolutePath}\"")
             }
+            if (ripgrep.exists()) {
+                agentEnv.appendLine("export MOBILEIDE_RG=\"${ripgrep.absolutePath}\"")
+            }
+            if (xdgOpen.exists()) {
+                agentEnv.appendLine("export MOBILEIDE_XDG_OPEN=\"${xdgOpen.absolutePath}\"")
+            }
             agentEnv.appendLine("export TERMINFO=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
             agentEnv.appendLine("export TERMINFO_DIRS=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
             agentEnv.appendLine("export HOST=0.0.0.0")
@@ -789,6 +905,7 @@ class RuntimeManager(private val context: Context) {
             val bash = File(nativeLibDir, "libbin_bash.so")
             val busyboxRuntime = File(nativeLibDir, "libbin_busybox.so")
             val busyboxDispatcher = File(nativeLibDir, "libbin_adev_busybox.so")
+            val envLauncher = File(nativeLibDir, "libbin_adev_env.so")
             val python = findNativeTool("libbin_python", ".so")
             val make = findMakeCommand()
             val clang = findNativeTool("libbin_clang_", ".so")
@@ -797,7 +914,9 @@ class RuntimeManager(private val context: Context) {
             val pkgConfig = findNativeTool("libbin_pkg_config", ".so")
             val curl = File(nativeLibDir, "libbin_curl.so")
             val nano = File(nativeLibDir, "libbin_nano.so")
+            val ripgrep = File(nativeLibDir, "libbin_rg.so")
             val openCode = File(nativeLibDir, "libbin_opencode.so")
+            val xdgOpen = File(nativeLibDir, "libbin_adev_xdg_open.so")
             val clangResourceDir = findClangResourceDir()
             val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
             val npxCli = File(libDir, "node_modules/npm/bin/npx-cli.js")
@@ -985,10 +1104,17 @@ adev_guard() {
             if (busyboxRuntime.exists() && busyboxDispatcher.exists()) {
                 val bb = busyboxDispatcher.absolutePath
                 writeScript("busybox", "#!/system/bin/sh\nexec \"$bb\" \"\$@\"\n")
-                // termux-exec rewrites #!/usr/bin/env to $PREFIX/bin/env. The
-                // npm/node ecosystem overwhelmingly uses that shebang, so this
-                // entry is required for generic child_process script launches.
-                writeScript("env", "#!/system/bin/sh\nexec \"$bb\" env \"\$@\"\n")
+                // termux-exec rewrites #!/usr/bin/env to $PREFIX/bin/env. This
+                // must itself be a real executable: native callers can reject
+                // a script interpreter as bad ELF, and BusyBox's internal env
+                // exec bypasses ADEV's recursive shebang resolver.
+                if (envLauncher.isFile) {
+                    val env = File(binDir, "env")
+                    if (env.exists() || isSymlink(env)) env.delete()
+                    Os.symlink(envLauncher.absolutePath, env.absolutePath)
+                } else {
+                    writeScript("env", "#!/system/bin/sh\nexec \"$bb\" env \"\$@\"\n")
+                }
                 // High-value applets agents call by name (prefer busybox when present)
                 listOf(
                     "tar", "gzip", "gunzip", "xz", "zcat", "wget", "nc", "ping",
@@ -1034,6 +1160,12 @@ adev_guard() {
             if (nano.exists()) {
                 writeScript("nano", "#!/system/bin/sh\nexec \"${nano.absolutePath}\" \"\$@\"\n")
             }
+            if (ripgrep.exists()) {
+                // OpenCode calls which("rg") before considering its desktop
+                // download cache. Replace the noexec filesDir symlink with a
+                // termux-exec-compatible script that enters the APK-native PIE.
+                writeScript("rg", "#!/system/bin/sh\nexec \"${ripgrep.absolutePath}\" \"\$@\"\n")
+            }
             if (openCode.exists()) {
                 // OpenCode must be discoverable through PATH by non-interactive
                 // shells and child processes, not only as an interactive shell
@@ -1041,6 +1173,12 @@ adev_guard() {
                 writeScript(
                     "opencode",
                     "#!/system/bin/sh\nexec \"${openCode.absolutePath}\" \"\$@\"\n"
+                )
+            }
+            if (xdgOpen.exists()) {
+                writeScript(
+                    "xdg-open",
+                    "#!/system/bin/sh\nexec \"${xdgOpen.absolutePath}\" \"\$@\"\n"
                 )
             }
 
@@ -1112,17 +1250,25 @@ adev_guard() {
     private fun nativeSysrootIncludePath(): String =
         nativeSysrootIncludeDirs().joinToString(":") { it.absolutePath }
 
+    private fun nativeCxxIncludeDir(): File =
+        File(runtimeRoot, "include/c++/v1")
+
     private fun clangDriverFlags(resourceDir: File? = findClangResourceDir()): String {
         val prefix = runtimeRoot.absolutePath
         val systemIncludes = nativeSysrootIncludeDirs()
             .joinToString(" ") { "-isystem ${it.absolutePath}" }
+        val cxxIncludes = nativeCxxIncludeDir()
+            .takeIf(File::isDirectory)
+            ?.absolutePath
+            ?.let { "-isystem $it" }
+            .orEmpty()
         val resource = resourceDir?.absolutePath?.let { " -resource-dir $it" }.orEmpty()
         val linker = findUnixLinkerCommand()
             ?.absolutePath
             ?.let { " --ld-path=$it" }
             .orEmpty()
         return "--target=$NATIVE_BUILD_TRIPLE$NATIVE_BUILD_API " +
-            "--sysroot=$prefix $systemIncludes -L$prefix/lib -B$prefix/lib" +
+            "--sysroot=$prefix $cxxIncludes $systemIncludes -L$prefix/lib -B$prefix/lib" +
             "$resource$linker"
     }
 
@@ -1153,6 +1299,9 @@ adev_guard() {
             // CPATH also covers packages that invoke clang directly instead
             // of respecting node-gyp's CC/CXX command strings.
             out.appendLine("${exportPrefix}CPATH=\"${nativeSysrootIncludePath()}\"")
+            if (nativeCxxIncludeDir().isDirectory) {
+                out.appendLine("${exportPrefix}CPLUS_INCLUDE_PATH=\"${nativeCxxIncludeDir().absolutePath}\"")
+            }
         }
         llvmAr?.let { out.appendLine("${exportPrefix}AR=\"${it.absolutePath}\"") }
         lld?.let { out.appendLine("${exportPrefix}LD=\"${it.absolutePath}\"") }
@@ -1912,10 +2061,12 @@ adev_guard() {
             openCodePayload,
             openCodeCompat,
             openCodeTagfix,
-            openCodeOpenTui
+            openCodeOpenTui,
+            File(nativeLibDir, "libbin_rg.so")
         ).all { it.isFile }
         val commandReadiness = linkedMapOf(
             "node" to File(nativeLibDir, "libbin_node.so").isFile,
+            "env" to File(nativeLibDir, "libbin_adev_env.so").isFile,
             "npm" to File(libDir, "node_modules/npm/bin/npm-cli.js").isFile,
             "npx" to File(libDir, "node_modules/npm/bin/npx-cli.js").isFile,
             "node-gyp" to File(
@@ -1933,6 +2084,8 @@ adev_guard() {
             "curl" to File(nativeLibDir, "libbin_curl.so").isFile,
             "bash" to File(nativeLibDir, "libbin_bash.so").isFile,
             "nano" to File(nativeLibDir, "libbin_nano.so").isFile,
+            "rg" to File(nativeLibDir, "libbin_rg.so").isFile,
+            "xdg-open" to File(nativeLibDir, "libbin_adev_xdg_open.so").isFile,
             "busybox" to (
                 File(nativeLibDir, "libbin_busybox.so").isFile &&
                     File(nativeLibDir, "libbin_adev_busybox.so").isFile
@@ -2144,11 +2297,18 @@ adev_guard() {
             "MOBILEIDE_MAKE" to File(nativeLibDir, "libbin_adev_make.so").absolutePath,
             "MOBILEIDE_BUSYBOX" to
                 File(nativeLibDir, "libbin_adev_busybox.so").absolutePath,
+            "MOBILEIDE_ENV" to File(nativeLibDir, "libbin_adev_env.so").absolutePath,
             "MOBILEIDE_BUSYBOX_RUNTIME" to
                 File(nativeLibDir, "libbin_busybox.so").absolutePath,
             "MOBILEIDE_CURL" to File(nativeLibDir, "libbin_curl.so").absolutePath,
             "MOBILEIDE_NANO" to File(nativeLibDir, "libbin_nano.so").absolutePath,
+            "MOBILEIDE_RG" to File(nativeLibDir, "libbin_rg.so").absolutePath,
+            "ADEV_OPENCODE_RG" to File(nativeLibDir, "libbin_rg.so").absolutePath,
             "MOBILEIDE_OPENCODE" to File(nativeLibDir, "libbin_opencode.so").absolutePath,
+            "MOBILEIDE_XDG_OPEN" to
+                File(nativeLibDir, "libbin_adev_xdg_open.so").absolutePath,
+            "ADEV_OPENCODE_XDG_OPEN" to
+                File(nativeLibDir, "libbin_adev_xdg_open.so").absolutePath,
             "ADEV_RUNTIME_VERSION" to CURRENT_RUNTIME_VERSION,
             "ADEV_APP_VERSION" to appVersionName(),
             "ADEV_ABI" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"),
@@ -2181,6 +2341,7 @@ adev_guard() {
         // The session capability is inherited by app-launched children but no
         // stored token/private key is placed in a command line or React state.
         env.putAll(GitCredentialBroker.get(context).environment())
+        env.putAll(ExternalUrlBroker.get(context).environment())
         val credentialHelper =
             File(nativeLibDir, "libbin_adev_git_credential.so").absolutePath
         val commandConfig = listOf(
@@ -2244,6 +2405,9 @@ adev_guard() {
             env["CC"] = "${it.absolutePath} $flags"
             env["CXX"] = "${it.absolutePath} --driver-mode=g++ $flags"
             env["CPATH"] = nativeSysrootIncludePath()
+            if (nativeCxxIncludeDir().isDirectory) {
+                env["CPLUS_INCLUDE_PATH"] = nativeCxxIncludeDir().absolutePath
+            }
         }
         findNativeTool("libbin_llvm_ar", ".so")?.let { env["AR"] = it.absolutePath }
         findUnixLinkerCommand()?.let { env["LD"] = it.absolutePath }

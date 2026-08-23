@@ -23,6 +23,9 @@ const busybox = JSON.parse(
 const nano = JSON.parse(
   fs.readFileSync(path.join(assets, 'lib/adev-nano.json'), 'utf8'),
 );
+const ripgrep = JSON.parse(
+  fs.readFileSync(path.join(assets, 'lib/adev-ripgrep.json'), 'utf8'),
+);
 const releaseVersion = JSON.parse(
   fs.readFileSync(path.join(root, 'version.json'), 'utf8'),
 );
@@ -118,6 +121,17 @@ const lock = {
     runtime: nano.runtime,
     dependencies: nano.dependencies,
     components: nano.components,
+  },
+  ripgrep: {
+    sha256: sha256(path.join(assets, 'lib/adev-ripgrep.json')),
+    version: ripgrep.version,
+    platform: ripgrep.platform,
+    supportedAbis: ripgrep.supportedAbis,
+    unsupportedAbis: ripgrep.unsupportedAbis,
+    source: ripgrep.source,
+    runtime: ripgrep.runtime,
+    dependencies: ripgrep.dependencies,
+    components: ripgrep.components,
   },
   openCode: {
     sha256: sha256(path.join(assets, 'lib/adev-opencode.json')),

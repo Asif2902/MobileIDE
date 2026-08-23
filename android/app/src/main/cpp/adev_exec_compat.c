@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -70,6 +71,47 @@ static bool adev_is_stale_termux_shell(const char *path) {
     if (path == NULL) return false;
     return strcmp(path, "/data/data/com.termux/files/usr/bin/sh") == 0 ||
         strcmp(path, "/data/user/0/com.termux/files/usr/bin/sh") == 0;
+}
+
+static bool adev_is_virtual_shell(const char *path) {
+    return path != NULL &&
+        (adev_is_stale_termux_shell(path) ||
+         strcmp(path, "/bin/sh") == 0 ||
+         strcmp(path, "/usr/bin/sh") == 0);
+}
+
+static bool adev_is_virtual_env(const char *path) {
+    return path != NULL &&
+        (strcmp(path, "/usr/bin/env") == 0 || strcmp(path, "/bin/env") == 0);
+}
+
+/*
+ * Never resolve a virtual /usr/bin/env through ordinary PATH order. ADEV puts
+ * /system/bin first so Android tools remain reliable, but /system/bin/env is
+ * Toybox and its child exec bypasses the app's recursive script resolver. That
+ * turns every standard npm `#!/usr/bin/env node` CLI into EACCES at bin/node.
+ */
+static bool adev_env_fallback(
+    char *const envp[],
+    char destination[PATH_MAX]
+) {
+    const char *configured = adev_env_value(envp, "MOBILEIDE_ENV");
+    if (configured != NULL && adev_is_file(configured)) {
+        return adev_copy_path(destination, configured);
+    }
+
+    const char *native_library = adev_env_value(envp, "MOBILEIDE_NATIVE_LIB");
+    if (native_library != NULL && native_library[0] != '\0') {
+        const int count = snprintf(
+            destination,
+            PATH_MAX,
+            "%s/libbin_adev_env.so",
+            native_library
+        );
+        if (count > 0 && count < PATH_MAX && adev_is_file(destination)) return true;
+    }
+    errno = ENOENT;
+    return false;
 }
 
 static bool adev_find_on_path(
@@ -139,10 +181,11 @@ static bool adev_resolve_interpreter(
         return false;
     }
 
-    if (adev_is_stale_termux_shell(interpreter) ||
-        strcmp(interpreter, "/bin/sh") == 0 ||
-        strcmp(interpreter, "/usr/bin/sh") == 0) {
+    if (adev_is_virtual_shell(interpreter)) {
         return adev_shell_fallback(envp, destination);
+    }
+    if (adev_is_virtual_env(interpreter)) {
+        return adev_env_fallback(envp, destination);
     }
 
     if (adev_is_file(interpreter)) return adev_copy_path(destination, interpreter);
@@ -243,9 +286,15 @@ static int adev_recursive_execve(
     char resolved_paths[ADEV_MAX_SHEBANG_DEPTH][PATH_MAX];
     adev_shebang shebangs[ADEV_MAX_SHEBANG_DEPTH];
     char **allocated_argv[ADEV_MAX_SHEBANG_DEPTH] = {0};
-    const char *seen[ADEV_MAX_SHEBANG_DEPTH + 1] = {filename};
+    char direct_shell_path[PATH_MAX];
+    const char *initial_path = filename;
+    if (adev_is_virtual_shell(filename)) {
+        if (!adev_shell_fallback(envp, direct_shell_path)) return -1;
+        initial_path = direct_shell_path;
+    }
+    const char *seen[ADEV_MAX_SHEBANG_DEPTH + 1] = {initial_path};
     size_t seen_count = 1;
-    const char *current_path = filename;
+    const char *current_path = initial_path;
     char *const *current_argv = argv;
     int result = -1;
 

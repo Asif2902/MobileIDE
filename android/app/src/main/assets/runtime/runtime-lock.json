@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.16.9",
+  "runtimeVersion": "1.16.11",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -15,6 +15,13 @@
           "packagedName": "libbin_adev_busybox.so",
           "sha256": "b0355548765780cb983e7c3524253d4d851f4ce9d82a60f52ba42bda969f4491",
           "bytes": 32864,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_env.so",
+          "sha256": "84c2414076b21d021b1bb0c5c0817708819d82cbc702bee2d15e858c81120763",
+          "bytes": 36224,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -43,6 +50,13 @@
           "packagedName": "libbin_adev_npm_shell.so",
           "sha256": "81bf1e679ecef8323cdcaf3f571755f16bb45838c52ef9d504b10008febd18f6",
           "bytes": 11496,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_xdg_open.so",
+          "sha256": "eb78104b4c9ddda9d5f29fa460b085069e37bf2d617d74edfa9b4d05d779e76c",
+          "bytes": 37824,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -228,15 +242,15 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "c38af95ba6427aedb4ece4b96036af3259ed2bc9ad6b50e5d310fae7f374418b",
-          "bytes": 45416,
+          "sha256": "d1eecc4323263ccc0d4920636e804d51ea25ff7b97169ecbef16b3609999a11c",
+          "bytes": 46952,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_opencode_runtime.so",
-          "sha256": "5609e288519cac6ad6dc0eddb4bd99fb77564e82d878e9a54915c565c75f0402",
-          "bytes": 141823216,
+          "sha256": "0f2a647620afd42b237092daadcba11d434ff87bb55acd048cde0b03fcf3e2c9",
+          "bytes": 152589245,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -259,16 +273,25 @@
           "owner": "developer-runtime"
         },
         {
+          "packagedName": "libbin_rg.so",
+          "sha256": "5adfd20e4c350aecd718bbef048a57a3fbabe0402c9c39a25eb40a28f1b19543",
+          "bytes": 4868920,
+          "runtimePaths": [
+            "bin/rg"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "d8f6839a3ec7002ad9b0fef284cea0d269f1c310be605079d304bbca016b18dc",
-          "bytes": 11472,
+          "sha256": "35ce3cf69bb30e3da0ff36380e3c5a8b99f88c83935148a55b3adacecfc908ab",
+          "bytes": 12536,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_opencode_compat.so",
-          "sha256": "2fdf79a585124afc8d8ef5b65cbd03234199fc74bb1e7898c17a7e67d0d9369a",
-          "bytes": 11648,
+          "sha256": "bd39129e1735c876731383bbd852576c682434c4e93fb585deec3d0a1e7a61c8",
+          "bytes": 12480,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1933,6 +1956,13 @@
           "owner": "app-native"
         },
         {
+          "packagedName": "libbin_adev_env.so",
+          "sha256": "c6bb70c18b3c91df4992e106fc637de3d9370e569a355f357f23d982bfac452f",
+          "bytes": 36216,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "77057ec11dcdad955fd3acf9b9c25f9e369c37e918690d2870feb45addd706b3",
           "bytes": 42232,
@@ -1961,23 +1991,30 @@
           "owner": "app-native"
         },
         {
+          "packagedName": "libbin_adev_xdg_open.so",
+          "sha256": "8af4adca3ad1414d29a745047163ff2d790d37d75725d26baf2c706344d1858f",
+          "bytes": 37864,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
           "packagedName": "libbin_opencode.so",
-          "sha256": "708fd6d04845c8d5cd093ec089d674e10671d77300597b7b0fc8d1afc2098655",
-          "bytes": 46440,
+          "sha256": "e3fb2fd75cea36fae012ea58a018482241f3a3fdb4565696f0e400132912b4e7",
+          "bytes": 48728,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "01364ac2ac965da80da2eba94cb51dc9d44162539c3a41ab46aae9e8128ed1fa",
-          "bytes": 12016,
+          "sha256": "a5e7cf873ab7ff112f991ceb306894ec915bd8ec79e99bd0fbab0f6a4129b717",
+          "bytes": 13064,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_opencode_compat.so",
-          "sha256": "146e6f1ca2f9e5720d84bb2b5b5f9a03a94c91f33820074b2c64dfbc09891889",
-          "bytes": 11192,
+          "sha256": "5094107eec46db9069e14b9ba65453cab12d5b6d5b1fcef0d6f552237e391598",
+          "bytes": 12000,
           "runtimePaths": [],
           "owner": "app-native"
         }
@@ -2144,8 +2181,73 @@
       }
     ]
   },
+  "ripgrep": {
+    "sha256": "f1c2c4e0b1e82e4811c789be69e3bd6cb152081c7cbc4954740f685b3e739e7d",
+    "version": "15.2.0",
+    "platform": "android-bionic",
+    "supportedAbis": [
+      "arm64-v8a"
+    ],
+    "unsupportedAbis": {
+      "x86_64": "The signed x86_64 developer-runtime feature pack does not yet include ripgrep."
+    },
+    "source": {
+      "packageIndex": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages",
+      "archiveUrl": "https://packages.termux.dev/apt/termux-main/pool/main/r/ripgrep/ripgrep_15.2.0_aarch64.deb",
+      "archiveSha256": "38e28bc297000517b24702568a483eca7dc3323eb6bdccc9033f031776bdcc6c",
+      "upstreamRepository": "https://github.com/BurntSushi/ripgrep",
+      "termuxBuildRecipe": "https://github.com/termux/termux-packages/blob/master/packages/ripgrep/build.sh"
+    },
+    "runtime": {
+      "interpreter": "/system/bin/linker64",
+      "minimumLoadAlignment": 16384,
+      "needed": [
+        "libpcre2-8.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "closurePolicy": "LD_LIBRARY_PATH resolves the pinned libpcre2-8.so from native-map; libdl.so and libc.so are Android/Bionic system libraries.",
+      "openCodePolicy": "The Android graph validates launcher-provided ADEV_OPENCODE_RG before PATH, cache, or any desktop download fallback."
+    },
+    "dependencies": [
+      {
+        "package": "pcre2",
+        "version": "10.47",
+        "license": "BSD-3-Clause WITH PCRE2-exception",
+        "packagedName": "liblib_libpcre2_8_so.so",
+        "sha256": "a6bbeb410e269e50aee795b4fd1b11cbddb8b54959d1cfcd927b55b04dc19f5c"
+      }
+    ],
+    "components": [
+      {
+        "packagedName": "libbin_rg.so",
+        "sourcePath": "data/data/com.termux/files/usr/bin/rg",
+        "runtimePaths": [
+          "bin/rg"
+        ],
+        "bytes": 4868920,
+        "sha256": "5adfd20e4c350aecd718bbef048a57a3fbabe0402c9c39a25eb40a28f1b19543",
+        "license": "MIT",
+        "role": "ELF64 AArch64 PIE executable"
+      },
+      {
+        "runtimePath": "share/licenses/ripgrep/copyright",
+        "bytes": 126,
+        "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+        "license": "Unlicense OR MIT",
+        "role": "Upstream dual-license notice"
+      },
+      {
+        "runtimePath": "share/licenses/ripgrep/LICENSE-MIT",
+        "bytes": 1081,
+        "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+        "license": "MIT",
+        "role": "Upstream MIT license text"
+      }
+    ]
+  },
   "openCode": {
-    "sha256": "c36255943e4be7348e11a8947b76459345d7158a39c23298308997857fa2e0b1",
+    "sha256": "125a8c3ee6f6cc49a38b2713834e0c9a831f2ecc9434477b5311b3a1cfdbffcb",
     "version": "1.17.9",
     "platform": "android-bionic",
     "supportedAbis": [
@@ -2159,6 +2261,18 @@
       "androidPortCommit": "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
       "archiveUrl": "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
       "archiveSha256": "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
+      "androidBunPrefixSha256": "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde",
+      "graphBuildBunVersion": "1.3.2",
+      "graphBuildBunArchiveSha256": "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6",
+      "modelsSnapshotSha256": "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1",
+      "graphBuildTarget": "bun-linux-arm64",
+      "androidGraphPatches": [
+        "use the launcher-provided app-private XDG cache for OpenCode temporary files",
+        "skip background plugin dependency installation on Android",
+        "embed the OpenCode TUI worker and use the external Android/Bionic OpenTUI library",
+        "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download",
+        "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
+      ],
       "upstreamSignature": "not-published; exact SHA-256 and source commits are pinned"
     }
   }

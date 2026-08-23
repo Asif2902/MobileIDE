@@ -1,9 +1,9 @@
 package com.mobileide.app.modules
 
 import android.content.Intent
-import android.net.Uri
 import com.facebook.react.bridge.*
 import com.mobileide.app.runtime.RuntimeManager
+import com.mobileide.app.runtime.ExternalUrlBroker
 import kotlinx.coroutines.*
 
 /**
@@ -164,7 +164,7 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
             val manager = getRuntimeManager(reactApplicationContext)
             val env = manager.getEnvironment()
             val envMap = Arguments.createMap()
-            env.forEach { (key, value) ->
+            env.filterKeys { !it.endsWith("_SESSION") }.forEach { (key, value) ->
                 envMap.putString(key, value)
             }
             promise.resolve(envMap)
@@ -238,12 +238,7 @@ class MobileIDENativeModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun openUrl(url: String, promise: Promise) {
         try {
-            val uri = Uri.parse(url)
-            val scheme = uri.scheme?.lowercase()
-            if (scheme != "http" && scheme != "https") {
-                promise.reject("URL_ERROR", "Only http/https URLs are allowed")
-                return
-            }
+            val uri = ExternalUrlBroker.validatedHttpUri(url)
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
