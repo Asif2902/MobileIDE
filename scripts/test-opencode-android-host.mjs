@@ -87,6 +87,13 @@ assert.match(launcher, /\{"SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /\{"ADEV_PYTHON_SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /ADEV_OPENCODE_RG/);
 assert.match(launcher, /ADEV_OPENCODE_XDG_OPEN/);
+assert.match(launcher, /ADEV_CONFIG_HOME/);
+assert.match(launcher, /MOBILEIDE_WORKSPACES/);
+assert.match(launcher, /\{"HOME", workspace_home\}/);
+assert.match(
+  launcher,
+  /\{"GIT_CONFIG_GLOBAL", join_path\(config_home, "\.gitconfig"\)\}/,
+);
 assert.match(launcher, /TERMUX_EXEC__PROC_SELF_EXE/);
 assert.doesNotMatch(launcher, /unsupported_mode|unsafe modes|abort in native code/);
 assert.match(compat, /strncmp\(path, "\/tmp", 4\)/);
@@ -210,10 +217,12 @@ try {
 
   const privateRoot = path.join(fixture, 'private');
   const home = path.join(privateRoot, 'home');
+  const workspaces = path.join(privateRoot, 'workspaces');
   const prefix = path.join(privateRoot, 'runtime');
   const privateTmp = path.join(prefix, 'tmp');
   const nativeDir = path.join(privateRoot, 'native');
   fs.mkdirSync(home, {recursive: true});
+  fs.mkdirSync(workspaces, {recursive: true});
   fs.mkdirSync(privateTmp, {recursive: true});
   fs.mkdirSync(nativeDir, {recursive: true});
 
@@ -222,7 +231,7 @@ try {
   fs.writeFileSync(
     payloadSource,
     `#include <cstdio>\n#include <cstdlib>\nint main(int argc, char** argv) {\n` +
-      `  const char* names[] = {"TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
+      `  const char* names[] = {"HOME","ADEV_CONFIG_HOME","MOBILEIDE_WORKSPACES","GIT_CONFIG_GLOBAL","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","XDG_STATE_HOME","TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
       `  for (const char* name : names) std::printf("env:%s=%s\\n", name, std::getenv(name) ? std::getenv(name) : "");\n` +
       `  for (int i = 0; i < argc; ++i) std::printf("arg:%d=%s\\n", i, argv[i]);\n` +
       `  return (argc == 2 && std::string(argv[1]) == "exit23") ? 23 : 0;\n}\n`,
@@ -247,6 +256,8 @@ try {
     ADEV_OPENCODE_TEST_PRIVATE_ROOT: privateRoot,
     ADEV_OPENCODE_TEST_NATIVE_DIR: nativeDir,
     HOME: home,
+    ADEV_CONFIG_HOME: home,
+    MOBILEIDE_WORKSPACES: workspaces,
     PREFIX: prefix,
     TERMUX__PREFIX__TMP_DIR: privateTmp,
     TMPDIR: '/tmp',
@@ -272,6 +283,16 @@ try {
   assert.match(doctor.stdout, /xdg_open=.*libbin_adev_xdg_open\.so/);
   assert.match(doctor.stdout, /url_opener_port=41234/);
   assert.match(doctor.stdout, /url_opener_session=present/);
+  assert.ok(
+    doctor.stdout.replaceAll('\\', '/').includes(
+      `config_home=${home.replaceAll('\\', '/')}`,
+    ),
+  );
+  assert.ok(
+    doctor.stdout.replaceAll('\\', '/').includes(
+      `workspace_home=${workspaces.replaceAll('\\', '/')}`,
+    ),
+  );
   assert.doesNotMatch(doctor.stdout, /temp=\/tmp(?:\r?\n|$)/);
 
   for (const args of [
@@ -303,6 +324,35 @@ try {
     assert.match(result.stdout, /env:ADEV_URL_OPENER_PORT=41234/);
     assert.match(result.stdout, /env:ADEV_URL_OPENER_SESSION=host-test-url-session/);
     assert.match(result.stdout, /env:SHELL=\/system\/bin\/sh/);
+    const normalizedOutput = result.stdout.replaceAll('\\', '/');
+    assert.ok(
+      normalizedOutput.includes(`env:HOME=${workspaces.replaceAll('\\', '/')}`),
+    );
+    assert.ok(
+      normalizedOutput.includes(`env:ADEV_CONFIG_HOME=${home.replaceAll('\\', '/')}`),
+    );
+    assert.ok(
+      normalizedOutput.includes(
+        `env:GIT_CONFIG_GLOBAL=${home.replaceAll('\\', '/')}/.gitconfig`,
+      ),
+    );
+    for (const [variable, relative] of [
+      ['XDG_DATA_HOME', '.local/share'],
+      ['XDG_CONFIG_HOME', '.config'],
+      ['XDG_CACHE_HOME', '.cache'],
+      ['XDG_STATE_HOME', '.local/state'],
+    ]) {
+      assert.ok(
+        normalizedOutput.includes(
+          `env:${variable}=${home.replaceAll('\\', '/')}/${relative}`,
+        ),
+      );
+      assert.ok(
+        !normalizedOutput.includes(
+          `env:${variable}=${workspaces.replaceAll('\\', '/')}/`,
+        ),
+      );
+    }
     assert.match(
       result.stdout,
       /env:LD_PRELOAD=.*liblib_opencode_tagfix\.so:.*liblib_adev_opencode_compat\.so:inherited-termux-exec\.so/,

@@ -2265,6 +2265,9 @@ adev_guard() {
                 localBin
             ).joinToString(":"),
             "HOME" to homeDir.absolutePath,
+            // OpenCode reports the workspace root as its picker home while
+            // retaining this path for XDG/Git/npm/credential state.
+            "ADEV_CONFIG_HOME" to homeDir.absolutePath,
             "TMPDIR" to tmpDir.absolutePath,
             "TEMP" to tmpDir.absolutePath,
             "TMP" to tmpDir.absolutePath,
@@ -2313,6 +2316,7 @@ adev_guard() {
             "LANG" to "en_US.UTF-8",
             "LC_ALL" to "en_US.UTF-8",
             "GIT_EXEC_PATH" to "${binDir.absolutePath}/git-core",
+            "GIT_CONFIG_GLOBAL" to File(homeDir, ".gitconfig").absolutePath,
             "GIT_TEMPLATE_DIR" to gitTemplateDir.absolutePath,
             "GIT_SSH_COMMAND" to
                 "${File(nativeLibDir, "libbin_node.so").absolutePath} " +

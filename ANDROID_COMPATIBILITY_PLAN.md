@@ -40,6 +40,8 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | Recursive shebang and Python shell compatibility | **ARM64 API 30 VERIFIED — MATRIX GATE** | `b2b017d` + `aef4986` | The resolver now treats virtual `/usr/bin/env` specially instead of selecting Android Toybox from system-first PATH, then executes an APK-native `env` which locates Node/Python/Bash beside itself. On the connected phone, untouched `@achswap/mcp-sdk` runs as `achswap --help`; the package-neutral global npm CLI, env-Python, system-sh, virtual `/bin/sh`, and Python `os.popen()` regressions also pass. No AchSwap-specific branch exists. Other API/ABI combinations remain. |
 | libc++ / V8 native-addon completion | **ARM64 API 30 VERIFIED — MATRIX GATE** | `aef4986` | The compiler now orders libc++ before target-specific/generic Bionic headers so libc++ `include_next` reaches Bionic types. The Node 26 fixture uses its required C++20 mode. Physical-phone evidence shows the V8 addon compiling, linking, and loading; N-API C and C++ completed the full install/rebuild/direct-build/load/consumer cycle. |
 | Project import/export and Next process ownership | **IMPLEMENTED — 1.3.14 DEVICE GATE** | `8a0fa9d` | Android shared folders now offer open-in-place or cancellable private import; private projects export through persisted SAF tree permissions. Source/full filters, independent Git/hidden/secret controls, conflict policies, external project metadata, containment/no-follow cleanup, progress, and terminal/workspace switching pass Kotlin/Jest/compile checks. The shared-command preflight stops normal npm/pnpm/Yarn/Corepack/Next/Vite/native/Git mutation paths before partial output. Next 13.2.4/14.2.35/15.5.2/15.5.22/16.2.12 host lifecycle ownership tests pass. ADB is empty, so real SAF providers, imported-project npm symlink creation, Next HTTP/HMR/Ctrl+C, and export destinations remain device gates. |
+| Shell `~/workspaces` navigation | **API 30 VERIFIED** | `d50a9fe` | Runtime 1.16.12 creates `~/workspaces` as an app-owned symlink to the canonical private project root. `ls → cd → ls` on API 30 shows `workspaces`; the path is never overwritten if the user already created a real directory. |
+| OpenCode picker workspace home | **PHONE-TEST APK 1.3.17 — USER RETEST** | 1.3.17 | OpenCode excludes directory symlinks and starts its picker at process `HOME`. Runtime 1.16.13 sets OpenCode `HOME` to canonical `runtime/workspaces` and keeps XDG/Git/npm state on `runtime/home`. Device picker listing is a user retest. |
 
 ## Executive result
 
@@ -1345,6 +1347,17 @@ OpenCode compatibility basis:
   `runtime/home/workspaces` to `runtime/workspaces`; `ls → cd → ls` then showed
   `ADEV-RUNTIME.md  workspaces`, and `cd workspaces; ls` showed `demo-api`,
   `demo-web`, and `my-project`.
+
+### Runtime 1.16.13 OpenCode picker hotfix — 2026-08-23
+
+- Reproduced with `opencode serve` on the connected phone: Open project listed
+  `.achswap`, `.local`, and `.config` from `runtime/home`. The `~/workspaces`
+  symlink did not appear because OpenCode's picker starts at `os.homedir()` and
+  skips directory symlinks.
+- Runtime 1.16.13 / app 1.3.17 points the OpenCode process `HOME` at canonical
+  `runtime/workspaces`. `ADEV_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, and XDG stay
+  on `runtime/home`.
+- Phone-test APK published for user confirmation of the picker listing.
 
 ## Definition of done for Android-native npm installs
 

@@ -1,4 +1,28 @@
-# A Dev Studio 1.3.16
+# A Dev Studio 1.3.17
+
+This phone-test beta makes OpenCode's **Open project** picker start on real
+ADEV projects. It does not patch OpenCode itself or merge shell configuration
+into project storage.
+
+## Fixed in 1.3.17
+
+- OpenCode's web directory picker always starts at the process `HOME` and
+  skips directory symlinks, so the `~/workspaces` shell link never appeared
+  there. The OpenCode process now reports `HOME` as the canonical private
+  workspace root (`runtime/workspaces`).
+- XDG, global Git config, npm config, credentials, and agent bootstrap stay
+  under `runtime/home` through `ADEV_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, and
+  the existing XDG variables.
+- Runtime 1.16.13 upgrades existing phone-test installs automatically.
+
+## Verification status
+
+- The launcher contract is in source and the dual-ABI phone-test APK was
+  rebuilt. Physical picker listing is left for on-device confirmation.
+- The APK is phone-test signed, not Play/production signed. OpenCode's
+  functional payload remains ARM64-only.
+
+## Previous beta: 1.3.16
 
 This phone-test beta completes the current OpenCode Android repair cycle. It
 fixes the Android/Bionic process layer and bundles generic developer tooling;

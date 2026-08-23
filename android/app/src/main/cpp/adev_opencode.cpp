@@ -188,9 +188,14 @@ int launch_payload(int argc, char** argv) {
         return unavailable("one or more required Android compatibility libraries are missing.");
     }
 
-    const char* home_value = std::getenv("HOME");
-    const std::string home = absolute_path(home_value)
-        ? canonical_private_directory(home_value)
+    const char* config_home_value = std::getenv("ADEV_CONFIG_HOME");
+    if (!absolute_path(config_home_value)) config_home_value = std::getenv("HOME");
+    const std::string config_home = absolute_path(config_home_value)
+        ? canonical_private_directory(config_home_value)
+        : std::string{};
+    const char* workspace_home_value = std::getenv("MOBILEIDE_WORKSPACES");
+    const std::string workspace_home = absolute_path(workspace_home_value)
+        ? canonical_private_directory(workspace_home_value)
         : std::string{};
     const std::string private_tmp = select_private_tmp();
     // Capture the URL broker capability before setenv() grows/reallocates the
@@ -204,12 +209,24 @@ int launch_payload(int argc, char** argv) {
         url_opener_port_value == nullptr ? std::string{} : url_opener_port_value;
     const std::string url_opener_session =
         url_opener_session_value == nullptr ? std::string{} : url_opener_session_value;
-    if (home.empty() || private_tmp.empty()) {
-        return unavailable("HOME or the temporary directory is not writable app-private storage.");
+    if (config_home.empty() || workspace_home.empty() || private_tmp.empty()) {
+        return unavailable(
+            "the configuration home, workspace root, or temporary directory is not "
+            "writable app-private storage.");
     }
     const std::vector<std::pair<const char*, std::string>> environment = {
         {"ANDROID_ROOT", "/system"},
         {"TERMUX_VERSION", "adev-opencode"},
+        /*
+         * OpenCode's web directory picker always starts from os.homedir() and
+         * intentionally excludes directory symlinks. Report ADEV's canonical
+         * private workspace root as the OpenCode process home so "Open project"
+         * shows real projects. Keep configuration and caches rooted in ADEV's
+         * separate configuration home through explicit variables below.
+         */
+        {"HOME", workspace_home},
+        {"ADEV_CONFIG_HOME", config_home},
+        {"GIT_CONFIG_GLOBAL", join_path(config_home, ".gitconfig")},
         /*
          * Android has no /bin/sh. ADEV's general exec layer can translate that
          * virtual path, but the inherited termux-exec translation route fails
@@ -233,10 +250,10 @@ int launch_payload(int argc, char** argv) {
         {"TMP", private_tmp},
         {"TEMP", private_tmp},
         {"XDG_RUNTIME_DIR", private_tmp},
-        {"XDG_DATA_HOME", join_path(home, ".local/share")},
-        {"XDG_CONFIG_HOME", join_path(home, ".config")},
-        {"XDG_CACHE_HOME", join_path(home, ".cache")},
-        {"XDG_STATE_HOME", join_path(home, ".local/state")},
+        {"XDG_DATA_HOME", join_path(config_home, ".local/share")},
+        {"XDG_CONFIG_HOME", join_path(config_home, ".config")},
+        {"XDG_CACHE_HOME", join_path(config_home, ".cache")},
+        {"XDG_STATE_HOME", join_path(config_home, ".local/state")},
         {"BUN_SELF_EXE", runtime},
         {"TERMUX_EXEC__PROC_SELF_EXE", runtime},
     };
@@ -274,12 +291,14 @@ int launch_payload(int argc, char** argv) {
             "url_opener_port=%s\n"
             "url_opener_session=%s\n"
             "temp=%s\n"
-            "home=%s\n",
+            "home=%s\n"
+            "config_home=%s\n"
+            "workspace_home=%s\n",
             ADEV_OPENCODE_VERSION, runtime.c_str(), opentui.c_str(), tagfix.c_str(),
             compat.c_str(), ripgrep.c_str(), xdg_open.c_str(),
             url_opener_port.empty() ? "missing" : url_opener_port.c_str(),
             url_opener_session.empty() ? "missing" : "present", private_tmp.c_str(),
-            home.c_str());
+            workspace_home.c_str(), config_home.c_str(), workspace_home.c_str());
         return 0;
     }
 
