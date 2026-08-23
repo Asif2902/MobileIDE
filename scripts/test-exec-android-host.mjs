@@ -39,7 +39,7 @@ assert.match(resolver, /adev_is_virtual_shell\(filename\)/);
 assert.match(resolver, /initial_path = direct_shell_path/);
 assert.match(resolver, /strncmp\(interpreter, "\/usr\/bin\/", 9\)/);
 
-assert.match(cmake, /add_library\(adev_exec_compat SHARED adev_exec_compat\.c\)/);
+assert.match(cmake, /add_library\(adev_exec_compat SHARED adev_exec_compat\.c/);
 assert.match(cmake, /OUTPUT_NAME "lib_adev_exec_compat"/);
 assert.match(gradle, /"liblib_adev_exec_compat\.so"/);
 assert.match(cmake, /add_executable\(adev_xdg_open adev_xdg_open\.cpp\)/);
@@ -57,11 +57,23 @@ assert.ok(
     preloadAssignment[1].indexOf('termuxExecPreload'),
   'recursive shebang resolver must precede termux-exec',
 );
-assert.match(runtimeManager, /"ADEV_PYTHON_SHELL" to shell/);
+const adevEnvironment = read(
+  'android/app/src/main/java/com/mobileide/app/runtime/AdevEnvironment.kt',
+);
+// Python's shell=True, GNU make and the exec resolver all read this one
+// value, and it comes from the single environment authority.
+assert.match(adevEnvironment, /"ADEV_PYTHON_SHELL" to executableShell/);
+assert.match(runtimeManager, /env\.putAll\(adevEnv\.contract\(\)\)/);
 assert.match(runtimeManager, /"recursive-shebang"/);
 assert.match(runtimeManager, /writeScript\(\s*"xdg-open"/);
 assert.match(runtimeManager, /"xdg-open" to File\(nativeLibDir, "libbin_adev_xdg_open\.so"\)\.isFile/);
-assert.match(runtimeManager, /Os\.symlink\(envLauncher\.absolutePath, env\.absolutePath\)/);
+// ADEV owns `env` ahead of Toybox's, as a real ELF symlink in both the
+// runtime bin directory and the shim directory that leads PATH.
+assert.match(
+  runtimeManager,
+  /listOf\(File\(binDir, "env"\), File\(adevEnv\.shimDir, "env"\)\)/,
+);
+assert.match(runtimeManager, /Os\.symlink\(envLauncher\.absolutePath, link\.absolutePath\)/);
 assert.match(runtimeManager, /"MOBILEIDE_ENV" to File\(nativeLibDir, "libbin_adev_env\.so"\)/);
 
 assert.match(envLauncher, /std::strcmp\(command, "node"\)/);

@@ -1,4 +1,87 @@
-# A Dev Studio 1.3.17
+# A Dev Studio 1.3.23
+
+This phone-test beta makes Next 14 use the WebAssembly compiler on Android
+instead of hanging after a 404 for the unpublished native `@next/swc-android-arm64`
+package.
+
+## Fixed in 1.3.23
+
+- **Next 14 no longer hangs on first HTTP request.** Next 15 already loads WASM
+  first on `aarch64-linux-android`. Next 14.x still required
+  `experimental.useWasmBinary`, then tried to download
+  `@next/swc-android-arm64`, which has never been published. The 404 left
+  `loadBindings()` unsettled, so `next dev` accepted TCP and never answered.
+  The Node preload now rewrites that Next 14 condition to Next 15's. It does
+  not patch Next's getter-only `download-swc` exports: assigning those threw
+  and prevented Next from starting at all.
+
+## Previous beta: 1.3.21
+
+This phone-test beta replaces the per-tool Android workarounds with one
+runtime environment contract, and makes the Next.js WebAssembly compiler
+resolve for every Next process instead of only the CLI.
+
+## Fixed in 1.3.21
+
+- **One authoritative environment.** `AdevEnvironment` is now the single
+  source for `HOME`, `PREFIX`, `ADEV_RUNTIME`, `PATH`, `TMPDIR`/`TMP`/`TEMP`,
+  every XDG base directory, `LD_LIBRARY_PATH`, `NODE_PATH`, `SHELL` and the
+  TLS trust store. Shells, PTY sessions, Node, npm/npx, Python, Git, Next.js,
+  OpenCode, build workers and their subprocesses all read the same values.
+  It is published as `etc/adev-env.sh` for shells and `etc/adev-env.conf`
+  for the native layer.
+- **XDG directories exist.** `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_RUNTIME_DIR` were previously
+  unset, which is what produced `Unsupported platform: android` from
+  Next.js. They are now created and exported for every process.
+- **Next.js build workers no longer die on startup.** `NODE_OPTIONS` carried
+  two `--require` flags. Next parses `NODE_OPTIONS`, joins repeated option
+  values with a space and re-serialises them for its workers, so the pair
+  became one unresolvable module path and every worker exited with
+  `MODULE_NOT_FOUND`. The runtime now preloads a single entry module.
+- **SWC WebAssembly resolves everywhere.** Next resolves
+  `@next/swc-wasm-nodejs` as a bare ESM specifier, which ignores `NODE_PATH`;
+  that is why an external cache worked for the CLI but not for dev and build
+  workers. The exact matching version is cached under the ADEV runtime and
+  mapped into `node_modules/@next/swc-wasm-nodejs`, keeping the scoped
+  package layout. `package.json` and the lockfile are never modified.
+- **`env` is ADEV’s, not Toybox’s.** A shim directory now leads `PATH`, so
+  `env node script.js` works from system binaries and from processes that do
+  not load ADEV’s exec layer.
+- **TLS verification is never disabled.** The CA bundle is assembled from
+  both the legacy and Conscrypt APEX trust stores, certificate blocks only,
+  and published as `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`,
+  `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO` and `PIP_CERT`.
+- **Termux paths retired.** The packaged sysroot (headers, `pkg-config`
+  metadata, node `config.gypi`) is retargeted from
+  `/data/data/com.termux/files/usr` to this installation at extraction, and
+  the native recovery layer repairs any inherited value that still names it.
+- **Next.js version ownership.** Published advisories for the installed
+  version are reported; A Dev Studio never rewrites a project’s dependency.
+- **Packaged runtime JavaScript upgrades with the app.** Runtime readiness was
+  keyed only to `native-map.json`, so a new APK that shipped changed runtime
+  JavaScript under an unchanged runtime version kept running the previously
+  extracted copy. The readiness fingerprint now includes the package version.
+- **Next releases with no published WASM compiler still run.** Vercel does not
+  publish `@next/swc-wasm-nodejs` for every Next release — the 14.2 line stops
+  at 14.2.33 — so `next@14.2.35` had no matching compiler at all and Next’s own
+  on-demand download fails there too. A Dev Studio now falls back to the nearest
+  published build in the same minor line and says exactly what it substituted.
+- **BusyBox applet wrappers stop re-running commands.** Each wrapper chained
+  BusyBox, `/system/bin` and `/system/xbin` with `||`, so `grep` finding no
+  match or `diff` reporting a difference ran the command up to three times and
+  ended with a misleading “/system/xbin/... No such file or directory”. The
+  fallback now applies only when the applet could not be executed at all.
+- Runtime 1.17.3 upgrades existing phone-test installs automatically.
+
+## Verification status
+
+- Verified on a physical Infinix X689B (Android 11, arm64) through the
+  release-mode phone-test package.
+- The APK is phone-test signed, not Play/production signed. OpenCode’s
+  functional payload remains ARM64-only.
+
+## Previous beta: 1.3.17
 
 This phone-test beta makes OpenCode's **Open project** picker start on real
 ADEV projects. It does not patch OpenCode itself or merge shell configuration

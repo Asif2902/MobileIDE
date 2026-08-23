@@ -29,13 +29,13 @@ set_target_properties(mobileide-pty PROPERTIES
 # installs it into nativeLibraryDir (the only exec-permitted app location).
 # RuntimeManager symlinks bin/adev-npm-shell -> this ELF.
 # ---------------------------------------------------------------------------
-add_executable(adev_npm_shell adev_npm_shell.cpp)
+add_executable(adev_npm_shell adev_npm_shell.cpp adev_runtime_env.c)
 
 # Process-wide Android exec compatibility. This resolver runs before
 # termux-exec and follows bounded interpreter chains (script -> script -> ELF),
 # including the standard npm `#!/usr/bin/env node` path. termux-exec remains
 # responsible for Android noexec/system-linker handling after resolution.
-add_library(adev_exec_compat SHARED adev_exec_compat.c)
+add_library(adev_exec_compat SHARED adev_exec_compat.c adev_runtime_env.c)
 
 target_link_libraries(adev_npm_shell
     ${log-lib}
@@ -90,7 +90,7 @@ set_target_properties(adev_npm_shell PROPERTIES
 # Android packaging, but that BusyBox build chooses its applet from argv[0].
 # This APK-native bridge restores normal `busybox <applet>` semantics for all
 # shell wrappers without copying executables into Android's noexec filesDir.
-add_executable(adev_busybox adev_busybox.cpp)
+add_executable(adev_busybox adev_busybox.cpp adev_runtime_env.c)
 
 target_link_options(adev_busybox PRIVATE
     "-Wl,-z,max-page-size=16384"
@@ -137,7 +137,7 @@ set_target_properties(adev_env PROPERTIES
 # Android-native GNU Make entrypoint. The Termux Make ELF has its original
 # package's shell path compiled in; this launcher supplies the app's APK-native
 # Bash as a command-line SHELL override for node-gyp and direct Make builds.
-add_executable(adev_make adev_make.cpp)
+add_executable(adev_make adev_make.cpp adev_runtime_env.c)
 
 target_link_options(adev_make PRIVATE
     "-Wl,-z,max-page-size=16384"
@@ -236,7 +236,7 @@ configure_file(
     @ONLY
 )
 
-add_executable(adev_opencode adev_opencode.cpp)
+add_executable(adev_opencode adev_opencode.cpp adev_runtime_env.c)
 
 add_library(adev_opencode_compat SHARED adev_opencode_compat.c)
 

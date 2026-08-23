@@ -1,3 +1,5 @@
+#include "adev_runtime_env.h"
+
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +25,8 @@ std::string executable_directory() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Restore the ADEV runtime contract when this tool was reached without one.
+    adev_runtime_env_apply();
     const std::string native_dir = executable_directory();
     if (native_dir.empty()) {
         std::fprintf(stderr, "make: cannot resolve APK native library directory: %s\n",

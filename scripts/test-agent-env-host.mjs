@@ -62,8 +62,9 @@ function run(shell, args, env) {
 const source = fs.readFileSync(runtimeManagerPath, 'utf8');
 const lines = [
   generatedAgentLine(source, 'adev_node_options='),
-  generatedAgentLine(source, 'case "$adev_node_options" in *adev-server-events.js*'),
-  generatedAgentLine(source, 'case "$adev_node_options" in *adev-runtime-policy.js*'),
+  // One --require only: Next.js joins repeated NODE_OPTIONS values for the same
+  // option with a space when it re-serialises them for its workers.
+  generatedAgentLine(source, 'case "$adev_node_options" in *adev-node-preload.js*'),
   generatedAgentLine(source, 'export NODE_OPTIONS='),
   generatedAgentLine(source, 'unset adev_node_options'),
 ];

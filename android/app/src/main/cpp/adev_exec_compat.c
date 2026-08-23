@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 
+#include "adev_runtime_env.h"
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +39,21 @@ extern char **environ;
 
 static void adev_resolve_next_execve(void) {
     adev_next_execve = (adev_execve_fn)dlsym(RTLD_NEXT, "execve");
+}
+
+/*
+ * This library is preloaded into every ADEV process, which makes it the one
+ * place that can repair an environment for a process nobody else configured.
+ * Fill in the runtime contract before the program's own constructors run, so
+ * that HOME, TMPDIR, the XDG directories and the TLS trust store are already
+ * correct by the time a language runtime caches them.
+ *
+ * Only missing (or provably stale) values are written; `env -i` clears
+ * LD_PRELOAD along with everything else, so a deliberately empty environment
+ * never reaches this code at all.
+ */
+__attribute__((constructor)) static void adev_exec_compat_init(void) {
+    adev_runtime_env_apply();
 }
 
 static const char *adev_env_value(char *const envp[], const char *name) {

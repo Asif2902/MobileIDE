@@ -87,6 +87,22 @@ assert.match(launcher, /\{"SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /\{"ADEV_PYTHON_SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /ADEV_OPENCODE_RG/);
 assert.match(launcher, /ADEV_OPENCODE_XDG_OPEN/);
+// The launcher must not re-derive the XDG base directories: they are part of
+// the one runtime environment contract every ADEV process shares.
+for (const variable of [
+  'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_STATE_HOME',
+  'XDG_RUNTIME_DIR',
+]) {
+  assert.doesNotMatch(
+    launcher,
+    new RegExp(`\{"${variable}",`),
+    `${variable} must come from the shared runtime contract, not the OpenCode launcher`,
+  );
+}
+assert.match(launcher, /adev_runtime_env_apply\(\);/);
 assert.match(launcher, /ADEV_CONFIG_HOME/);
 assert.match(launcher, /MOBILEIDE_WORKSPACES/);
 assert.match(launcher, /\{"HOME", workspace_home\}/);
@@ -231,7 +247,7 @@ try {
   fs.writeFileSync(
     payloadSource,
     `#include <cstdio>\n#include <cstdlib>\nint main(int argc, char** argv) {\n` +
-      `  const char* names[] = {"HOME","ADEV_CONFIG_HOME","MOBILEIDE_WORKSPACES","GIT_CONFIG_GLOBAL","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","XDG_STATE_HOME","TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
+      `  const char* names[] = {"HOME","ADEV_CONFIG_HOME","MOBILEIDE_WORKSPACES","GIT_CONFIG_GLOBAL","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","XDG_STATE_HOME","XDG_RUNTIME_DIR","TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
       `  for (const char* name : names) std::printf("env:%s=%s\\n", name, std::getenv(name) ? std::getenv(name) : "");\n` +
       `  for (int i = 0; i < argc; ++i) std::printf("arg:%d=%s\\n", i, argv[i]);\n` +
       `  return (argc == 2 && std::string(argv[1]) == "exit23") ? 23 : 0;\n}\n`,
@@ -264,6 +280,15 @@ try {
     TMP: '/tmp',
     TEMP: '/tmp',
     BUN_TMPDIR: '/tmp',
+    // The XDG base directories belong to the shared runtime contract the app
+    // publishes; the launcher must pass them through untouched instead of
+    // re-deriving its own, which is how OpenCode's children used to end up
+    // with different cache and configuration roots from the terminal's.
+    XDG_CACHE_HOME: path.join(prefix, 'cache'),
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_DATA_HOME: path.join(home, '.local/share'),
+    XDG_STATE_HOME: path.join(home, '.local/state'),
+    XDG_RUNTIME_DIR: privateTmp,
     ADEV_URL_OPENER_PORT: '41234',
     ADEV_URL_OPENER_SESSION: 'host-test-url-session',
     LD_PRELOAD: 'inherited-termux-exec.so',
@@ -336,17 +361,22 @@ try {
         `env:GIT_CONFIG_GLOBAL=${home.replaceAll('\\', '/')}/.gitconfig`,
       ),
     );
-    for (const [variable, relative] of [
-      ['XDG_DATA_HOME', '.local/share'],
-      ['XDG_CONFIG_HOME', '.config'],
-      ['XDG_CACHE_HOME', '.cache'],
-      ['XDG_STATE_HOME', '.local/state'],
+    for (const [variable, expected] of [
+      ['XDG_DATA_HOME', path.join(home, '.local/share')],
+      ['XDG_CONFIG_HOME', path.join(home, '.config')],
+      ['XDG_CACHE_HOME', path.join(prefix, 'cache')],
+      ['XDG_STATE_HOME', path.join(home, '.local/state')],
+      ['XDG_RUNTIME_DIR', privateTmp],
     ]) {
+      // Inherited from the runtime contract, verbatim.
       assert.ok(
         normalizedOutput.includes(
-          `env:${variable}=${home.replaceAll('\\', '/')}/${relative}`,
+          `env:${variable}=${expected.replaceAll('\\', '/')}`,
         ),
+        `${variable} was not passed through unchanged`,
       );
+      // OpenCode reports the workspace root as its HOME; caches and
+      // configuration must never follow it there.
       assert.ok(
         !normalizedOutput.includes(
           `env:${variable}=${workspaces.replaceAll('\\', '/')}/`,

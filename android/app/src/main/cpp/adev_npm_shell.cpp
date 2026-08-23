@@ -16,6 +16,8 @@
  * Also usable as a general "run this PATH command via node if needed" shell.
  */
 
+#include "adev_runtime_env.h"
+
 #include <android/log.h>
 #include <ctype.h>
 #include <errno.h>
@@ -283,6 +285,10 @@ static int has_shell_meta(const char *s) {
 }
 
 int main(int argc, char **argv) {
+    // npm lifecycle scripts must see the same environment as every other ADEV
+    // process, even when npm itself was started without one.
+    adev_runtime_env_apply();
+
     // Support: adev-npm-shell -c "cmd"   OR   adev-npm-shell cmd args...
     const char *command = nullptr;
     char *owned = nullptr;

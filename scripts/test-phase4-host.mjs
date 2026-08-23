@@ -85,9 +85,9 @@ assert.match(
   /include\(\$\{REACT_ANDROID_DIR\}\/cmake-utils\/ReactNative-application\.cmake\)/,
 );
 assert.match(appCmake, /add_subdirectory\([^)]*cpp/);
-assert.match(helperCmake, /add_executable\(adev_make adev_make\.cpp\)/);
+assert.match(helperCmake, /add_executable\(adev_make adev_make\.cpp/);
 assert.match(helperCmake, /add_executable\(adev_ld_lld adev_ld_lld\.cpp\)/);
-assert.match(helperCmake, /add_executable\(adev_busybox adev_busybox\.cpp\)/);
+assert.match(helperCmake, /add_executable\(adev_busybox adev_busybox\.cpp/);
 assert.match(busyboxLauncher, /control_mode/);
 assert.match(
   busyboxLauncher,

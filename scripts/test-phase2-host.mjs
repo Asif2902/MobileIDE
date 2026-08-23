@@ -88,7 +88,8 @@ try {
     const webpackSelector = version.startsWith('16.') ? ['--webpack'] : [];
     const defaultDev = await dryRun(version, []);
     assert.deepEqual(defaultDev.args, ['dev', ...webpackSelector]);
-    assert.equal(defaultDev.projectModified, false);
+    assert.equal(defaultDev.manifestModified, false);
+    assert.equal(defaultDev.lockfileModified, false);
 
     assert.deepEqual(
       (await dryRun(version, ['dev', '--turbopack', '--turbo', '-p', '3210'])).args,

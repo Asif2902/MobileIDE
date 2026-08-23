@@ -29,6 +29,17 @@ for (const phase of [1, 2, 3, 4]) {
     throw new Error(`Phase ${phase} device harness failed with status ${result.status}.`);
   }
 }
+const environmentSuite = spawnSync(
+  process.execPath,
+  [path.join(runtimeLib, 'adev-runtime-env-test.js'), ...(network ? ['--network'] : [])],
+  {cwd: process.cwd(), env: process.env, stdio: 'inherit'},
+);
+if (environmentSuite.error) throw environmentSuite.error;
+if (environmentSuite.status !== 0) {
+  throw new Error(
+    `Runtime environment contract suite failed with status ${environmentSuite.status}.`,
+  );
+}
 process.stdout.write(
   `Phase 5 Android device gate passed: runtime ${installed}, API ${process.env.ADEV_ANDROID_API}, ABI ${process.arch}.\n`,
 );

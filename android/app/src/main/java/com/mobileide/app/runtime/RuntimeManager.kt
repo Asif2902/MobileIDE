@@ -59,6 +59,8 @@ class RuntimeManager(private val context: Context) {
         private const val NATIVE_MAP_FILE = "native-map.json"
         private const val RUNTIME_FINGERPRINT_FILE = ".runtime_fingerprint"
         private const val RUNTIME_NATIVE_LIBRARY_DIR_FILE = ".runtime_native_library_dir"
+        // Build-time index of packaged files that still carry the Termux prefix.
+        private const val PREFIX_RETARGET_FILE = "prefix-retarget.json"
         // Keep addons compatible with the app's minimum supported Android.
         private const val NATIVE_BUILD_API = 29
         private const val NATIVE_BUILD_TRIPLE = "aarch64-linux-android"
@@ -90,6 +92,14 @@ class RuntimeManager(private val context: Context) {
     private val customCaDir: File by lazy { File(etcDir, "ssl/custom-ca") }
     private val gitTemplateDir: File by lazy { File(etcDir, "git-templates") }
     private val nativeLibDir: File by lazy { File(context.applicationInfo.nativeLibraryDir) }
+
+    /**
+     * The authority for every variable in the runtime environment contract.
+     * RuntimeManager owns tool configuration; AdevEnvironment owns identity,
+     * search paths, temporary/XDG directories and TLS trust so that shells,
+     * native launchers, Node, Python and their subprocesses cannot drift apart.
+     */
+    private val adevEnv: AdevEnvironment by lazy { AdevEnvironment(runtimeRoot, nativeLibDir) }
     private val selinuxProcessContext: String? by lazy {
         try {
             // Some Android 11 kernels expose a NUL-terminated security context
@@ -204,10 +214,17 @@ class RuntimeManager(private val context: Context) {
     private fun assetNativeMapFingerprint(): String? {
         return try {
             val bytes = context.assets.open("$RUNTIME_DIR/$NATIVE_MAP_FILE").use { it.readBytes() }
-            java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            val nativeMap = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
                 .joinToString("") { "%02x".format(it) }
+            // The packaged runtime is more than its native binaries: the shell
+            // helpers, the Next.js launcher and the environment suite are all
+            // JavaScript shipped in the same APK. Hashing native-map.json alone
+            // meant a new APK whose runtime version string had not changed kept
+            // running the previously extracted JavaScript. Including the package
+            // version makes every install extract what it actually ships.
+            "$nativeMap:${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
         } catch (e: Exception) {
-            Log.w(TAG, "Could not fingerprint native-map.json: ${e.message}")
+            Log.w(TAG, "Could not fingerprint the packaged runtime: ${e.message}")
             null
         }
     }
@@ -235,6 +252,10 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Extracting runtime files...", 0.1f)
         extractRuntimeAssets(onProgress)
 
+        // Before anything reads the sysroot, make its recorded install prefix
+        // this app rather than the Termux package it was built against.
+        retargetPackagedPrefixes()
+
         onProgress?.invoke("Setting permissions...", 0.8f)
         setExecutablePermissions()
 
@@ -251,7 +272,14 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Protecting runtime...", 0.9f)
         protectBinDirectory()
 
+        // The trust store is assembled before the environment contract is
+        // published: SSL_CERT_FILE and its siblings are only advertised once a
+        // parsed, non-empty CA bundle actually exists on disk.
+        onProgress?.invoke("Preparing certificates...", 0.92f)
+        setupCaBundle()
+
         onProgress?.invoke("Configuring environment...", 0.93f)
+        adevEnv.writeContractFiles()
         setupEnvironment()
         setupNanoConfiguration()
         setupRuntimePolicy()
@@ -261,9 +289,6 @@ class RuntimeManager(private val context: Context) {
         if (!installPathBindingsCurrent(requireMarker = false)) {
             throw IOException("Generated runtime executable bindings are incomplete")
         }
-
-        onProgress?.invoke("Preparing certificates...", 0.95f)
-        setupCaBundle()
 
         onProgress?.invoke("Creating workspace...", 0.97f)
         createGlobalDirs()
@@ -300,6 +325,12 @@ class RuntimeManager(private val context: Context) {
         setExecutablePermissions()
         setupShellWrappers()
         protectBinDirectory()
+        // The trust store and the published environment contract both embed the
+        // current install paths, so an upgrade must rewrite them here too. A
+        // previously failed CA assembly is repaired on the next launch instead of
+        // leaving TLS verification permanently broken.
+        setupCaBundle()
+        adevEnv.writeContractFiles()
         if (!installPathBindingsCurrent(requireMarker = false)) {
             throw IOException("Refreshed runtime executable bindings are incomplete")
         }
@@ -332,15 +363,10 @@ class RuntimeManager(private val context: Context) {
      * Create the runtime directory structure
      */
     private fun createDirectoryStructure() {
-        listOf(runtimeRoot, binDir, libDir, homeDir, workspacesDir, tmpDir, cacheDir, etcDir).forEach { dir ->
-            if (!dir.exists()) {
-                dir.mkdirs()
-                Log.d(TAG, "Created directory: ${dir.absolutePath}")
-            } else {
-                // Ensure a previously read-only bin dir can be refreshed.
-                dir.setWritable(true, false)
-            }
-        }
+        // Every directory the environment contract promises exists — including
+        // the XDG base directories and $HOME/.cache, which Next.js probes before
+        // deciding a platform is unsupported.
+        adevEnv.ensureDirectories()
     }
 
     /**
@@ -600,6 +626,7 @@ class RuntimeManager(private val context: Context) {
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val phase3Test = File(libDir, "adev-phase3-test.js")
+            val environmentTest = File(libDir, "adev-runtime-env-test.js")
             val hasBusybox =
                 File(nativeLibDir, "libbin_busybox.so").exists() &&
                     File(nativeLibDir, "libbin_adev_busybox.so").exists()
@@ -642,10 +669,14 @@ class RuntimeManager(private val context: Context) {
                 "wget", "nc", "ping", "vi", "less", "more"
             ).filter { it !in skipAsFunction }
 
+            val envContract = File(etcDir, AdevEnvironment.SHELL_NAME).absolutePath
             val sb = StringBuilder()
             sb.appendLine("# Generated by RuntimeManager — do not edit by hand")
             sb.appendLine("# Exec ELFs from nativeLibraryDir (exec-safe). filesDir is noexec.")
-            sb.appendLine("export MOBILEIDE_NATIVE_LIB=\"$nativeLibDir\"")
+            // The contract comes first so a shell started with a partial or
+            // cleared environment still has HOME, PATH, PREFIX, TMPDIR, the XDG
+            // directories and the TLS trust store before any wrapper runs.
+            sb.appendLine("[ -f \"$envContract\" ] && . \"$envContract\"")
             sb.appendLine("export ADEV_WRAPPERS=\"\$HOME/.adev-wrappers\"")
             sb.appendLine()
 
@@ -734,10 +765,23 @@ class RuntimeManager(private val context: Context) {
 
             if (hasBusybox) {
                 sb.appendLine("busybox() { \"$busyboxDispatcher\" \"\$@\"; }")
+                // Fall back only when BusyBox could not *run* the applet (127 /
+                // 126), never on a non-zero exit status. Chaining with || meant
+                // `grep` finding no match, or `diff` reporting a difference, ran
+                // the same command up to three times and then reported a missing
+                // /system/xbin helper instead of the real result.
+                sb.appendLine("adev_applet() {")
+                sb.appendLine("  adev_applet_name=\"\$1\"; shift")
+                sb.appendLine("  \"$busyboxDispatcher\" \"\$adev_applet_name\" \"\$@\"")
+                sb.appendLine("  adev_applet_status=\$?")
+                sb.appendLine("  if [ \"\$adev_applet_status\" -ge 126 ] && [ \"\$adev_applet_status\" -le 127 ] && [ -x \"/system/bin/\$adev_applet_name\" ]; then")
+                sb.appendLine("    \"/system/bin/\$adev_applet_name\" \"\$@\"")
+                sb.appendLine("    adev_applet_status=\$?")
+                sb.appendLine("  fi")
+                sb.appendLine("  return \$adev_applet_status")
+                sb.appendLine("}")
                 applets.forEach { ap ->
-                    sb.appendLine(
-                        "$ap() { \"$busyboxDispatcher\" $ap \"\$@\" 2>/dev/null || /system/bin/$ap \"\$@\" 2>/dev/null || /system/xbin/$ap \"\$@\"; }"
-                    )
+                    sb.appendLine("$ap() { adev_applet $ap \"\$@\"; }")
                 }
                 sb.appendLine()
             }
@@ -796,6 +840,11 @@ class RuntimeManager(private val context: Context) {
             if (hasNode && phase3Test.exists()) {
                 sb.appendLine("adev-phase3-test() { \"$node\" \"${phase3Test.absolutePath}\" \"\$@\"; }")
             }
+            if (hasNode && environmentTest.exists()) {
+                sb.appendLine(
+                    "adev-env-test() { \"$node\" \"${environmentTest.absolutePath}\" \"\$@\"; }"
+                )
+            }
 
             val out = File(homeDir, ".adev-wrappers")
             out.writeText(sb.toString())
@@ -805,9 +854,10 @@ class RuntimeManager(private val context: Context) {
             val agentEnv = StringBuilder()
             agentEnv.appendLine("# ADEV agent bootstrap — source: . \"\$HOME/.adev-agent-env\"")
             agentEnv.appendLine("# Auto-loaded for non-interactive bash via BASH_ENV")
-            agentEnv.appendLine("export PREFIX=\"${runtimeRoot.absolutePath}\"")
-            agentEnv.appendLine("export HOME=\"${homeDir.absolutePath}\"")
-            agentEnv.appendLine("export MOBILEIDE_NATIVE_LIB=\"$nativeLibDir\"")
+            // PREFIX, HOME, PATH, TMPDIR, XDG and TLS all come from the one
+            // published contract instead of being restated here, where they
+            // used to drift from RuntimeManager.getEnvironment().
+            agentEnv.appendLine("[ -f \"$envContract\" ] && . \"$envContract\"")
             if (hasNode) {
                 agentEnv.appendLine("export MOBILEIDE_NODE=\"$node\"")
             }
@@ -850,9 +900,12 @@ class RuntimeManager(private val context: Context) {
             // Escape Kotlin's '$' once so the generated POSIX shell retains
             // the parameter expansion. Using ${'$'} here would write that
             // Kotlin escape expression literally and Android sh rejects it.
+            // Exactly one --require, naming the single preload entry module.
+            // Next.js re-serialises NODE_OPTIONS for its dev/build workers and
+            // joins repeated values for the same option with a space, so a
+            // second --require becomes one unresolvable module path.
             agentEnv.appendLine("adev_node_options=\"\${NODE_OPTIONS:-}\"")
-            agentEnv.appendLine("case \"\$adev_node_options\" in *adev-server-events.js*) ;; *) [ -f \"\$PREFIX/lib/adev-server-events.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-server-events.js \$adev_node_options\" ;; esac")
-            agentEnv.appendLine("case \"\$adev_node_options\" in *adev-runtime-policy.js*) ;; *) [ -f \"\$PREFIX/lib/adev-runtime-policy.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-runtime-policy.js \$adev_node_options\" ;; esac")
+            agentEnv.appendLine("case \"\$adev_node_options\" in *adev-node-preload.js*) ;; *) [ -f \"\$PREFIX/lib/adev-node-preload.js\" ] && adev_node_options=\"--require \$PREFIX/lib/adev-node-preload.js \$adev_node_options\" ;; esac")
             agentEnv.appendLine("export NODE_OPTIONS=\"\$adev_node_options\"")
             agentEnv.appendLine("unset adev_node_options")
             File(homeDir, ".adev-agent-env").writeText(agentEnv.toString())
@@ -934,6 +987,7 @@ class RuntimeManager(private val context: Context) {
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val phase3Test = File(libDir, "adev-phase3-test.js")
+            val environmentTest = File(libDir, "adev-runtime-env-test.js")
 
             binDir.setWritable(true, false)
 
@@ -1093,6 +1147,12 @@ adev_guard() {
                         "#!/system/bin/sh\nexec \"$n\" \"${phase3Test.absolutePath}\" \"\$@\"\n"
                     )
                 }
+                if (environmentTest.exists()) {
+                    writeScript(
+                        "adev-env-test",
+                        "#!/system/bin/sh\nexec \"$n\" \"${environmentTest.absolutePath}\" \"\$@\"\n"
+                    )
+                }
             }
             if (git.exists()) {
                 writeScript("git", guarded("git", "exec \"${git.absolutePath}\" \"\$@\""))
@@ -1103,18 +1163,40 @@ adev_guard() {
             // termux-exec translates #!/bin/sh to $PREFIX/bin/sh. Keep this
             // explicit bridge even though /system/bin is earlier on normal PATH.
             writeScript("sh", "#!/system/bin/sh\nexec /system/bin/sh \"\$@\"\n")
+
+            // `env` must be ADEV's, not Toybox's, for every caller.
+            //
+            // /system/bin comes first on PATH so Android's own ls/cat/… keep
+            // working, but /system/bin/env is Toybox: it execs its command
+            // itself, never loads ADEV's exec compatibility layer, and therefore
+            // cannot run a `#!` script stored on the app's noexec data
+            // directory. `env node script.js` — the shebang of essentially every
+            // global npm CLI — failed with EACCES whenever the caller was not
+            // already an ADEV binary. Publishing ADEV's env as a real ELF in a
+            // shim directory ahead of /system/bin fixes the resolution for
+            // shells, Node, Python and any system tool alike.
+            if (envLauncher.isFile) {
+                adevEnv.shimDir.mkdirs()
+                adevEnv.shimDir.setWritable(true, false)
+                listOf(File(binDir, "env"), File(adevEnv.shimDir, "env")).forEach { link ->
+                    try {
+                        if (link.exists() || isSymlink(link)) link.delete()
+                        Os.symlink(envLauncher.absolutePath, link.absolutePath)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "env shim ${link.absolutePath} failed: ${e.message}")
+                    }
+                }
+            }
             if (busyboxRuntime.exists() && busyboxDispatcher.exists()) {
                 val bb = busyboxDispatcher.absolutePath
                 writeScript("busybox", "#!/system/bin/sh\nexec \"$bb\" \"\$@\"\n")
-                // termux-exec rewrites #!/usr/bin/env to $PREFIX/bin/env. This
-                // must itself be a real executable: native callers can reject
-                // a script interpreter as bad ELF, and BusyBox's internal env
-                // exec bypasses ADEV's recursive shebang resolver.
-                if (envLauncher.isFile) {
-                    val env = File(binDir, "env")
-                    if (env.exists() || isSymlink(env)) env.delete()
-                    Os.symlink(envLauncher.absolutePath, env.absolutePath)
-                } else {
+                // termux-exec rewrites #!/usr/bin/env to $PREFIX/bin/env. That
+                // path is claimed above by ADEV's native env, which must be a
+                // real executable: native callers reject a script interpreter as
+                // bad ELF, and BusyBox's internal env exec bypasses ADEV's
+                // recursive shebang resolver. Only fall back to the applet when
+                // the native launcher is missing from this build.
+                if (!envLauncher.isFile) {
                     writeScript("env", "#!/system/bin/sh\nexec \"$bb\" env \"\$@\"\n")
                 }
                 // High-value applets agents call by name (prefer busybox when present)
@@ -1443,6 +1525,54 @@ adev_guard() {
     }
 
     /**
+     * Point the packaged sysroot at this installation instead of Termux.
+     *
+     * ADEV bundles headers, pkg-config metadata and build configuration produced
+     * by the Termux toolchain, and those artifacts have
+     * `/data/data/com.termux/files/usr` compiled into them: `paths.h` names it as
+     * `_PATH_DEFPATH` and `_PATH_TMP`, every `.pc` file uses it as `prefix=`, and
+     * node's `config.gypi` records it as the install root. That package is not
+     * installed here and never will be, so a native addon build resolved include
+     * and library paths that do not exist.
+     *
+     * The affected files are indexed at build time by
+     * `scripts/generate-prefix-retarget.mjs`; only those are rewritten, because
+     * reading the whole 8,500-file sysroot on device would cost seconds at every
+     * install.
+     */
+    private fun retargetPackagedPrefixes() {
+        val index = File(runtimeRoot, PREFIX_RETARGET_FILE)
+        if (!index.isFile) {
+            Log.w(TAG, "No packaged prefix index; sysroot paths left as shipped")
+            return
+        }
+        try {
+            val manifest = JSONObject(index.readText())
+            val packagedPrefix = manifest.optString("packagedPrefix")
+            if (packagedPrefix.isEmpty()) return
+            val files = manifest.optJSONArray("files") ?: return
+            var rewritten = 0
+            for (position in 0 until files.length()) {
+                val relative = files.optString(position)
+                if (relative.isEmpty() || relative.contains("..")) continue
+                val target = File(runtimeRoot, relative)
+                if (!target.isFile) continue
+                val original = try {
+                    target.readText()
+                } catch (_: Exception) {
+                    continue
+                }
+                if (!original.contains(packagedPrefix)) continue
+                target.writeText(original.replace(packagedPrefix, runtimeRoot.absolutePath))
+                rewritten++
+            }
+            Log.i(TAG, "Retargeted $rewritten packaged sysroot files to ${runtimeRoot.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Packaged prefix retargeting failed: ${e.message}")
+        }
+    }
+
+    /**
      * Nano's Termux package is compiled with a fixed Termux prefix. The native
      * executable honors HOME and TERMINFO, but its packaged nanorc contains an
      * absolute /data/data/com.termux include. Keep that file as source evidence,
@@ -1619,30 +1749,71 @@ adev_guard() {
         try {
             caBundleFile.parentFile?.mkdirs()
             customCaDir.mkdirs()
-            val sysCerts = File("/system/etc/security/cacerts")
-            caBundleFile.bufferedWriter().use { w ->
-                if (sysCerts.isDirectory) {
-                    sysCerts.listFiles()?.forEach { c ->
-                        if (c.isFile) {
-                            try {
-                                w.write(c.readText())
-                                w.write("\n")
-                            } catch (_: Exception) { }
+            // Android 14 moved the platform trust store into the Conscrypt APEX.
+            // Read every layout that exists so the bundle is complete on both.
+            val systemStores = AdevEnvironment.SYSTEM_CERT_DIRECTORIES
+                .map(::File)
+                .filter { it.isDirectory }
+            var certificates = 0
+            val temporary = File(caBundleFile.parentFile, "${caBundleFile.name}.tmp")
+            temporary.bufferedWriter().use { writer ->
+                val emit = { file: File ->
+                    try {
+                        // Android's trust anchors are PEM followed by an OpenSSL
+                        // text dump. Copying the file verbatim leaves that prose
+                        // in the bundle; some TLS stacks stop at the first block
+                        // they cannot parse, which is indistinguishable from an
+                        // empty trust store. Emit certificate blocks only.
+                        extractPemCertificates(file.readText()).forEach { pem ->
+                            writer.write(pem)
+                            writer.write("\n")
+                            certificates++
                         }
+                    } catch (_: Exception) {
+                        // A single unreadable anchor must not void the bundle.
                     }
+                }
+                systemStores.forEach { store ->
+                    store.listFiles()?.sortedBy { it.name }?.forEach { if (it.isFile) emit(it) }
                 }
                 customCaDir.listFiles()
                     ?.filter { it.isFile && it.extension == "pem" }
                     ?.sortedBy { it.name }
-                    ?.forEach { certificate ->
-                        w.write(certificate.readText())
-                        w.write("\n")
-                    }
+                    ?.forEach(emit)
             }
-            Log.i(TAG, "Assembled CA bundle (${caBundleFile.length()} bytes)")
+            if (certificates == 0) {
+                temporary.delete()
+                Log.w(
+                    TAG,
+                    "No trust anchors found in ${systemStores.joinToString()}; " +
+                        "leaving the existing CA bundle in place"
+                )
+                return
+            }
+            Os.rename(temporary.absolutePath, caBundleFile.absolutePath)
+            caBundleFile.setReadable(true, false)
+            Log.i(TAG, "Assembled CA bundle: $certificates certificates, ${caBundleFile.length()} bytes")
         } catch (e: Exception) {
             Log.w(TAG, "CA bundle assembly failed: ${e.message}")
         }
+    }
+
+    /**
+     * Return each PEM certificate block in [text], without any surrounding
+     * human-readable metadata. Anything outside a BEGIN/END pair is discarded.
+     */
+    private fun extractPemCertificates(text: String): List<String> {
+        val begin = "-----BEGIN CERTIFICATE-----"
+        val end = "-----END CERTIFICATE-----"
+        val blocks = mutableListOf<String>()
+        var cursor = text.indexOf(begin)
+        while (cursor >= 0) {
+            val close = text.indexOf(end, cursor)
+            if (close < 0) break
+            blocks += text.substring(cursor, close + end.length).trim()
+            cursor = text.indexOf(begin, close + end.length)
+        }
+        return blocks
     }
 
     fun installGitCustomCa(reference: String, pem: String): String {
@@ -2234,8 +2405,6 @@ adev_guard() {
      * Get the environment map for process execution
      */
     fun getEnvironment(workingDirectory: String? = null): Map<String, String> {
-        val globalBin = File(npmGlobalDir, "bin").absolutePath
-        val localBin = localBinDir.absolutePath
         // Prefer absolute path to bash ELF in nativeLibraryDir (exec-safe).
         val bashNative = File(nativeLibDir, "libbin_bash.so")
         val shell = when {
@@ -2247,48 +2416,27 @@ adev_guard() {
         val preferredEditor =
             if (nanoNative.isFile) nanoNative.absolutePath else "vi"
 
-        // PATH order (Android 10+ noexec on filesDir):
-        // 1) /system/bin first — working toybox ls/cat/… (do NOT shadow with broken
-        //    filesDir busybox symlinks)
-        // 2) nativeLibraryDir — real ELFs (libbin_node.so etc.); shell wrappers
-        //    call these by absolute path anyway
-        // 3) bin/ — remaining symlinks (git-core helpers, dropbear) + termux-exec
-        // 4) npm global bins last
-        val env = mutableMapOf(
-            "PATH" to listOf(
-                "/system/bin",
-                "/system/xbin",
-                nativeLibDir.absolutePath,
-                binDir.absolutePath,
-                "${binDir.absolutePath}/git-core",
-                globalBin,
-                localBin
-            ).joinToString(":"),
-            "HOME" to homeDir.absolutePath,
+        // HOME, PATH, PREFIX, TMPDIR/TMP/TEMP, the XDG base directories,
+        // LD_LIBRARY_PATH, NODE_PATH, the TLS trust store and the single Node
+        // preload all come from AdevEnvironment so that shells, native
+        // launchers and this map can never disagree. Everything below is
+        // tool-specific configuration layered on top of that contract.
+        val env = mutableMapOf<String, String>()
+        env.putAll(adevEnv.contract())
+        env.putAll(mapOf(
             // OpenCode reports the workspace root as its picker home while
             // retaining this path for XDG/Git/npm/credential state.
             "ADEV_CONFIG_HOME" to homeDir.absolutePath,
-            "TMPDIR" to tmpDir.absolutePath,
-            "TEMP" to tmpDir.absolutePath,
-            "TMP" to tmpDir.absolutePath,
             // Android has no writable FHS /tmp. Keep every native/JS spelling
             // on the same app-private directory before any child process starts.
             "BUN_TMPDIR" to tmpDir.absolutePath,
             "SQLITE_TMPDIR" to tmpDir.absolutePath,
-            "XDG_RUNTIME_DIR" to tmpDir.absolutePath,
             // nativeForkPty intentionally clears the inherited zygote
             // environment. Restore Android identity variables explicitly so
             // Android-aware CLIs do not mis-detect this process as desktop Linux.
             "ANDROID_ROOT" to "/system",
             "ANDROID_DATA" to "/data",
             "TERMUX_VERSION" to "ADevStudio",
-            "PREFIX" to runtimeRoot.absolutePath,
-            "LD_LIBRARY_PATH" to "${libDir.absolutePath}:${nativeLibDir.absolutePath}",
-            // Prefer the bundled npm tree for requires; global modules second.
-            "NODE_PATH" to listOf(
-                "${libDir.absolutePath}/node_modules",
-                "${npmGlobalDir.absolutePath}/lib/node_modules"
-            ).joinToString(":"),
             "NPM_CONFIG_PREFIX" to npmGlobalDir.absolutePath,
             "NPM_CONFIG_CACHE" to cacheDir.absolutePath,
             "NPM_CONFIG_USERCONFIG" to File(homeDir, ".npmrc").absolutePath,
@@ -2298,10 +2446,6 @@ adev_guard() {
             "NPM_CONFIG_AUDIT" to "false",
             "USER" to "root",
             "LOGNAME" to "root",
-            "SHELL" to shell,
-            // Python shell=True and the global exec resolver both use the
-            // app's exec-safe shell, never a stale com.termux package path.
-            "ADEV_PYTHON_SHELL" to shell,
             "EDITOR" to preferredEditor,
             "VISUAL" to preferredEditor,
             // Interactive mksh/dash load ENV; non-interactive bash loads BASH_ENV.
@@ -2327,10 +2471,7 @@ adev_guard() {
             "GIT_HTTP_LOW_SPEED_TIME" to "30",
             // Do NOT set HOSTNAME=adev — Next/Vite/http servers read HOSTNAME for bind/display.
             "MOBILEIDE_HOST_LABEL" to "adev",
-            "MOBILEIDE_ROOT" to runtimeRoot.absolutePath,
-            "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath,
             // Used by adev-npm-shell / agents to locate ELFs if PATH lookup fails.
-            "MOBILEIDE_NATIVE_LIB" to nativeLibDir.absolutePath,
             "MOBILEIDE_NODE" to File(nativeLibDir, "libbin_node.so").absolutePath,
             "MOBILEIDE_GIT" to File(nativeLibDir, "libbin_git.so").absolutePath,
             "MOBILEIDE_BASH" to File(nativeLibDir, "libbin_bash.so").absolutePath,
@@ -2375,7 +2516,7 @@ adev_guard() {
             "npm_config_loglevel" to "warn",
             // Vite / webpack friendliness
             "VITE_CJS_IGNORE_WARNING" to "true"
-        )
+        ))
 
         // Native Git obtains protected credentials through a loopback broker.
         // The session capability is inherited by app-launched children but no
@@ -2463,21 +2604,12 @@ adev_guard() {
         env["PKG_CONFIG_PATH"] =
             "${libDir.absolutePath}/pkgconfig:${runtimeRoot.absolutePath}/share/pkgconfig"
 
-        // Load capability metadata into Node without changing process.platform.
-        val runtimePolicy = File(libDir, "adev-runtime-policy.js")
-        val serverEvents = File(libDir, "adev-server-events.js")
-        val nodePreloads = listOf(runtimePolicy, serverEvents)
-            .filter(File::exists)
-            .map { "--require ${it.absolutePath}" }
-        if (nodePreloads.isNotEmpty()) {
-            val existing = env["NODE_OPTIONS"]?.trim().orEmpty()
-            val missing = nodePreloads.filter { flag ->
-                !existing.contains(flag.substringAfter("--require "))
-            }
-            env["NODE_OPTIONS"] = (missing + existing)
-                .filter { it.isNotBlank() }
-                .joinToString(" ")
-        }
+        // NODE_OPTIONS is owned by AdevEnvironment and always carries exactly one
+        // --require (lib/adev-node-preload.js), which loads the capability
+        // policy, the server-event reporter and the Next.js SWC bridge itself.
+        // Next.js re-serialises NODE_OPTIONS for its dev/build workers and joins
+        // repeated option values with a space, so a second --require would turn
+        // into one unresolvable module path and kill every worker.
 
         // npm lifecycle: always use the nativeLibraryDir ELF (not filesDir symlink).
         val npmShellNative = File(nativeLibDir, "libbin_adev_npm_shell.so")
@@ -2510,15 +2642,10 @@ adev_guard() {
             env["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "enable"
         }
 
-        // TLS: prefer a bundled/assembled CA bundle; else use the system store.
-        if (caBundleFile.exists() && caBundleFile.length() > 0) {
-            env["SSL_CERT_FILE"] = caBundleFile.absolutePath
-            env["GIT_SSL_CAINFO"] = caBundleFile.absolutePath
-            env["NODE_EXTRA_CA_CERTS"] = caBundleFile.absolutePath
-        } else {
-            env["SSL_CERT_DIR"] = "/system/etc/security/cacerts"
-            env["GIT_SSL_CAPATH"] = "/system/etc/security/cacerts"
-        }
+        // TLS trust is part of the environment contract (SSL_CERT_FILE,
+        // REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, GIT_SSL_CAINFO,
+        // PIP_CERT and SSL_CERT_DIR). Verification is never disabled here or
+        // anywhere else in the runtime.
         return env
     }
 

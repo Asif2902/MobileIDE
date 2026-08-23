@@ -1,5 +1,9 @@
 #include "adev_opencode_version.h"
 
+#ifndef ADEV_OPENCODE_HOST_TEST
+#include "adev_runtime_env.h"
+#endif
+
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -166,6 +170,13 @@ bool launcher_doctor_requested(int argc, char** argv) {
 }
 
 int launch_payload(int argc, char** argv) {
+#ifndef ADEV_OPENCODE_HOST_TEST
+    // Restore the shared runtime environment contract first: HOME, PATH,
+    // PREFIX, TMPDIR, the XDG base directories and the TLS trust store all come
+    // from one place, and only the OpenCode-specific overrides below are set
+    // here. Anything the launcher already inherited is left untouched.
+    adev_runtime_env_apply();
+#endif
     const std::string native_dir = executable_directory();
     if (native_dir.empty()) {
         std::fprintf(stderr, "opencode: cannot resolve APK native library directory: %s\n",
@@ -249,11 +260,14 @@ int launch_payload(int argc, char** argv) {
         {"TMPDIR", private_tmp},
         {"TMP", private_tmp},
         {"TEMP", private_tmp},
-        {"XDG_RUNTIME_DIR", private_tmp},
-        {"XDG_DATA_HOME", join_path(config_home, ".local/share")},
-        {"XDG_CONFIG_HOME", join_path(config_home, ".config")},
-        {"XDG_CACHE_HOME", join_path(config_home, ".cache")},
-        {"XDG_STATE_HOME", join_path(config_home, ".local/state")},
+        /*
+         * XDG_CACHE_HOME, XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME and
+         * XDG_RUNTIME_DIR are deliberately absent: they belong to the shared
+         * runtime environment contract (AdevEnvironment / adev-env.conf), which
+         * adev_runtime_env_apply() has already restored above. Re-deriving them
+         * here is what made OpenCode's children disagree with the terminal's
+         * about where caches and configuration live.
+         */
         {"BUN_SELF_EXE", runtime},
         {"TERMUX_EXEC__PROC_SELF_EXE", runtime},
     };

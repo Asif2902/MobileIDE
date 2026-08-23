@@ -1,6 +1,6 @@
 {
   "name": "mobileide",
-  "version": "1.3.17",
+  "version": "1.3.23",
   "private": true,
   "description": "MobileIDE - A desktop-class JavaScript development environment for Android",
   "license": "GPL-3.0-only",
@@ -43,7 +43,10 @@
     "test:ripgrep-android": "node scripts/test-ripgrep-android-host.mjs",
     "verify:release": "node scripts/verify-release-artifacts.mjs",
     "package:release": "node scripts/package-release-artifacts.mjs",
-    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:shell-navigation-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:workspace-policy-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run test:ripgrep-android && npm run audit:production"
+    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:shell-navigation-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:runtime-env-host && npm run test:prefix-retarget && npm run test:workspace-policy-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run test:ripgrep-android && npm run audit:production",
+    "prepare:prefix-retarget": "node scripts/generate-prefix-retarget.mjs",
+    "test:prefix-retarget": "node scripts/generate-prefix-retarget.mjs --check",
+    "test:runtime-env-host": "node scripts/test-runtime-env-host.mjs"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",
