@@ -1,3 +1,18 @@
+# A Dev Studio 1.3.24
+
+This phone-test beta restores `http://localhost` for on-device preview.
+
+## Fixed in 1.3.24
+
+- **Localhost preview.** `HOST=0.0.0.0` made Vite/Next listen IPv4-only.
+  Android Chrome often connects to `localhost` as `::1`, which that socket
+  never accepted, so the page failed while `http://127.0.0.1` still worked.
+  Node servers now bind dual-stack `::` (`ipv6Only: false`). `HOSTNAME` is
+  `127.0.0.1` so printed URLs are not `http://0.0.0.0`. Phone-test/release
+  also allow cleartext HTTP to local dev servers.
+
+## Previous beta: 1.3.23
+
 # A Dev Studio 1.3.23
 
 This phone-test beta makes Next 14 use the WebAssembly compiler on Android

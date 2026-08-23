@@ -35,6 +35,7 @@
   "requiredApkEntries": [
     "assets/runtime/etc/nanorc.termux",
     "assets/runtime/lib/adev-busybox.json",
+    "assets/runtime/lib/adev-listen-compat.js",
     "assets/runtime/lib/adev-nano.json",
     "assets/runtime/lib/adev-next-swc.js",
     "assets/runtime/lib/adev-node-preload.js",

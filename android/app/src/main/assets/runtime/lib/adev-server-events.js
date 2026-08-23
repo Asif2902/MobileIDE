@@ -4,6 +4,7 @@
 // Process/PTY managers consume these control records and independently verify
 // loopback reachability before publishing a preview URL.
 const net = require('node:net');
+const {applyNormalizedListen} = require('./adev-listen-compat.js');
 
 const PATCHED = Symbol.for('adev.server.events.patched');
 const PREFIX = '\u001eADEV_SERVER_EVENT ';
@@ -61,6 +62,6 @@ if (!net.Server.prototype[PATCHED]) {
       });
     });
 
-    return originalListen.apply(this, args);
+    return applyNormalizedListen(this, originalListen, args);
   };
 }

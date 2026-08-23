@@ -214,6 +214,34 @@ assert.match(preload, /adev-runtime-policy\.js/);
 assert.match(preload, /adev-server-events\.js/);
 assert.match(preload, /adev-next-swc\.js/);
 assert.match(preload, /installNextSwcHooks/);
+assert.match(preload, /setDefaultResultOrder/);
+assert.match(preload, /ipv4first/);
+
+const listenCompat = requireForTest(
+  path.join(root, 'android/app/src/main/assets/runtime/lib/adev-listen-compat.js'),
+);
+const dual = listenCompat.normalizeListenArgs([3000, '0.0.0.0']);
+assert.equal(dual.passthrough, undefined);
+assert.equal(dual.options.host, '::');
+assert.equal(dual.options.ipv6Only, false);
+assert.equal(dual.options.port, 3000);
+assert.equal(listenCompat.normalizeListenArgs([5173, 'localhost']).options.host, '::');
+assert.equal(
+  listenCompat.normalizeListenArgs([{port: 8080, host: '0.0.0.0'}]).options.ipv6Only,
+  false,
+);
+assert.equal(
+  listenCompat.normalizeListenArgs([{path: '/tmp/adev.sock'}]).passthrough,
+  true,
+);
+assert.equal(
+  listenCompat.normalizeListenArgs([443, 'example.com']).options.host,
+  'example.com',
+);
+const serverEvents = read(
+  'android/app/src/main/assets/runtime/lib/adev-server-events.js',
+);
+assert.match(serverEvents, /applyNormalizedListen/);
 assert.doesNotMatch(runtimeManager, /--require \$\{it\.absolutePath\}/);
 
 // ---------------------------------------------------------------------------

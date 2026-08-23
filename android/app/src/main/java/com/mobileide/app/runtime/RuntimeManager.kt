@@ -885,7 +885,9 @@ class RuntimeManager(private val context: Context) {
             agentEnv.appendLine("export TERMINFO=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
             agentEnv.appendLine("export TERMINFO_DIRS=\"${File(runtimeRoot, "share/terminfo").absolutePath}\"")
             agentEnv.appendLine("export HOST=0.0.0.0")
-            agentEnv.appendLine("export HOSTNAME=0.0.0.0")
+            // Display/bind hostname. 0.0.0.0 is not a valid URL host in Chrome;
+            // Node listen is rewritten to dual-stack `::` so localhost still works.
+            agentEnv.appendLine("export HOSTNAME=127.0.0.1")
             agentEnv.appendLine("export BROWSER=none")
             agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
             agentEnv.appendLine("export ADEV_PACKAGE_MANAGER_LOCK=\"${File(libDir, "adev-package-managers.json").absolutePath}\"")
@@ -2003,9 +2005,10 @@ adev_guard() {
                 host: '0.0.0.0',
                 port: 5173,
                 strictPort: false,
+                allowedHosts: true,
                 watch: { usePolling: true, interval: 1000 }
               },
-              preview: { host: '0.0.0.0', port: 4173 }
+              preview: { host: '0.0.0.0', port: 4173, allowedHosts: true }
             });
             """.trimIndent() + "\n"
         )
@@ -2503,10 +2506,13 @@ adev_guard() {
             "ADEV_NEXT_CACHE" to File(cacheDir, "next-swc").absolutePath,
             "ADEV_NPM_CLI" to File(libDir, "node_modules/npm/bin/npm-cli.js").absolutePath,
             // ---- Dev-server essentials (frontend + backend on device) ----
-            // Bind all interfaces so the in-app browser / phone can hit the server.
+            // HOST asks frameworks to bind the wildcard. adev-listen-compat
+            // then upgrades 0.0.0.0/localhost to dual-stack `::` so Chrome's
+            // IPv6 localhost (::1) and 127.0.0.1 both reach the server.
             "HOST" to "0.0.0.0",
-            // Next.js / many CLIs honor this for listen address.
-            "HOSTNAME" to "0.0.0.0",
+            // Next.js reads HOSTNAME for bind *and* printed URLs. 0.0.0.0 is
+            // not a valid URL in Android Chrome.
+            "HOSTNAME" to "127.0.0.1",
             // Don't try to open a desktop browser from the CLI.
             "BROWSER" to "none",
             // Keep npm progress bounded without falsifying TTY/CI behavior.

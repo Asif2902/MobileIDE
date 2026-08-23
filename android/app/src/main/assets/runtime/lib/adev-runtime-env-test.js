@@ -430,6 +430,14 @@ try {
     return `${targets.length} scoped mappings`;
   });
 
+  check('HTTP servers bind dual-stack so localhost and 127.0.0.1 both work', () => {
+    const listen = require(path.join(__dirname, 'adev-listen-compat.js'));
+    const rewritten = listen.normalizeListenArgs([3000, process.env.HOST || '0.0.0.0']);
+    assert(rewritten.options.host === '::', JSON.stringify(rewritten.options));
+    assert(rewritten.options.ipv6Only === false, 'IPv4-mapped loopback needs ipv6Only false');
+    return `${process.env.HOST || '0.0.0.0'} → ${rewritten.options.host} ipv6Only=${rewritten.options.ipv6Only}`;
+  });
+
   check('Next 14 SWC loader is rewritten to load WASM first on Android', () => {
     const swc = require(path.join(__dirname, 'adev-next-swc.js'));
     const next14 =

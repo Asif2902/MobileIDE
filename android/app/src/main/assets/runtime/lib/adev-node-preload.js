@@ -17,6 +17,17 @@
  */
 
 const path = require('node:path');
+const dns = require('node:dns');
+
+// Node 17+ may prefer IPv6 for "localhost". Android Chrome does too.
+// Keep Node's own loopback fetches on IPv4 first so they match 127.0.0.1.
+if (typeof dns.setDefaultResultOrder === 'function') {
+  try {
+    dns.setDefaultResultOrder('ipv4first');
+  } catch {
+    // Older Node builds reject an unknown order; leave the default.
+  }
+}
 
 function load(name) {
   try {
