@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
-Audit date: 2026-08-23
-Application: A Dev Studio 1.3.16 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.16.11
+Audit date: 2026-08-24
+Application: A Dev Studio 1.3.25 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.17.4
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -42,6 +42,9 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | Project import/export and Next process ownership | **IMPLEMENTED — 1.3.14 DEVICE GATE** | `8a0fa9d` | Android shared folders now offer open-in-place or cancellable private import; private projects export through persisted SAF tree permissions. Source/full filters, independent Git/hidden/secret controls, conflict policies, external project metadata, containment/no-follow cleanup, progress, and terminal/workspace switching pass Kotlin/Jest/compile checks. The shared-command preflight stops normal npm/pnpm/Yarn/Corepack/Next/Vite/native/Git mutation paths before partial output. Next 13.2.4/14.2.35/15.5.2/15.5.22/16.2.12 host lifecycle ownership tests pass. ADB is empty, so real SAF providers, imported-project npm symlink creation, Next HTTP/HMR/Ctrl+C, and export destinations remain device gates. |
 | Shell `~/workspaces` navigation | **API 30 VERIFIED** | `d50a9fe` | Runtime 1.16.12 creates `~/workspaces` as an app-owned symlink to the canonical private project root. `ls → cd → ls` on API 30 shows `workspaces`; the path is never overwritten if the user already created a real directory. |
 | OpenCode picker workspace home | **PHONE-TEST APK 1.3.17 — USER RETEST** | 1.3.17 | OpenCode excludes directory symlinks and starts its picker at process `HOME`. Runtime 1.16.13 sets OpenCode `HOME` to canonical `runtime/workspaces` and keeps XDG/Git/npm state on `runtime/home`. Device picker listing is a user retest. |
+| One authoritative environment + Next SWC WASM | **ARM64 API 30 VERIFIED — 1.3.23** | `08d791b` | Runtime 1.17.3 makes `AdevEnvironment` the single source for `HOME`/`PREFIX`/`PATH`/`TMPDIR`/`XDG`/`LD_LIBRARY_PATH`/`NODE_PATH`/`SHELL`/`TLS`; `NODE_OPTIONS` is exactly one `--require`; SWC WASM is cached under `cache/next-swc` and mapped into `node_modules/@next/swc-wasm-nodejs` (and `next/wasm/...`) with scoped layout. Device `adev-runtime-env-test` 22/22, Next 13/14/15, Vite, concurrent Express+Vite, OpenCode serve pass. Host `test-runtime-env-host` passes. |
+| Localhost dual-stack preview | **VERIFIED — 1.3.24** | `818706e` | Node `listen(0.0.0.0)` rewritten to `::` `ipv6Only:false` via `adev-listen-compat`; `HOSTNAME=127.0.0.1`; `network_security_config` allows cleartext loopback for phone-test/release. Probe binds on `0.0.0.0`/`127.0.0.1`/`::` all serve 200 on `localhost`, `127.0.0.1`, `::1`; Vite HMR verified in Chrome. Host `test-runtime-env-host` passes. |
+| OpenCode subprocess contract | **VERIFIED — 1.3.25** | `aaf2dcb` | `AdevEnvironment` now publishes `LD_PRELOAD` (exec-compat + termux-exec, merged), `PYTHON`/`PYTHONHOME`/`PYTHONPATH`, `TERMUX_*` to `adev-env.conf`/`adev-env.sh`; native `adev_runtime_env.c` merges `LD_PRELOAD`; `adev_opencode.cpp` builds full `tagfix:opencode-compat:exec-compat:termux` chain with Python fallback. With `HOME=workspaces` (OpenCode), `adev-runtime-env-test` 22/22 offline / 24/24 network, all shebangs/`env`/ chained interpreter/`npm`/`NODE_OPTIONS`/`python popen`/HTTPS pass; `demo-api` dual-stack `::` on 3000. Host suites pass. |
 
 ## Executive result
 

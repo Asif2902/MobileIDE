@@ -1,79 +1,75 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# A Dev Studio — MobileIDE
 
-# Getting Started
+React Native mobile IDE for Android with a bundled ARM64 developer runtime (Node, npm, Python, Git, Clang/LLD, BusyBox) that runs entirely on-device. The app ships a Monaco editor + xterm terminals in WebViews and a PTY + background-task manager for `npm run dev` / `next dev` / `opencode` on the phone.
 
->**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
+**Package:** `com.mobileide.app` (production) / `com.mobileide.app.phonetest` (phone-test) · **Current:** 1.3.25 (runtime 1.17.4) · **ABIs:** `arm64-v8a`, `x86_64` (runtime is ARM64) · **minSdk 29**, **targetSdk 36**, **JDK 17**, **NDK r29**
 
-## Step 1: Start the Metro Server
+## What it does
 
-First, you will need to start **Metro**, the JavaScript _bundler_ that ships _with_ React Native.
+- File explorer + Monaco editor (WebView)
+- Multi-session PTY terminal (`mobileide-pty` JNI, `ProcessBuilder` fallback)
+- Bundled runtime under `filesDir/runtime` — Node 26.4.0 / npm 11.16.0, Python 3.14, Git 2.55, curl, Nano, ripgrep, OpenCode 1.17.9 (ARM64/Bionic)
+- Git panel (JGit) + CLI Git over the same runtime + Keystore-backed credentials
+- Workspaces in `runtime/workspaces` (private, symlink-capable) with guided import from shared storage
 
-To start Metro, run the following command from the _root_ of your React Native project:
+## Project structure
 
-```bash
-# using npm
-npm start
-
-# OR using Yarn
-yarn start
+```
+src/                          # RN UI (screens, stores, components, native bridges)
+android/app/src/main/java/    # native modules, RuntimeManager, PTY, Git, Process
+android/app/src/main/assets/  # terminal/editor HTML, runtime support JS
+android/app/src/main/jniLibs/ # relocated ELFs as lib*.so (only exec-safe location)
+android/app/src/main/cpp/     # PTY, exec compat, opencode launcher, npm/busybox shims
+scripts/                      # fetch-runtime, host test suites
+runtime/                      # local download/extract work area (not the APK assets)
 ```
 
-## Step 2: Start your Application
+Important paths: `AdevEnvironment.kt` (single env contract), `RuntimeManager.kt` (extract + symlink farm + `native-map.json`), `adev-node-preload.js` (sole `NODE_OPTIONS --require`), `adev-next-swc.js` (WASM cache), `PtySessionManager.kt`.
 
-Let Metro Bundler run in its _own_ terminal. Open a _new_ terminal from the _root_ of your React Native project. Run the following command to start your _Android_ or _iOS_ app:
+## Getting started
 
-### For Android
-
-```bash
-# using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```sh
+npm ci
+npm start          # Metro
+npm run android    # or open android/ in Android Studio
 ```
 
-### For iOS
+The runtime is extracted on first launch into `filesDir/runtime`. `version.json` is the single version authority (`app` + `runtime`).
 
-```bash
-# using npm
-npm run ios
+## Building phone-test
 
-# OR using Yarn
-yarn ios
+```sh
+# JDK 17 is required — Gradle rejects 25
+npm run release:check
+cd android
+./gradlew :app:assemblePhoneTest :app:assemblePhoneTestAndroidTest
+adb install -r app/build/outputs/apk/phoneTest/app-phoneTest.apk
+adb install -r app/build/outputs/apk/androidTest/phoneTest/app-phoneTest-androidTest.apk
 ```
 
-If everything is set up _correctly_, you should see your new app running in your _Android Emulator_ or _iOS Simulator_ shortly provided you have set up your emulator/simulator correctly.
+Phone-test APKs are **debug-test signed** (`com.mobileide.app.phonetest`), not Play signed.
 
-This is one way to run your app — you can also run it directly from within Android Studio and Xcode respectively.
+## Runtime contract
 
-## Step 3: Modifying your App
+`AdevEnvironment` is the single source for `HOME`/`PREFIX`/`PATH`/`TMPDIR`/`XDG_*`/`LD_LIBRARY_PATH`/`LD_PRELOAD`/`NODE_PATH`/`SHELL`/`PYTHON*`/`TERMUX_*`/`SSL_CERT_FILE`. It is published as `etc/adev-env.conf` (native recovery) and `etc/adev-env.sh` (shell). Every shell, PTY, Node, Python, Git, Next.js, OpenCode and their children see the same values.
 
-Now that you have successfully run the app, let's modify it.
+Docs:
 
-1. Open `App.tsx` in your text editor of choice and edit some lines.
-2. For **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Developer Menu** (<kbd>Ctrl</kbd> + <kbd>M</kbd> (on Window and Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (on macOS)) to see your changes!
+- `ANDROID_COMPATIBILITY_PLAN.md` — five-phase ledger + post-phase updates (current: 1.3.25 / 1.17.4)
+- `RELEASE_NOTES.md` — per-beta notes (current: 1.3.25)
+- `CONTEXT.md` — living working memory (not committed)
+- `release/README.md` — production signing & artifact gates
 
-   For **iOS**: Hit <kbd>Cmd ⌘</kbd> + <kbd>R</kbd> in your iOS Simulator to reload the app and see your changes!
+## Verification
 
-## Congratulations! :tada:
+```sh
+npm run release:check          # JDK, lint, TS, licenses, secrets, runtime-lock, host suites
+node scripts/test-runtime-env-host.mjs
+node scripts/test-opencode-android-host.mjs
+```
 
-You've successfully run and modified your React Native App. :partying_face:
+Device matrix (`adev-runtime-env-test.js` 22/22 offline / 24/24 network, Next 13/14/15, Vite, `demo-api`, `opencode serve`) is exercised via `RuntimeDiagnosticsInstrumentationTest` on a connected phone.
 
-### Now what?
+## Troubleshooting
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [Introduction to React Native](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you can't get this to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+See [React Native Troubleshooting](https://reactnative.dev/docs/troubleshooting) for Metro issues. For ADEV-specific issues run `adev-doctor` in the in-app terminal.
