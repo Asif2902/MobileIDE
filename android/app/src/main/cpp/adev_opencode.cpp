@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <limits.h>
 #include <string>
 #include <sys/stat.h>
@@ -286,11 +287,92 @@ int launch_payload(int argc, char** argv) {
                      std::strerror(errno));
         return 71;
     }
+    // Ensure the recursive shebang + termux-exec chain is present even if the
+    // contract file is from an older install. The authoritative LD_PRELOAD is
+    // now part of the shared runtime contract, but a just-upgraded payload may
+    // still be launched with an old file on disk.
+    std::vector<std::string> ldPreloadValues;
+    ldPreloadValues.reserve(4);
+    ldPreloadValues.push_back(tagfix);
+    ldPreloadValues.push_back(compat);
+    {
+        std::string execCompat = join_path(native_dir, "liblib_adev_exec_compat.so");
+        if (ADEV_ACCESS(execCompat.c_str(), 4) == 0) ldPreloadValues.push_back(execCompat);
+        std::vector<std::string> termuxCandidates = {
+            join_path(native_dir, "liblib_libtermux_exec_linker_ld_preload_so.so"),
+            join_path(native_dir, "liblib_libtermux_exec_direct_ld_preload_so.so")
+        };
+        for (auto &c : termuxCandidates) if (ADEV_ACCESS(c.c_str(), 4) == 0) { ldPreloadValues.push_back(c); break; }
+    }
     if (!prepend_environment("LD_LIBRARY_PATH", {native_dir}) ||
-        !prepend_environment("LD_PRELOAD", {tagfix, compat})) {
+        !prepend_environment("LD_PRELOAD", ldPreloadValues)) {
         std::fprintf(stderr, "opencode: cannot configure Android dynamic libraries: %s\n",
                      std::strerror(errno));
         return 71;
+    }
+    // Fallback for upgrades where the contract file has not yet been rewritten
+    // to include the Python toolchain. New installs are already covered by
+    // adev_runtime_env_apply from the updated adev-env.conf.
+    if (std::getenv("PYTHON") == nullptr || std::getenv("PYTHONHOME") == nullptr) {
+        std::string runtimeRoot;
+        if (!workspace_home.empty() && workspace_home.size() > 11 &&
+            workspace_home.compare(workspace_home.size() - 11, 11, "/workspaces") == 0) {
+            runtimeRoot = workspace_home.substr(0, workspace_home.size() - 11);
+        } else if (!config_home.empty()) {
+            // config_home is <runtime>/home/.config -> strip /home/.config
+            const std::string suffix = "/home/.config";
+            if (config_home.size() > suffix.size() &&
+                config_home.compare(config_home.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                runtimeRoot = config_home.substr(0, config_home.size() - suffix.size());
+            } else {
+                size_t pos = config_home.find("/home");
+                if (pos != std::string::npos) runtimeRoot = config_home.substr(0, pos);
+            }
+        }
+        if (!runtimeRoot.empty()) {
+            DIR* dir = opendir(native_dir.c_str());
+            std::string pythonSo;
+            if (dir != nullptr) {
+                struct dirent* entry;
+                while ((entry = readdir(dir)) != nullptr) {
+                    std::string name(entry->d_name);
+                    if (name.rfind("libbin_python", 0) == 0 && name.size() > 3 && name.substr(name.size() - 3) == ".so") {
+                        if (pythonSo.empty() || name < pythonSo) pythonSo = name;
+                    }
+                }
+                closedir(dir);
+            }
+            if (!pythonSo.empty()) {
+                std::string pythonPath = join_path(native_dir, pythonSo.c_str());
+                if (ADEV_ACCESS(pythonPath.c_str(), ADEV_EXEC_ACCESS) == 0) {
+                    if (std::getenv("PYTHON") == nullptr) set_environment("PYTHON", pythonPath);
+                    if (std::getenv("NODE_GYP_FORCE_PYTHON") == nullptr) set_environment("NODE_GYP_FORCE_PYTHON", pythonPath);
+                    if (std::getenv("npm_package_config_node_gyp_python") == nullptr) set_environment("npm_package_config_node_gyp_python", pythonPath);
+                    if (std::getenv("PYTHONHOME") == nullptr) set_environment("PYTHONHOME", runtimeRoot);
+                    // best-effort PYTHONPATH: runtime/lib/python3.x
+                    std::string libDir = join_path(runtimeRoot.c_str(), "lib");
+                    DIR* lib = opendir(libDir.c_str());
+                    std::string best;
+                    if (lib != nullptr) {
+                        struct dirent* e;
+                        while ((e = readdir(lib)) != nullptr) {
+                            std::string n(e->d_name);
+                            if (n.rfind("python", 0) == 0) {
+                                struct stat st{};
+                                std::string cand = join_path(libDir.c_str(), n.c_str());
+                                if (stat(cand.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                                    if (best.empty() || n > best) best = n;
+                                }
+                            }
+                        }
+                        closedir(lib);
+                    }
+                    if (!best.empty() && std::getenv("PYTHONPATH") == nullptr) {
+                        set_environment("PYTHONPATH", join_path(libDir.c_str(), best.c_str()));
+                    }
+                }
+            }
+        }
     }
 
     if (launcher_doctor_requested(argc, argv)) {

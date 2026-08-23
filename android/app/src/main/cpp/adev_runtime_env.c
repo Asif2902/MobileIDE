@@ -190,6 +190,44 @@ static void adev_merge_path(const char *contract_path) {
     setenv("PATH", merged, 1);
 }
 
+static void adev_merge_preload(const char *contract_preload) {
+    const char *current = getenv("LD_PRELOAD");
+    if (current == NULL || current[0] == '\0' || adev_is_stale(current)) {
+        setenv("LD_PRELOAD", contract_preload, 1);
+        return;
+    }
+    char merged[ADEV_ENV_MAX_LINE];
+    if (strlen(current) >= sizeof(merged)) return;
+    strcpy(merged, current);
+    const size_t contract_length = strlen(contract_preload);
+    size_t end = contract_length;
+    while (end > 0) {
+        size_t start = end;
+        while (start > 0 && contract_preload[start - 1] != ':') --start;
+        const size_t entry_length = end - start;
+        if (entry_length > 0) {
+            char entry[PATH_MAX];
+            if (entry_length < sizeof(entry)) {
+                memcpy(entry, contract_preload + start, entry_length);
+                entry[entry_length] = '\0';
+                char needle[PATH_MAX + 2];
+                snprintf(needle, sizeof(needle), ":%s:", entry);
+                char haystack[ADEV_ENV_MAX_LINE + 2];
+                snprintf(haystack, sizeof(haystack), ":%s:", merged);
+                if (strstr(haystack, needle) == NULL &&
+                    strlen(merged) + entry_length + 2 < sizeof(merged)) {
+                    char updated[ADEV_ENV_MAX_LINE];
+                    snprintf(updated, sizeof(updated), "%s:%s", entry, merged);
+                    strcpy(merged, updated);
+                }
+            }
+        }
+        end = start > 0 ? start - 1 : 0;
+        if (start == 0) break;
+    }
+    setenv("LD_PRELOAD", merged, 1);
+}
+
 static void adev_apply_assignment(char *line) {
     char *separator = strchr(line, '=');
     if (separator == NULL) return;
@@ -200,6 +238,10 @@ static void adev_apply_assignment(char *line) {
 
     if (strcmp(name, "PATH") == 0) {
         adev_merge_path(value);
+        return;
+    }
+    if (strcmp(name, "LD_PRELOAD") == 0) {
+        adev_merge_preload(value);
         return;
     }
     const char *existing = getenv(name);

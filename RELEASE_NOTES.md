@@ -1,3 +1,14 @@
+# A Dev Studio 1.3.25
+
+This phone-test beta fixes the 8 OpenCode sandbox failures that remained after the runtime contract work.
+
+## Fixed in 1.3.25
+
+- **OpenCode now shares the full ADEV contract.** `AdevEnvironment` is the single authority for `LD_PRELOAD` (recursive shebang + `termux-exec`), `PYTHON`/`PYTHONHOME`/`PYTHONPATH` and the `TERMUX_*` family. They are published to `etc/adev-env.conf`/`etc/adev-env.sh` and restored by the native `adev_runtime_env` layer, so every OpenCode child sees the same `HOME`/`PREFIX`/`PATH`/`XDG`/`LD_LIBRARY_PATH`/`SSL_CERT_FILE`/`NODE_OPTIONS` as the interactive terminal. The native layer now merges `LD_PRELOAD` instead of only setting it when missing, and the OpenCode launcher builds the full `tagfix + opencode-compat + exec-compat + termux-exec` chain and falls back to a discovered Python for upgrades. `python`, `python3`, `node`, `npm`/`npx`, `env` and standard `#!/usr/bin/env node|python` plus chained-interpreter scripts run by direct path on noexec storage; `python -c "import os;os.popen(...)"` and `subprocess(...,shell=True)` use the APK-native shell; `npm root -g`/`prefix -g` and `NODE_OPTIONS` (exactly one `--require`) survive without manual exports.
+- Verified on Infinix X689B as `HOME=workspaces` (the OpenCode picker home): `adev-runtime-env-test.js` 22/22 offline and 24/24 with network, plus direct `node`/`python`/`npm`/`npx`, shebang and `env` checks, and `demo-api` dual-stack `::` on 3000. Runtime 1.17.4 upgrades existing phone-test installs.
+
+## Previous beta: 1.3.24
+
 # A Dev Studio 1.3.24
 
 This phone-test beta restores `http://localhost` for on-device preview.

@@ -79,6 +79,40 @@ class AdevEnvironment(
             ?.absolutePath
             ?: SYSTEM_SHELL
 
+    private fun findPythonExecutable(): File? =
+        nativeLibDir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("libbin_python") && it.name.endsWith(".so") }
+            ?.sortedBy { it.name }
+            ?.firstOrNull()
+
+    private fun findPythonLibDir(): File? =
+        libDir.listFiles()
+            ?.filter { it.isDirectory && it.name.matches(Regex("""python\d+\.\d+""")) }
+            ?.sortedByDescending { it.name }
+            ?.firstOrNull()
+
+    private fun findTermuxExecPreload(): File? = listOf(
+        File(nativeLibDir, "liblib_libtermux_exec_linker_ld_preload_so.so"),
+        File(nativeLibDir, "liblib_libtermux_exec_direct_ld_preload_so.so"),
+        File(libDir, "libtermux-exec-linker-ld-preload.so"),
+        File(libDir, "libtermux-exec-direct-ld-preload.so")
+    ).firstOrNull { it.isFile }
+
+    private fun inferPackageName(): String? {
+        val path = runtimeRoot.absolutePath
+        // /data/user/0/<pkg>/files/runtime or /data/data/<pkg>/files/runtime
+        val regex = Regex("""/(?:user/0|data)/([^/]+)/files/runtime""")
+        return regex.find(path)?.groupValues?.getOrNull(1)?.takeIf { it.contains('.') }
+    }
+
+    private fun selinuxContext(): String? = try {
+        val raw = File("/proc/self/attr/current").readBytes()
+        val end = raw.indexOf(0).let { if (it >= 0) it else raw.size }
+        String(raw, 0, end, Charsets.US_ASCII).trim().takeIf { v ->
+            v.isNotEmpty() && v.all { ch -> ch.isLetterOrDigit() || ch in "_:,.-" }
+        }
+    } catch (_: Exception) { null }
+
     /** Directories the contract promises exist and are writable. */
     fun ensureDirectories() {
         listOf(
@@ -178,6 +212,57 @@ class AdevEnvironment(
         if (nodePreload.isFile) {
             values["NODE_OPTIONS"] = "--require ${nodePreload.absolutePath}"
         }
+
+        // LD_PRELOAD chain for recursive shebang + noexec handling. Every process
+        // must inherit the same chain, otherwise a child spawned by OpenCode/Bun
+        // would see a shell-script interpreter on noexec storage as EACCES.
+        val termuxExecPreload = findTermuxExecPreload()
+        val execCompat = File(nativeLibDir, "liblib_adev_exec_compat.so").takeIf { it.isFile }
+        if (termuxExecPreload != null) {
+            val preload = listOfNotNull(execCompat?.absolutePath, termuxExecPreload.absolutePath).joinToString(":")
+            values["LD_PRELOAD"] = preload
+            values["TERMUX_EXEC__EXECVE_CALL__INTERCEPT"] = "enable"
+            values["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "enable"
+        } else if (execCompat != null) {
+            values["LD_PRELOAD"] = execCompat.absolutePath
+        }
+
+        // Python toolchain. The shim bin/python re-exec's the native ELF, but the
+        // interpreter still needs its homes to locate the stdlib via PREFIX.
+        findPythonExecutable()?.let { py ->
+            values["PYTHON"] = py.absolutePath
+            values["NODE_GYP_FORCE_PYTHON"] = py.absolutePath
+            values["npm_package_config_node_gyp_python"] = py.absolutePath
+            values["PYTHONHOME"] = runtime
+            findPythonLibDir()?.let { lib -> values["PYTHONPATH"] = lib.absolutePath }
+        }
+        // Minimal TERMUX contract so termux-exec knows this is ADEV, not Termux.
+        // These are the same values RuntimeManager layers on top; putting them in the
+        // authoritative contract means a child that only recovered via adev-env.conf
+        // (e.g. an OpenCode tool) still resolves correctly.
+        inferPackageName()?.let { pkg ->
+            values["TERMUX_APP__PACKAGE_NAME"] = pkg
+            val userData = "/data/user/0/$pkg"
+            val legacyData = "/data/data/$pkg"
+            // Prefer the dataDir that actually exists for this install.
+            val dataDir = when {
+                File(userData).isDirectory -> userData
+                File(legacyData).isDirectory -> legacyData
+                else -> userData
+            }
+            values["TERMUX_APP__DATA_DIR"] = dataDir
+            values["TERMUX_APP__LEGACY_DATA_DIR"] = legacyData
+        }
+        values["TERMUX__ROOTFS"] = runtime
+        values["TERMUX__ROOTFS_DIR"] = runtime
+        values["TERMUX__HOME"] = homeDir.absolutePath
+        values["TERMUX__PREFIX"] = runtime
+        values["TERMUX__PREFIX__TMP_DIR"] = tmp
+        try {
+            values["ANDROID__BUILD_VERSION_SDK"] = android.os.Build.VERSION.SDK_INT.toString()
+        } catch (_: Exception) { }
+        selinuxContext()?.let { values["TERMUX__SE_PROCESS_CONTEXT"] = it }
+
         return values
     }
 
