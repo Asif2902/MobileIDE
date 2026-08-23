@@ -14,6 +14,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.net.URI
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
@@ -288,6 +289,7 @@ class RuntimeManager(private val context: Context) {
      */
     private fun refreshInstallPathBindings() {
         createDirectoryStructure()
+        ensureWorkspaceHomeLink()
         restoreBinWritability()
         buildSymlinkFarm()
         createDropbearAliases()
@@ -1403,6 +1405,40 @@ adev_guard() {
                 [init]
                     defaultBranch = main
             """.trimIndent())
+        }
+        ensureWorkspaceHomeLink()
+    }
+
+    /**
+     * Keep projects discoverable from the normal shell home without merging
+     * user projects with npm, Git, and shell configuration files. The runtime
+     * documentation has always advertised ~/workspaces, so this link is part
+     * of the public shell layout rather than a convenience alias.
+     *
+     * Never replace a real user-created directory. A stale app-owned symlink
+     * is safe to repair after an APK/runtime-path change.
+     */
+    private fun ensureWorkspaceHomeLink() {
+        val link = File(homeDir, "workspaces")
+        try {
+            if (Files.isSymbolicLink(link.toPath())) {
+                val currentTarget = Files.readSymbolicLink(link.toPath()).toString()
+                val resolvedTarget = if (File(currentTarget).isAbsolute) {
+                    File(currentTarget)
+                } else {
+                    File(link.parentFile, currentTarget)
+                }
+                if (resolvedTarget.canonicalFile == workspacesDir.canonicalFile) return
+                Files.delete(link.toPath())
+            } else if (link.exists()) {
+                Log.w(TAG, "Preserving existing non-symlink shell path: ${link.absolutePath}")
+                return
+            }
+
+            Os.symlink(workspacesDir.absolutePath, link.absolutePath)
+            Log.i(TAG, "Shell workspace link ready: ${link.absolutePath} -> ${workspacesDir.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not create shell workspace link: ${e.message}")
         }
     }
 

@@ -30,6 +30,7 @@
     "test:runtime-policy": "node scripts/test-runtime-policy.mjs",
     "test:exec-android": "node scripts/test-exec-android-host.mjs",
     "test:agent-env-host": "node scripts/test-agent-env-host.mjs",
+    "test:shell-navigation-host": "node scripts/test-shell-navigation-host.mjs",
     "test:native-sysroot-host": "node scripts/test-native-sysroot-host.mjs",
     "test:phase2-host": "node scripts/test-phase2-host.mjs",
     "test:workspace-policy-host": "node scripts/test-workspace-policy-host.mjs",
@@ -42,7 +43,7 @@
     "test:ripgrep-android": "node scripts/test-ripgrep-android-host.mjs",
     "verify:release": "node scripts/verify-release-artifacts.mjs",
     "package:release": "node scripts/package-release-artifacts.mjs",
-    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:workspace-policy-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run test:ripgrep-android && npm run audit:production"
+    "release:check": "npm run verify:jdk && npm run lint && npm test -- --runInBand && npm run typecheck && npm run licenses:check && npm run check:secrets && npm run check:runtime-ownership && npm run check:build-tool-security && npm run test:runtime-policy && npm run test:exec-android && npm run test:agent-env-host && npm run test:shell-navigation-host && npm run test:native-sysroot-host && npm run test:phase2-host && npm run test:workspace-policy-host && npm run test:phase3-host && npm run test:phase4-host && npm run test:phase5-host && npm run test:opencode-android && npm run test:nano-android && npm run test:ripgrep-android && npm run audit:production"
   },
   "dependencies": {
     "@react-navigation/native": "^7.0.14",

@@ -419,7 +419,7 @@ Status meanings:
 | Symlinks | ✅ Integrated with explicit Android boundary | Runtime symlinks are rebuilt automatically on private app storage. Shared/FUSE/SAF cannot faithfully represent Unix symlinks, case sensitivity, modes, or execution, so the guided copy refuses links/escapes; developers must clone or extract the source directly into private storage when project symlinks must be preserved. No unsafe dereference fallback is offered. |
 | Environment variables | ⚠️ Fixed; device gate | App-scoped HOME/TMP/npm/TLS/Git/Termux/toolchain/package-policy values are comprehensive. Runtime 1.16.8 adds the exec-safe `ADEV_PYTHON_SHELL` contract and orders the recursive ADEV preload before termux-exec; corrected `NODE_OPTIONS`, target-specific ARM64 `CPATH`, Unix-personality `$LD`, and OpenCode's process-scoped `/tmp` remap remain. Global `CI`, no-color, Linux spoofing, and watcher polling are absent. Locale and interactive shared-storage transitions still need device checks. |
 | TTY / terminal | ⚠️ Startup observed; final UX/device retest | API 30 observed the terminal startup/prompt after invalid SELinux-context bytes were removed. Native `forkpty`, resize, process-group signals, reaping, and bounded fallback exist. Version 1.3.8 removes double safe-area padding, keeps shortcuts above the IME, reconciles Android composition without duplicate text, and copies soft wraps as logical lines. Keyboard/accessory/copy, repeated close, job control, and final-candidate behavior remain device gates. |
-| Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. |
+| Android private filesystem | ✅ Fully integrated | Runtime, caches, global npm installs, temp data, and default workspaces are under private storage, which supports Unix metadata and protects project data. Runtime 1.16.12 exposes the project root at `~/workspaces` without merging shell/npm configuration into project storage; the API-30 `ls → cd → ls` upgrade regression passes. |
 | Android shared filesystem | ⚠️ Android boundary with complete transfer UX; device gate | Shared folders remain available for viewing/editing, but ADEV now offers explicit open-in-place or private-import choices and keeps a visible Import action. Imports/exports use cancellable background plans with file/byte progress, source/full filters, independent Git/hidden/secret choices, conflict policies, transfer-owned staging, canonical containment, no-follow symlink cleanup, external metadata, and persisted SAF destination permissions. Successful import switches Explorer and a new Terminal to the private path. Normal package-manager/framework/native/Git mutation routes stop early with the exact import guidance. Android shared storage still cannot supply Unix symlinks/modes/execution, and real document providers remain a connected-device gate. |
 | Filesystem path sandbox | ✅ Fully integrated | Canonical `Path` containment is segment-aware. Traversal and sibling-prefix escapes are rejected, `/data/data`, `/data/user`, and broad `/mnt` access are removed, runtime bin/lib writes are protected, system/APEX paths are read-only, and explicit user-visible storage roots are bounded. Private imports also reject source symlinks/escapes and clean failed staging directories. |
 | SELinux / execution restrictions | ⚠️ Correct design; device gate | APK-native placement handles direct executables; `termux-exec` receives actual app/rootfs/SDK/SELinux variables for generated scripts. Validate without AVC denials on API 29, 34, 35, and 36 devices. |
@@ -1324,6 +1324,27 @@ OpenCode compatibility basis:
   ARM64 runtime during this cycle. Automatic foreground browser handoff for
   `opencode web` did not pass and is intentionally abandoned for this release;
   it is not reported as complete.
+
+### Runtime 1.16.12 shell-navigation hotfix evidence — 2026-08-23
+
+- Reproduced on the connected Infinix X689B/API 30: from `my-project`, the
+  sequence `ls`, `cd`, `ls` entered the isolated runtime home but displayed
+  only `ADEV-RUNTIME.md`. The documented `~/workspaces` path did not exist,
+  even though Git/imported projects were stored under `runtime/workspaces`.
+- Root cause: ADEV correctly separated shell/package-manager configuration
+  from executable project storage, but never created the advertised navigation
+  link between them. This was a platform layout defect, not an `ls` or `cd`
+  implementation failure.
+- Runtime 1.16.12 creates and repairs an app-owned `~/workspaces` symlink on
+  fresh install and upgrade. A real user-created path is preserved rather than
+  overwritten. Standard no-argument `cd` semantics remain unchanged.
+- The new host regression is included in `release:check`. The signed runtime
+  lock, Phase-4 policy, workspace policy, recursive execution tests, Kotlin/
+  Java/native compilation, and the 277-task phone-test APK build pass.
+- Physical upgrade evidence: RuntimeManager logged the exact link from
+  `runtime/home/workspaces` to `runtime/workspaces`; `ls → cd → ls` then showed
+  `ADEV-RUNTIME.md  workspaces`, and `cd workspaces; ls` showed `demo-api`,
+  `demo-web`, and `my-project`.
 
 ## Definition of done for Android-native npm installs
 
