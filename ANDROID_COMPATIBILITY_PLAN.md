@@ -1,15 +1,15 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-23
-Application: A Dev Studio 1.3.14 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.16.9
+Application: A Dev Studio 1.3.16 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.16.11
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
 
 | Phase | Status | Commit | Evidence / next action |
 |---|---|---|---|
-| 1. Runtime, native builds, shell, and core CLI | **IMPLEMENTED — DEVICE GATE** | `8c20d06` | Host policy/unit/build/ELF/closure checks pass. `adev-phase5-test` and the Phase 5 ARM64 fresh/upgrade matrix now automate the doctor/native-build/network evidence; connected runner execution remains. |
+| 1. Runtime, native builds, shell, and core CLI | **ARM64 API 30 BASELINE VERIFIED — MATRIX GATE** | `8c20d06` + `aef4986` | A physical ARM64/API-30 upgrade runs a normal globally installed `#!/usr/bin/env node` CLI, env-Python, system-sh, Python `os.popen`, N-API C/C++ install/rebuild/direct-node-gyp/load/uninstall/reinstall, and a C++20 V8 addon build/load without chmod or project patches. API 29/34/35/36, strict-16-KiB and x86_64 developer-runtime coverage remain. |
 | 2. Node servers, Next.js, preview, and watching | **IMPLEMENTED — DEVICE GATE** | `ba14e01` | Host launcher/event/type/build/APK checks pass. The Phase 5 device/UI matrix owns Node/Express/Vite/Next/HMR/port/process cleanup evidence; connected runner execution remains. |
 | 3. Git, package managers, optional toolchains, and Bun policy | **IMPLEMENTED — DEVICE / FEATURE GATE** | `93b3527` | Keystore-backed Git credentials, strict SSH, proxy/custom-CA policy, offline pnpm/Yarn, and the Bun/tool-pack capability policy pass. Live network auth remains in the device matrix; absent large toolchains and Git LFS remain explicit signed feature boundaries. |
 | 4. Android 16, ABI, filesystem, and runtime distribution | **IMPLEMENTED — DEVICE / FEATURE / HOST RELEASE GATES** | `001cc17` | React Native 0.86.2, API 36, NDK r29, Gradle 9.3.1, dual-ABI app/native helpers, signed runtime locking, guided private imports, and 16 KiB checks pass. Phase 5 now automates the connected/release gates; the full x86_64 developer runtime remains a signed feature boundary. |
@@ -37,7 +37,8 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | Unix LLD personality and OpenCode short-version correction | **FIXED — 1.3.11 DEVICE RETEST** | `8054295` | The 1.3.9 phone run compiled `bufferutil.o` and then proved relocated generic `lld` could not select the Unix driver. Runtime 1.16.5 routes Clang, `$LD`, PATH, shell, and Java execution through a dual-ABI APK-native bridge that supplies `argv[0] = ld.lld`. Runtime 1.16.6 supersedes the former OpenCode short-option forwarding with fully native diagnostics. Final addon link/load and diagnostic retest remain pending because ADB has no device. |
 | Next.js version routing and native OpenCode diagnostics | **HOST/APK VERIFIED — 1.3.11 DEVICE RETEST** | `fbfe48d` | The phone proved Next 15.5.2 rejects the launcher's forced `--webpack`; exact package inspection confirmed Next 15 uses Webpack when Turbo flags are absent and Next 16 requires `--webpack`. Runtime 1.16.6 implements that split and tests 15.5.2/15.5.22/16.2.12. OpenCode version/help/path diagnostics now terminate natively without Bun or `/tmp`; unsafe modes retain exit 69. Full host, dual-ABI build, APK, closure, and 16 KiB gates pass. ADB is empty, so real framework and CLI execution remains pending. |
 | OpenCode real-runtime `/tmp` compatibility | **HOST/NATIVE VERIFIED — 1.3.12 DEVICE RETEST** | `b925fd2` | Direct ARM64 payload evidence proved every mode failed first at literal `mkdir("/tmp")`; the pinned upstream tagfix only disables Bionic heap tagging. Runtime 1.16.7 adds an OpenCode-process-only libc path shim that maps exact `/tmp` paths to canonical app-private temp, rejects traversal, restores the upstream tagfix/OpenTUI/library environment, and forwards every standard mode to the real payload. Host forwarding/remap tests and dual-ABI 16 KiB native builds pass. ADB is empty, so version/help/paths/run/serve/web/TUI remain explicitly uncertified. |
-| Recursive shebang and Python shell compatibility | **HOST/NATIVE VERIFIED — 1.3.13 DEVICE RETEST** | `b2b017d` | The reproduced global npm CLI failure was a generic interpreter-chain bug: termux-exec rewrote `#!/usr/bin/env node` to ADEV's `runtime/bin/env`, but that interpreter is itself a shell script and was then loaded as ELF (`23212f73` = `#!/s`). Runtime 1.16.8 preloads an ADEV-owned bounded recursive resolver before termux-exec, covers the complete exec family, maps missing FHS interpreters through PATH, detects loops, and then delegates final Android noexec/linker work. Python `shell=True`/`os.popen()`, the native sysroot, and shipped text helpers no longer use the stale `com.termux` shell. Package-neutral global npm CLI, env-Node, env-Python, system-sh, and Python popen regressions are bundled in the Phase 1/5 device matrix. Host contracts and both NDK ABIs pass; ADB is empty. |
+| Recursive shebang and Python shell compatibility | **ARM64 API 30 VERIFIED — MATRIX GATE** | `b2b017d` + `aef4986` | The resolver now treats virtual `/usr/bin/env` specially instead of selecting Android Toybox from system-first PATH, then executes an APK-native `env` which locates Node/Python/Bash beside itself. On the connected phone, untouched `@achswap/mcp-sdk` runs as `achswap --help`; the package-neutral global npm CLI, env-Python, system-sh, virtual `/bin/sh`, and Python `os.popen()` regressions also pass. No AchSwap-specific branch exists. Other API/ABI combinations remain. |
+| libc++ / V8 native-addon completion | **ARM64 API 30 VERIFIED — MATRIX GATE** | `aef4986` | The compiler now orders libc++ before target-specific/generic Bionic headers so libc++ `include_next` reaches Bionic types. The Node 26 fixture uses its required C++20 mode. Physical-phone evidence shows the V8 addon compiling, linking, and loading; N-API C and C++ completed the full install/rebuild/direct-build/load/consumer cycle. |
 | Project import/export and Next process ownership | **IMPLEMENTED — 1.3.14 DEVICE GATE** | `8a0fa9d` | Android shared folders now offer open-in-place or cancellable private import; private projects export through persisted SAF tree permissions. Source/full filters, independent Git/hidden/secret controls, conflict policies, external project metadata, containment/no-follow cleanup, progress, and terminal/workspace switching pass Kotlin/Jest/compile checks. The shared-command preflight stops normal npm/pnpm/Yarn/Corepack/Next/Vite/native/Git mutation paths before partial output. Next 13.2.4/14.2.35/15.5.2/15.5.22/16.2.12 host lifecycle ownership tests pass. ADB is empty, so real SAF providers, imported-project npm symlink creation, Next HTTP/HMR/Ctrl+C, and export destinations remain device gates. |
 
 ## Executive result
@@ -381,22 +382,22 @@ Status meanings:
 |---|---|---|
 | Node.js | ✅ Fully integrated | Termux Node 26.4.0 is packaged as an ARM64 ELF in `nativeLibraryDir`; headers match 26.4.0. Runtime wrappers use the absolute executable path. |
 | npm / npx | ✅ Fully integrated | npm 11.16.0 and both JS entrypoints are bundled and launched through the native Node executable. Cache, prefix, user config, optional dependency, and noninteractive settings are app-scoped. |
-| node-gyp | ⚠️ Fixed; 1.3.11 device retest | node-gyp 12.3.0 is bundled. The 1.3.9 phone log proves configuration, Python, Make, ARM64 UAPI resolution, and compilation now pass: `bufferutil.o` was produced. Module linking then exposed relocated generic LLD lacking its Unix personality. Runtime 1.16.5 supplies an APK-native `ld.lld` argv-zero bridge to Clang and `$LD`; 1.16.6 retains it. Fresh install/rebuild/link/`.node` load remains the final device test. |
-| Python | ⚠️ Fixed; 1.3.13 device retest | Python 3.14.6, all 589 standard-library files including `zipfile/_path`, native modules, and gyp environment are packaged. Runtime 1.16.8 removes the bundled `subprocess.py` hard-code to `/data/data/com.termux/files/usr/bin/sh`; `shell=True` and `os.popen()` use ADEV's exec-safe shell or `/system/bin/sh`. The package-neutral Phase 1/5 device harness executes a popen regression; connected evidence remains. |
-| Clang / Make / build tools | ⚠️ Fixed; 1.3.11 device retest | Clang/LLVM 21.1.8, GNU Make 4.4.1, generic LLD plus a Unix/ELF personality bridge, `llvm-ar`, `pkg-config`, compiler resources, headers, CRT objects, and libraries are present. The phone compiled `bufferutil.o`; Runtime 1.16.5 fixes the next link failure by passing `ld.lld` as argv zero from an executable APK-native launcher, retained by 1.16.6. A real addon link/load remains the device acceptance test. |
+| node-gyp | ✅ ARM64/API-30 baseline verified | node-gyp 12.3.0, Python, APK-native Make/Clang/LLD and Node headers are bundled. The connected phone completed N-API C/C++ install, rebuild, direct `node-gyp rebuild`, load, consumer install/uninstall/reinstall, plus a C++20 V8 addon compile/link/load. Remaining certification is the API/ABI/storage matrix, not the original EACCES path. |
+| Python | ✅ ARM64/API-30 baseline verified | Python 3.14.6 includes all 589 standard-library files and native modules. The connected Phase 1 run passed env-Python and `os.popen()` through ADEV's exec-safe shell; no stale `com.termux` shell was used. Other API/ABI combinations remain release gates. |
+| Clang / Make / build tools | ✅ ARM64/API-30 baseline verified | Clang/LLVM 21.1.8, GNU Make 4.4.1, Unix LLD bridge, `llvm-ar`, headers, CRT objects, Bionic and libc++ include order, and libraries compiled and linked real N-API/V8 addons on the connected phone. Optional tool packs and x86_64 developer compilation remain explicit feature/matrix gates. |
 | BusyBox / Linux CLI | ⚠️ Integrated; final device retest | Pinned Termux BusyBox 1.38.0-1 is ELF64 AArch64/Bionic, not the previously staged ELF32 payload. Executable SHA-256 is `db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058`; its exact SONAME closure and `0x4000` alignment pass. The argv-zero dispatcher covers the essential command suite; `w` explicitly maps to Android uptime because app UIDs have no utmp login-session access. |
 | Nano | ⚠️ Integrated; final device retest | Nano 9.2 is a signed-index-verified ARM64/Bionic PIE with exact dependencies, 40 terminfo entries, 44 syntax definitions, generated prefix-correct `.nanorc`, and Nano/Git/editor defaults. Host, lock, license, closure, and final-APK content checks pass; interactive phone editing remains. x86_64 honestly falls back to `vi`. |
 | Build target | ✅ Fully integrated | Generated native addons target `aarch64-linux-android29`, matching `minSdk`, rather than the SDK level of the phone doing the build. |
 | 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. The 1.3.11 verifier checks the final APK with `zipalign -P 16` and scans all 248 packaged ELF files: every loadable file has `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
-| PATH resolution | ⚠️ Fixed; 1.3.13 device retest | System tools are first; executable APK libraries and app trampolines follow. Runtime 1.16.8 resolves missing `/usr/bin/*` and `/bin/*` shebang interpreters through that PATH, follows up to eight script-interpreter levels, detects cycles, then delegates the final executable to termux-exec. Generic global npm bins now have a package-neutral device fixture; connected execution remains. |
+| PATH resolution | ✅ ARM64/API-30 baseline verified | System tools stay first, but virtual `/usr/bin/env` is deliberately routed to ADEV's native interpreter before Toybox. The connected phone runs both the untouched AchSwap global CLI and the isolated package-neutral global npm fixture by command name. Recursive Node/Python/system-sh resolution passes without bad-ELF or EACCES. |
 | Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. |
 | Child process: Java spawn | ⚠️ Integrated; device gate | `ProcessManager` clears inherited host state, installs the runtime environment, resolves core/runtime/build commands, launches each task under `setsid`, obtains the PID from the child instead of reflection, streams output, and terminates the process group with a `/proc` descendant fallback. Device process-tree tests remain. |
 | Child process: Node `spawn` / `exec` / `fork` | ⚠️ Fixed; automated 1.3.13 device gate | The preload and complete Termux variables are inherited by Node children. ADEV now intercepts `execve`, `execv`, `execvp`, `execvpe`, `execl`, `execlp`, and `execle` before termux-exec, so PATH-based child launches and nested shebangs share one resolver. Phase 5 executes spawn/execFile/exec/fork plus a globally installed npm CLI by command name. Connected runner evidence is still required. |
 | Shell execution | ⚠️ Fixed; 1.3.13 device retest | Native Bash is preferred; `/system/bin/sh` is the fallback. Runtime 1.16.8 exports that choice as `ADEV_PYTHON_SHELL`, removes the stale Termux shell from Python/Git helper text and `paths.h`, and remaps legacy compiled requests at the exec boundary. Existing POSIX `NODE_OPTIONS` generation tests remain. Connected Vite/Python shell execution is still required. |
 | npm lifecycle scripts | ⚠️ Fixed; device retest | `NPM_CONFIG_SCRIPT_SHELL` points to the APK-installed `adev-npm-shell`; direct JS and `node-gyp` scripts bypass app-data execution. Complex commands fall back to Bash plus `termux-exec`, and native builds enter Make through `adev_make`. Unsupported npm 11 `optional`, platform, architecture, Python, nodedir, target, and ldflags config injection was removed in favor of real host identity, normal environment variables, and supported node-gyp package config. |
 | Optional dependencies | ⚠️ Policy integrated; device gate | Optional dependencies stay enabled while npm sees Android/ARM64. The global Linux spoof is gone. `adev-resolve-package` permits only Android/Bionic, exact hash-approved static/musl, source-build, or an explicit unsupported decision; the verified static/musl list is intentionally empty until artifacts are tested and locked. |
-| Native addons | ⚠️ Integrated; device/feature gate | Standard ARM64 C/C++ `node-gyp` source builds have a complete base toolchain. Bundled N-API C/C++, V8, NAN, `prebuild-install` fallback, and `node-pre-gyp` fallback fixtures exercise install/rebuild/direct build/load/uninstall/reinstall. Optional tool packs and the full x86_64 developer runtime have signed capability boundaries but still require production feature payloads. |
-| `.node` loading | ⚠️ Device gate | ARM64 build output is Android/Bionic and Node-version-matched. API 29/34/35/36 device tests must prove `dlopen()` plus transitive library lookup from private projects; x86_64 addon builds wait for the signed x86_64 developer-runtime feature. |
+| Native addons | ⚠️ ARM64 baseline verified; extended matrix gate | N-API C/C++ and V8 fixtures build and load on ARM64/API 30; the N-API fixtures also pass rebuild, direct node-gyp and consumer uninstall/reinstall. Network-only NAN/prebuild/node-pre-gyp fallbacks and other API levels remain in the extended matrix. |
+| `.node` loading | ⚠️ ARM64 baseline verified; matrix gate | ARM64 Android/Bionic, Node-version-matched N-API and V8 outputs load on the physical phone. API 29/34/35/36, strict-page and x86_64 feature-pack cases remain. |
 | Development task registry | ⚠️ Integrated; device gate | Background tasks and PTY sessions share typed task/status/log/port records. PIDs, process groups, descendants, sources, persistence, exit/failure state, and bounded logs are exposed through task APIs. Stop signals the group and waits for verified ports to close; device orphan/process-tree tests remain. |
 | Node / Express / Vite servers | ⚠️ Integrated; device gate | Structured Node listen/close/error events and `/proc` socket ownership discover arbitrary ports. Run/Preview has first-class Node, Express, Vite, Next, build, test, shell, and generic task types. The bundled device harness covers plain Node, Express, and Vite nested edits; it still needs a connected device. |
 | Next.js | ⚠️ Fixed; 1.3.14 device gate | Version routing keeps Next 15 and earlier on their Webpack default and gives Next 16+ exactly one supported `--webpack` selector. Runtime 1.16.9 also replaces in-process `require(next.bin)` with an owned real child CLI that inherits stdio/cwd/env, remains attached for the server lifetime, forwards signals and exit status, and kills the child if its owner disappears. Host regressions cover 13.2.4, 14.2.35, 15.5.2, 15.5.22, and 16.2.12, including PID/PPID ownership, long-lived supervision, signal/exit/cleanup, and direct/lifecycle routing without project mutation. Real App/Pages dev/HMR/build/start/Ctrl+C remains a device gate. |
@@ -810,12 +811,22 @@ Host evidence on 2026-07-29:
 - No APK, signing credential, build cache, or existing
   `ADevStudio-v1.3.3-arm64.apk` is included in the Phase 1 commit.
 
-Blocked device evidence:
+Connected ARM64/API-30 evidence on 2026-08-23:
 
-- `adb` is available, but no Android emulator or physical target is connected.
-- Fresh install and upgrade on ARM64 API 29/API 36, SELinux/AVC inspection,
-  TLS network probes, PTY/process-tree stress, and native `.node` load remain
-  required before removing the Phase 1 device gate.
+- Upgrade installation and terminal startup: pass.
+- Untouched `@achswap/mcp-sdk` global command through `#!/usr/bin/env node`:
+  `achswap --help` pass.
+- Isolated package-neutral global npm CLI, env-Python, system-sh, virtual
+  `/bin/sh`, and Python `os.popen()`: pass in `adev-phase1-test`.
+- N-API C and C++ install, load, rebuild, direct node-gyp, consumer install,
+  uninstall and reinstall: pass.
+- Node 26 C++20 V8 addon compile, link and `node test.js` load: pass.
+
+Remaining device evidence:
+
+- Fresh install plus API 29/34/35/36, strict 16 KiB, x86_64 developer-runtime,
+  SELinux/AVC, TLS/network fallbacks and PTY/process-tree stress remain before
+  removing the cross-device Phase 1 gate.
 
 ## Phase 2 acceptance record
 
@@ -1284,11 +1295,42 @@ OpenCode compatibility basis:
   Python popen, fresh/upgrade extraction, and the original installed package
   must run on ARM64 before this row can be promoted from device retest.
 
+### 1.3.16 ARM64 execution/native-build evidence — 2026-08-23
+
+- Device: Infinix X689B, ARM64, Android 11/API 30, package
+  `com.mobileide.app.phonetest`, upgraded in place with the 1.3.16 phone-test
+  APK.
+- The global-CLI failure was traced past the original recursive resolver:
+  virtual `/usr/bin/env` incorrectly selected `/system/bin/env` because ADEV's
+  PATH intentionally places system tools first. Toybox then attempted the
+  writable app-data `bin/node` script and returned EACCES.
+- The permanent correction routes virtual env to a dual-ABI APK-native
+  executable. It resolves Node, Python and Bash from executable APK siblings,
+  independent of interactive shell functions or bootstrap variables.
+- Exact reproduction passes: `npm install -g @achswap/mcp-sdk` followed by
+  untouched `achswap --help`. The generic isolated global npm CLI and Python
+  shell regressions also pass; no package name appears in the resolver.
+- Native compilation progressed through N-API C/C++ and exposed libc++ search
+  ordering. ADEV now supplies the Android order: libc++ first, then the target
+  ARM64 and generic Bionic headers. The Node 26 V8 fixture uses C++20 because
+  those headers contain C++20 constraints.
+- Physical-phone V8 evidence: `npm install --foreground-scripts` compiled and
+  linked `Release/addon.node` in 11 seconds; `node test.js` exited zero. Host
+  exec/sysroot/Phase-5 policy checks and the 277-task phone-test APK build pass.
+- Final APK verification: 361,646,760 bytes, SHA-256
+  `0A13DF899091DEB5B3EB481EEF0EC998A34227D0FED7F08EFC68E83D5F6704C4`, exact
+  ARM64+x86_64 app ABIs, 257 ELF files and minimum load alignment `0x4000`.
+- OpenCode CLI version/help/debug/run/serve and web HTTP paths reached the real
+  ARM64 runtime during this cycle. Automatic foreground browser handoff for
+  `opencode web` did not pass and is intentionally abandoned for this release;
+  it is not reported as complete.
+
 ## Definition of done for Android-native npm installs
 
-Current status: **NOT YET MET**. The platform changes and final APK are built,
-but the following definition requires connected execution of the original
-project and fixture matrices. A host-only build cannot satisfy it.
+Current status: **MET FOR THE ARM64/API-30 BASELINE; FULL MATRIX NOT YET MET**.
+The original global-CLI path and local native fixtures now execute on a physical
+phone. The following definition still requires the other supported API/ABI,
+storage and strict-page combinations before production-wide certification.
 
 - A fresh install on every supported Android/API/ABI combination can run
   `npm install` for the fixture matrix without `chmod`, `npm rebuild`, manual

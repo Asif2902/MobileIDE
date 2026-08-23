@@ -1,4 +1,55 @@
-# A Dev Studio 1.3.14
+# A Dev Studio 1.3.16
+
+This phone-test beta completes the current OpenCode Android repair cycle. It
+fixes the Android/Bionic process layer and bundles generic developer tooling;
+it does not patch an individual OpenCode project or dependency.
+
+## Fixed in 1.3.16
+
+- OpenCode 1.17.9 uses the real pinned ARM64 Android/Bionic payload for version,
+  help, paths, agent runs, servers, web, and TUI paths.
+- API 29/30 OpenCode children disable Bionic heap pointer tags during early
+  process startup, preventing Bun's uSockets pointer truncation abort. API 31+
+  uses the public Bionic operation.
+- Literal `/tmp` access remains scoped to OpenCode and maps into canonical,
+  writable app-private cache storage.
+- Direct `/bin/sh`, `/usr/bin/sh`, and stale Termux shell paths now resolve
+  recursively to an executable Android shell. OpenCode itself defaults to
+  `/system/bin/sh`, eliminating the reproduced `/bin/sh[3]` parse failure.
+- A pinned Termux ripgrep 15.2.0 ARM64/Bionic PIE and its existing PCRE2 closure
+  are exposed through an exec-safe `rg` trampoline. OpenCode therefore never
+  downloads the wrong x86_64 musl artifact on ARM64.
+- Standard global npm CLIs now resolve virtual `/usr/bin/env` to ADEV's native
+  interpreter instead of Android Toybox. Untouched `#!/usr/bin/env node` and
+  Python entrypoints therefore execute by command name without EACCES, bad ELF,
+  package-specific wrappers, or shell bootstrap state.
+- The native compiler uses Android's required libc++ → target Bionic → generic
+  Bionic header order. Node 26 C++20 V8 addons can compile and load alongside
+  the existing N-API C/C++ paths.
+- Runtime 1.16.11 upgrades existing installs automatically; no cache deletion,
+  `chmod`, project edit, or manual OpenCode reinstall is required.
+
+## Verification status
+
+- Host resolver, OpenCode, ripgrep, provenance, native-build, and signed-lock
+  contracts pass. Both ARM64 and x86_64 ADEV compatibility helpers build with
+  NDK r29 and 16 KiB alignment.
+- Physical ARM64/API-30 verification passes for the exact AchSwap global CLI,
+  the package-neutral global npm fixture, env-Python/system-sh/Python popen,
+  N-API C/C++ install/rebuild/direct-node-gyp/load/consumer cycles, and a
+  C++20 V8 addon compile/link/load.
+- OpenCode version/help/debug/run/serve and web HTTP paths reach the real ARM64
+  runtime. Automatic foreground browser handoff for `opencode web` remains
+  unresolved and is explicitly abandoned in this beta rather than claimed.
+- The final dual-ABI phone-test APK is 361,646,760 bytes with SHA-256
+  `0A13DF899091DEB5B3EB481EEF0EC998A34227D0FED7F08EFC68E83D5F6704C4`.
+  Its 257 packaged ELF files pass dependency/ABI checks and every loadable ELF
+  has at least `0x4000` segment alignment. It is a test-signed beta APK, not a
+  production/Play-signed artifact.
+- The OpenCode functional payload remains ARM64-only. x86_64 reports an explicit
+  unsupported boundary and never substitutes a Linux/glibc payload.
+
+## Previous beta: 1.3.14
 
 This phone-test beta adds a general Android project import/export model and
 repairs the Next.js dev-server ownership bug. It does not patch an individual
