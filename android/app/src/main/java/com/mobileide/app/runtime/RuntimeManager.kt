@@ -783,6 +783,12 @@ class RuntimeManager(private val context: Context) {
                 applets.forEach { ap ->
                     sb.appendLine("$ap() { adev_applet $ap \"\$@\"; }")
                 }
+                // BusyBox clear commonly emits only CSI 2J, which leaves
+                // xterm scrollback and ADEV's copy buffer intact. Emit the
+                // standard erase-display + erase-saved-lines contract. This
+                // writes display bytes only; it never signals the PTY or an
+                // active SSH child.
+                sb.appendLine("clear() { printf '\\033[H\\033[2J\\033[3J'; }")
                 sb.appendLine()
             }
 
@@ -1165,6 +1171,10 @@ adev_guard() {
             // termux-exec translates #!/bin/sh to $PREFIX/bin/sh. Keep this
             // explicit bridge even though /system/bin is earlier on normal PATH.
             writeScript("sh", "#!/system/bin/sh\nexec /system/bin/sh \"\$@\"\n")
+            writeScript(
+                "clear",
+                "#!/system/bin/sh\nprintf '\\033[H\\033[2J\\033[3J'\n"
+            )
 
             // `env` must be ADEV's, not Toybox's, for every caller.
             //

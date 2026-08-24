@@ -66,6 +66,14 @@ describe('Android terminal Linux command policy', () => {
     });
   });
 
+  it('clears viewport, saved lines, and replay state without signaling the PTY', () => {
+    expect(runtime).toContain(
+      "clear() { printf '\\\\033[H\\\\033[2J\\\\033[3J'; }",
+    );
+    expect(runtime).toContain('writeScript(\n                "clear"');
+    expect(runtime).toContain("printf '\\\\033[H\\\\033[2J\\\\033[3J'");
+  });
+
   it('materializes non-system applets for direct child-process PATH lookup', () => {
     const trampolineBlock = runtime.match(
       /if \(busyboxRuntime\.exists\(\) && busyboxDispatcher\.exists\(\)\) \{([\s\S]*?)\n\s*\}/,

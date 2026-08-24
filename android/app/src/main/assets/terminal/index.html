@@ -175,7 +175,65 @@
     } catch (e) {}
 
     // --- Input -----------------------------------------------------------------
+    let submittedInputLine = '';
+    let awaitingClearSequence = false;
+    let pendingFullClear = false;
+    let fullClearTimer = null;
+    let clearSequenceProbe = '';
+
+    function cancelFullClearTimer() {
+      if (fullClearTimer !== null) clearTimeout(fullClearTimer);
+      fullClearTimer = null;
+    }
+
+    function notifyBufferCleared() {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'bufferCleared' }));
+    }
+
+    function finishFullClear() {
+      cancelFullClearTimer();
+      awaitingClearSequence = false;
+      pendingFullClear = false;
+      clearSequenceProbe = '';
+      queuedOutput = [];
+      clearInteractionState();
+      // xterm.clear() discards saved lines and the old viewport while retaining
+      // the current prompt line. It never writes to, signals, or closes the PTY.
+      try { term.clear(); } catch (e) {}
+      try { term.scrollToBottom(); } catch (e) {}
+      notifyBufferCleared();
+    }
+
+    function scheduleFullClear() {
+      if (!pendingFullClear) return;
+      cancelFullClearTimer();
+      // Wait briefly for a separately chunked shell/SSH prompt. The current
+      // line is retained when the saved buffer is discarded.
+      fullClearTimer = setTimeout(finishFullClear, 80);
+    }
+
+    function observeSubmittedInput(data) {
+      for (const character of Array.from(data || '')) {
+        if (character === '\r' || character === '\n') {
+          awaitingClearSequence = submittedInputLine.trim() === 'clear';
+          submittedInputLine = '';
+        } else if (character === '\x7f' || character === '\b') {
+          submittedInputLine = Array.from(submittedInputLine).slice(0, -1).join('');
+        } else if (character === '\x03' || character === '\x15') {
+          submittedInputLine = '';
+          awaitingClearSequence = false;
+        } else if (character === '\x1b') {
+          // History/cursor editing makes the local command line unknowable.
+          // Avoid a false clear; the explicit CSI 3J handler still works.
+          submittedInputLine = '';
+        } else if (character >= ' ') {
+          submittedInputLine += character;
+        }
+      }
+    }
+
     function sendInput(data) {
+      observeSubmittedInput(data);
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'input', data: data }));
     }
 
@@ -405,6 +463,25 @@
       try { term.clearSelection(); } catch (e) {}
     }
 
+    // CSI 3 J is the standard "erase saved lines" sequence. Keep ADEV's JS
+    // replay buffer synchronized whenever a local or remote shell emits it.
+    try {
+      term.parser.registerCsiHandler({ final: 'J' }, function (params) {
+        const values = params && typeof params.toArray === 'function'
+          ? params.toArray()
+          : params;
+        if (Number(values && values[0]) === 3) {
+          cancelFullClearTimer();
+          awaitingClearSequence = false;
+          pendingFullClear = false;
+          clearSequenceProbe = '';
+          clearInteractionState();
+          notifyBufferCleared();
+        }
+        return false;
+      });
+    } catch (e) {}
+
     // Batch small native output chunks into one xterm write. More importantly,
     // only follow output while the user is already at the bottom; reading old
     // build logs must not snap back to the prompt on every new byte.
@@ -413,6 +490,16 @@
     let followQueuedOutput = true;
     function queueOutput(data) {
       if (!data) return;
+      if (awaitingClearSequence) {
+        clearSequenceProbe = (clearSequenceProbe + data).slice(-96);
+        // BusyBox, ncurses and remote shells vary between CSI J and CSI 2 J.
+        // Only promote it to a full local clear after the user submitted the
+        // exact `clear` command; ordinary full-screen redraws keep history.
+        if (/\x1b\[[0-9;?]*J/.test(clearSequenceProbe) || /\x1bc/.test(clearSequenceProbe)) {
+          awaitingClearSequence = false;
+          pendingFullClear = true;
+        }
+      }
       if (queuedOutput.length === 0) {
         try {
           const buffer = term.buffer.active;
@@ -433,6 +520,7 @@
           if (shouldFollow) {
             try { term.scrollToBottom(); } catch (e) {}
           }
+          scheduleFullClear();
         });
       });
     }
@@ -447,18 +535,15 @@
           case 'output':
             queueOutput(message.data);
             break;
-          case 'clear':
           case 'clearScreen':
             clearInteractionState();
             // Erase the visible display locally. The PTY and its foreground
             // process keep running, and older scrollback remains reachable.
             term.write('\x1b[2J\x1b[H');
             break;
+          case 'clear':
           case 'clearScrollback':
-            clearInteractionState();
-            term.clear();
-            term.write('\x1b[2J\x1b[H');
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'bufferCleared' }));
+            finishFullClear();
             break;
           case 'resize':
             if (message.cols && message.rows) {
