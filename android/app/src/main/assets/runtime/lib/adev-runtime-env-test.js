@@ -209,7 +209,55 @@ try {
       assert(result.status === 0, `${name} exited ${result.status}: ${result.stderr}`);
       assert(result.stdout === 'ok', `${name} printed ${JSON.stringify(result.stdout)}`);
     }
-    return `${cases.length} interpreters`;
+
+    // Reproduce the OpenCode/Bun boundary: the Node process inherits the
+    // contract text and NODE_OPTIONS, but its dynamic linker did not preload
+    // ADEV's exec interposer. The JS bridge must still route ordinary APIs to
+    // the APK-native env executable, whose embedded resolver handles the file.
+    const lateInterpreter = path.join(scratch, 'late-interpreter.js');
+    fs.writeFileSync(
+      lateInterpreter,
+      '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)))\n',
+      {mode: 0o755},
+    );
+    const lateChain = path.join(scratch, 'late-chain.txt');
+    fs.writeFileSync(lateChain, `#!${lateInterpreter} chain-arg\npayload\n`, {mode: 0o755});
+    const lateEnv = {...process.env};
+    delete lateEnv.LD_PRELOAD;
+    // Prevent the already-loaded parent resolver from repairing this one
+    // deliberately incomplete child envp; the child must enter with only the
+    // NODE_OPTIONS bridge, exactly like the late Bun/OpenCode boundary.
+    lateEnv.ADEV_ENV_AUTOFILL = '0';
+    const lateProbe = run(
+      process.execPath,
+      [
+        '-e',
+        `const assert=require('node:assert/strict');\n` +
+          `const cp=require('node:child_process');\n` +
+          `const file=${JSON.stringify(path.join(scratch, 'env-node.js'))};\n` +
+          `const chain=${JSON.stringify(lateChain)};\n` +
+          `assert.equal(cp.spawnSync.name,'adevSpawnSync');\n` +
+          `const expected='ok';\n` +
+          `let result=cp.spawnSync(file,[],{encoding:'utf8'});\n` +
+          `assert.equal(result.status,0);assert.equal(result.stdout.trim(),expected);\n` +
+          `assert.equal(cp.execFileSync(file,[],{encoding:'utf8'}).trim(),expected);\n` +
+          `assert.equal(cp.execSync(JSON.stringify(file),{encoding:'utf8'}).trim(),expected);\n` +
+          `result=cp.spawnSync(chain,['caller-arg'],{encoding:'utf8'});\n` +
+          `assert.equal(result.status,0);\n` +
+          `assert.equal(result.stdout,JSON.stringify(['chain-arg',chain,'caller-arg']));\n` +
+          `Promise.all([\n` +
+          ` new Promise((resolve,reject)=>{let out='';const p=cp.spawn(file,[]);p.stdout.on('data',v=>out+=v);p.on('error',reject);p.on('close',code=>{try{assert.equal(code,0);assert.equal(out.trim(),expected);resolve()}catch(e){reject(e)}})}),\n` +
+          ` new Promise((resolve,reject)=>cp.execFile(file,[],(error,stdout)=>{if(error)reject(error);else{try{assert.equal(stdout.trim(),expected);resolve()}catch(e){reject(e)}}})),\n` +
+          ` new Promise((resolve,reject)=>cp.exec(JSON.stringify(file),(error,stdout)=>{if(error)reject(error);else{try{assert.equal(stdout.trim(),expected);resolve()}catch(e){reject(e)}}})),\n` +
+          `]).then(()=>process.stdout.write('late-preload-ok')).catch(error=>{console.error(error);process.exitCode=1});`,
+      ],
+      {env: lateEnv},
+    );
+    assert(
+      lateProbe.status === 0 && lateProbe.stdout === 'late-preload-ok',
+      `late-preload probe exited ${lateProbe.status}: ${lateProbe.stderr || lateProbe.stdout}`,
+    );
+    return `${cases.length} interpreters + late-preload child APIs`;
   });
 
   check('an interpreter that is itself a script still resolves', () => {

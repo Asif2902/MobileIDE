@@ -1,8 +1,11 @@
+#include "adev_runtime_env.h"
+
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <dirent.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <string>
 #include <sys/stat.h>
@@ -115,9 +118,121 @@ void print_usage() {
     std::fputs("usage: env [-i] [-u NAME] [NAME=VALUE]... [COMMAND [ARG]...]\n", stderr);
 }
 
+bool virtual_shell(const char* path) {
+    return path != nullptr &&
+        (std::strcmp(path, "/bin/sh") == 0 ||
+         std::strcmp(path, "/usr/bin/sh") == 0 ||
+         std::strcmp(path, "/data/data/com.termux/files/usr/bin/sh") == 0 ||
+         std::strcmp(path, "/data/user/0/com.termux/files/usr/bin/sh") == 0);
+}
+
+bool virtual_env(const char* path) {
+    return path != nullptr &&
+        (std::strcmp(path, "/usr/bin/env") == 0 || std::strcmp(path, "/bin/env") == 0);
+}
+
+int broker_error_descriptor() {
+    const char* value = std::getenv("ADEV_SPAWN_ERROR_FD");
+    if (value == nullptr || value[0] == '\0') return -1;
+    char* end = nullptr;
+    errno = 0;
+    const long descriptor = std::strtol(value, &end, 10);
+    if (errno != 0 || end == value || *end != '\0' || descriptor < 0 || descriptor > INT_MAX) {
+        return -1;
+    }
+    return static_cast<int>(descriptor);
+}
+
+[[noreturn]] void broker_fail(int descriptor, int error) {
+    if (descriptor >= 0) {
+        const unsigned char* cursor = reinterpret_cast<const unsigned char*>(&error);
+        size_t remaining = sizeof(error);
+        while (remaining > 0) {
+            const ssize_t count = write(descriptor, cursor, remaining);
+            if (count > 0) {
+                cursor += count;
+                remaining -= static_cast<size_t>(count);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) continue;
+            break;
+        }
+        close(descriptor);
+    }
+    _exit(127);
+}
+
+[[noreturn]] void run_spawn_broker(int argc, char** argv) {
+    const int error_descriptor = broker_error_descriptor();
+    unsetenv("ADEV_SPAWN_ERROR_FD");
+    if (error_descriptor < 0 ||
+        fcntl(error_descriptor, F_SETFD, FD_CLOEXEC) != 0) {
+        broker_fail(error_descriptor, EBADF);
+    }
+    if (argc < 6 || std::strcmp(argv[1], "--adev-spawn-v1") != 0 ||
+        std::strcmp(argv[4], "--") != 0 || argv[3][0] == '\0') {
+        broker_fail(error_descriptor, EINVAL);
+    }
+
+    adev_runtime_env_apply();
+    const char* mode = argv[2];
+    const char* target = argv[3];
+    char** original_argv = argv + 5;
+    if (original_argv[0] == nullptr) broker_fail(error_descriptor, EINVAL);
+
+    if (std::strcmp(mode, "path") == 0) {
+        execvp(target, original_argv);
+    } else if (std::strcmp(mode, "direct") == 0) {
+        if (virtual_shell(target)) {
+            // OpenCode's lifecycle/npm shell is not a /bin/sh identity. Enter
+            // Android's real shell with the repaired contract and original
+            // argv[0] after Bionic has applied spawn-time cwd/file actions.
+            execv("/system/bin/sh", original_argv);
+        } else if (virtual_env(target)) {
+            // Re-enter this APK-native env binary in its public mode. argv[0]
+            // intentionally remains the caller's /usr/bin/env identity.
+            execv(argv[0], original_argv);
+        } else {
+            execv(target, original_argv);
+        }
+    } else {
+        broker_fail(error_descriptor, EINVAL);
+    }
+    broker_fail(error_descriptor, errno == 0 ? EIO : errno);
+}
+
+[[noreturn]] void run_opencode_shell_broker(int argc, char** argv) {
+    if (argc != 4 || std::strcmp(argv[1], "--adev-opencode-shell-v1") != 0 ||
+        std::strcmp(argv[2], "--") != 0) {
+        std::fputs("adev-env: invalid OpenCode shell broker invocation\n", stderr);
+        _exit(125);
+    }
+
+    // Bun's Effect subprocess path can start children with Android's sanitized
+    // baseline environment. Restore ADEV's signed runtime contract inside an
+    // APK-native executable, then hand the original command to Android's real
+    // POSIX shell as one untouched argv element.
+    adev_runtime_env_apply();
+    char* shell_argv[] = {
+        const_cast<char*>("/system/bin/sh"),
+        const_cast<char*>("-c"),
+        argv[3],
+        nullptr,
+    };
+    execv("/system/bin/sh", shell_argv);
+    std::fprintf(stderr, "adev-env: exec /system/bin/sh: %s\n", std::strerror(errno));
+    _exit(errno == EACCES ? 126 : 127);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc >= 2 && std::strcmp(argv[1], "--adev-spawn-v1") == 0) {
+        run_spawn_broker(argc, argv);
+    }
+    if (argc >= 2 && std::strcmp(argv[1], "--adev-opencode-shell-v1") == 0) {
+        run_opencode_shell_broker(argc, argv);
+    }
     int index = 1;
     while (index < argc) {
         const char* argument = argv[index];
@@ -129,6 +244,13 @@ int main(int argc, char** argv) {
             std::strcmp(argument, "--ignore-environment") == 0) {
             if (clearenv() != 0) {
                 std::fprintf(stderr, "env: clear environment: %s\n", std::strerror(errno));
+                return 125;
+            }
+            // The preloaded exec resolver repairs Bun's Android-baseline
+            // environment. Mark this deliberately clean block so `env -i`
+            // remains clean even when the caller adds PATH or another value.
+            if (setenv("ADEV_ENV_AUTOFILL", "0", 1) != 0) {
+                std::fprintf(stderr, "env: mark clean environment: %s\n", std::strerror(errno));
                 return 125;
             }
             ++index;

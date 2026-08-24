@@ -120,7 +120,17 @@ set_target_properties(adev_busybox PROPERTIES
 # a shell-script env trampoline can be misclassified as an ELF by native
 # callers, while BusyBox's internal exec path bypasses recursive shebang
 # handling. This executable resolves the verified native interpreters directly.
-add_executable(adev_env adev_env.cpp)
+add_executable(
+    adev_env
+    adev_env.cpp
+    # Compile the same resolver into the APK-native launcher. This makes its
+    # execv/execvp calls recursive-shebang aware even when a Node/Bun parent
+    # received LD_PRELOAD after process startup and therefore never loaded it.
+    adev_exec_compat.c
+    adev_runtime_env.c
+)
+
+target_link_libraries(adev_env PRIVATE dl)
 
 target_link_options(adev_env PRIVATE
     "-Wl,-z,max-page-size=16384"

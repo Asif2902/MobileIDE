@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
+#include <spawn.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -15,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifndef PATH_MAX
@@ -26,6 +29,14 @@
 #define ADEV_MAX_ARGV 65536
 
 typedef int (*adev_execve_fn)(const char *, char *const[], char *const[]);
+typedef int (*adev_posix_spawn_fn)(
+    pid_t *,
+    const char *,
+    const posix_spawn_file_actions_t *,
+    const posix_spawnattr_t *,
+    char *const[],
+    char *const[]
+);
 
 typedef struct {
     char interpreter[PATH_MAX];
@@ -35,10 +46,12 @@ typedef struct {
 
 static pthread_once_t adev_execve_once = PTHREAD_ONCE_INIT;
 static adev_execve_fn adev_next_execve = NULL;
+static adev_posix_spawn_fn adev_next_posix_spawn = NULL;
 extern char **environ;
 
 static void adev_resolve_next_execve(void) {
     adev_next_execve = (adev_execve_fn)dlsym(RTLD_NEXT, "execve");
+    adev_next_posix_spawn = (adev_posix_spawn_fn)dlsym(RTLD_NEXT, "posix_spawn");
 }
 
 /*
@@ -141,7 +154,7 @@ static bool adev_find_on_path(
     }
 
     const char *path = adev_env_value(envp, "PATH");
-    if (path == NULL || path[0] == '\0') path = "/system/bin";
+    if (path == NULL) path = "/system/bin";
 
     const char *component = path;
     while (true) {
@@ -171,10 +184,9 @@ static bool adev_shell_fallback(
     char destination[PATH_MAX]
 ) {
     const char *candidates[] = {
-        adev_env_value(envp, "ADEV_PYTHON_SHELL"),
-        adev_env_value(envp, "MOBILEIDE_BASH"),
-        adev_env_value(envp, "SHELL"),
+        /* A lifecycle/npm dispatcher is not a /bin/sh implementation. */
         "/system/bin/sh",
+        adev_env_value(envp, "MOBILEIDE_BASH"),
     };
     for (size_t index = 0; index < sizeof(candidates) / sizeof(candidates[0]); ++index) {
         if (candidates[index] != NULL &&
@@ -285,6 +297,213 @@ static size_t adev_argv_count(char *const argv[]) {
     return count;
 }
 
+static bool adev_spawn_broker_path(
+    char *const envp[],
+    char destination[PATH_MAX]
+) {
+    const char *configured = adev_env_value(envp, "MOBILEIDE_ENV");
+    char candidate[PATH_MAX];
+    if (configured != NULL && adev_copy_path(candidate, configured) &&
+        realpath(candidate, destination) != NULL &&
+        strncmp(destination, "/data/app/", 10) == 0 && adev_is_file(destination)) {
+        return true;
+    }
+
+    const char *native_library = adev_env_value(envp, "MOBILEIDE_NATIVE_LIB");
+    if (native_library != NULL) {
+        const int count = snprintf(
+            candidate,
+            sizeof(candidate),
+            "%s/libbin_adev_env.so",
+            native_library
+        );
+        if (count > 0 && count < (int)sizeof(candidate) &&
+            realpath(candidate, destination) != NULL &&
+            strncmp(destination, "/data/app/", 10) == 0 && adev_is_file(destination)) {
+            return true;
+        }
+    }
+    errno = ENOENT;
+    return false;
+}
+
+static int adev_spawn_wait_for_broker(
+    pid_t child,
+    int error_descriptor
+) {
+    int child_error = 0;
+    unsigned char *cursor = (unsigned char *)&child_error;
+    size_t remaining = sizeof(child_error);
+    while (remaining > 0) {
+        const ssize_t count = read(error_descriptor, cursor, remaining);
+        if (count > 0) {
+            cursor += count;
+            remaining -= (size_t)count;
+            continue;
+        }
+        if (count == 0) break;
+        if (errno == EINTR) continue;
+        const int error = errno;
+        kill(child, SIGKILL);
+        while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+        return error;
+    }
+    if (remaining == sizeof(child_error)) return 0; /* CLOEXEC: target entered. */
+    if (remaining == 0) {
+        while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+        return child_error == 0 ? EIO : child_error;
+    }
+    kill(child, SIGKILL);
+    while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+    return EIO;
+}
+
+static int adev_spawn_via_broker(
+    pid_t *pid,
+    const char *target,
+    bool search_path,
+    const posix_spawn_file_actions_t *file_actions,
+    const posix_spawnattr_t *attributes,
+    char *const argv[],
+    char *const envp[]
+) {
+    if (pid == NULL || target == NULL) return EINVAL;
+    pthread_once(&adev_execve_once, adev_resolve_next_execve);
+    if (adev_next_posix_spawn == NULL) return ENOSYS;
+
+    char broker[PATH_MAX];
+    if (!adev_spawn_broker_path(envp, broker)) return errno == 0 ? ENOENT : errno;
+    const size_t argument_count = adev_argv_count(argv);
+    if (argument_count == SIZE_MAX || argument_count + 6 >= ADEV_MAX_ARGV) return E2BIG;
+
+    int pipe_descriptors[2];
+    if (pipe(pipe_descriptors) != 0) return errno;
+    (void)fcntl(pipe_descriptors[0], F_SETFD, FD_CLOEXEC);
+    const int broker_error_fd = fcntl(pipe_descriptors[1], F_DUPFD, 64);
+    const int duplicate_errno = errno;
+    close(pipe_descriptors[1]);
+    if (broker_error_fd < 0) {
+        close(pipe_descriptors[0]);
+        return duplicate_errno;
+    }
+
+    char error_assignment[64];
+    snprintf(
+        error_assignment,
+        sizeof(error_assignment),
+        "ADEV_SPAWN_ERROR_FD=%d",
+        broker_error_fd
+    );
+    const size_t environment_count = adev_argv_count(envp);
+    if (environment_count == SIZE_MAX || environment_count + 2 >= ADEV_MAX_ARGV) {
+        close(pipe_descriptors[0]);
+        close(broker_error_fd);
+        return E2BIG;
+    }
+    char **broker_environment = calloc(environment_count + 2, sizeof(char *));
+    char **broker_argv = calloc(argument_count + 6, sizeof(char *));
+    if (broker_environment == NULL || broker_argv == NULL) {
+        close(pipe_descriptors[0]);
+        close(broker_error_fd);
+        free(broker_environment);
+        free(broker_argv);
+        return ENOMEM;
+    }
+    size_t broker_environment_count = 0;
+    static const char error_name[] = "ADEV_SPAWN_ERROR_FD=";
+    for (size_t index = 0; index < environment_count; ++index) {
+        /* The broker channel is internal; never trust or duplicate a caller's value. */
+        if (strncmp(envp[index], error_name, sizeof(error_name) - 1) == 0) continue;
+        broker_environment[broker_environment_count++] = envp[index];
+    }
+    broker_environment[broker_environment_count++] = error_assignment;
+    broker_environment[broker_environment_count] = NULL;
+    broker_argv[0] = broker;
+    broker_argv[1] = "--adev-spawn-v1";
+    broker_argv[2] = search_path ? "path" : "direct";
+    broker_argv[3] = (char *)target;
+    broker_argv[4] = "--";
+    for (size_t index = 0; index < argument_count; ++index) {
+        broker_argv[index + 5] = argv[index];
+    }
+    broker_argv[argument_count + 5] = NULL;
+
+    pid_t child = -1;
+    const int result = adev_next_posix_spawn(
+        &child,
+        broker,
+        file_actions,
+        attributes,
+        broker_argv,
+        broker_environment
+    );
+    close(broker_error_fd);
+    free(broker_environment);
+    free(broker_argv);
+    if (result != 0) {
+        close(pipe_descriptors[0]);
+        return result;
+    }
+
+    const int broker_result = adev_spawn_wait_for_broker(child, pipe_descriptors[0]);
+    close(pipe_descriptors[0]);
+    if (broker_result != 0) return broker_result;
+    *pid = child;
+    return 0;
+}
+
+static int adev_posix_spawn_common(
+    pid_t *pid,
+    const char *target,
+    bool search_path,
+    const posix_spawn_file_actions_t *file_actions,
+    const posix_spawnattr_t *attributes,
+    char *const argv[],
+    char *const envp[]
+) {
+    adev_runtime_exec_env prepared_environment;
+    if (adev_runtime_env_prepare_exec(envp, &prepared_environment) != 0) {
+        return errno == 0 ? ENOMEM : errno;
+    }
+    const int result = adev_spawn_via_broker(
+        pid,
+        target,
+        search_path,
+        file_actions,
+        attributes,
+        argv,
+        prepared_environment.values
+    );
+    adev_runtime_env_release_exec(&prepared_environment);
+    return result;
+}
+
+int posix_spawn(
+    pid_t *pid,
+    const char *path,
+    const posix_spawn_file_actions_t *file_actions,
+    const posix_spawnattr_t *attributes,
+    char *const argv[],
+    char *const envp[]
+) {
+    return adev_posix_spawn_common(
+        pid, path, false, file_actions, attributes, argv, envp
+    );
+}
+
+int posix_spawnp(
+    pid_t *pid,
+    const char *file,
+    const posix_spawn_file_actions_t *file_actions,
+    const posix_spawnattr_t *attributes,
+    char *const argv[],
+    char *const envp[]
+) {
+    return adev_posix_spawn_common(
+        pid, file, true, file_actions, attributes, argv, envp
+    );
+}
+
 static int adev_recursive_execve(
     const char *filename,
     char *const argv[],
@@ -300,13 +519,20 @@ static int adev_recursive_execve(
         return -1;
     }
 
+    adev_runtime_exec_env prepared_environment;
+    if (adev_runtime_env_prepare_exec(envp, &prepared_environment) != 0) return -1;
+    char *const *effective_envp = prepared_environment.values;
+
     char resolved_paths[ADEV_MAX_SHEBANG_DEPTH][PATH_MAX];
     adev_shebang shebangs[ADEV_MAX_SHEBANG_DEPTH];
     char **allocated_argv[ADEV_MAX_SHEBANG_DEPTH] = {0};
     char direct_shell_path[PATH_MAX];
     const char *initial_path = filename;
     if (adev_is_virtual_shell(filename)) {
-        if (!adev_shell_fallback(envp, direct_shell_path)) return -1;
+        if (!adev_shell_fallback((char *const *)effective_envp, direct_shell_path)) {
+            adev_runtime_env_release_exec(&prepared_environment);
+            return -1;
+        }
         initial_path = direct_shell_path;
     }
     const char *seen[ADEV_MAX_SHEBANG_DEPTH + 1] = {initial_path};
@@ -318,13 +544,17 @@ static int adev_recursive_execve(
     for (size_t depth = 0; depth < ADEV_MAX_SHEBANG_DEPTH; ++depth) {
         const int script = adev_read_shebang(current_path, &shebangs[depth]);
         if (script <= 0) {
-            result = adev_next_execve(current_path, (char *const *)current_argv, envp);
+            result = adev_next_execve(
+                current_path,
+                (char *const *)current_argv,
+                (char *const *)effective_envp
+            );
             goto cleanup;
         }
 
         if (!adev_resolve_interpreter(
                 shebangs[depth].interpreter,
-                envp,
+                (char *const *)effective_envp,
                 resolved_paths[depth])) {
             goto cleanup;
         }
@@ -369,6 +599,7 @@ cleanup: {
         for (size_t index = 0; index < ADEV_MAX_SHEBANG_DEPTH; ++index) {
             free(allocated_argv[index]);
         }
+        adev_runtime_env_release_exec(&prepared_environment);
         errno = saved_errno;
     }
     return result;
@@ -393,8 +624,12 @@ static int adev_path_exec(
     }
     if (strchr(file, '/') != NULL) return adev_recursive_execve(file, argv, envp);
 
-    const char *path = adev_env_value(envp, "PATH");
-    if (path == NULL || path[0] == '\0') path = "/system/bin";
+    adev_runtime_exec_env prepared_environment;
+    if (adev_runtime_env_prepare_exec(envp, &prepared_environment) != 0) return -1;
+    char *const *effective_envp = prepared_environment.values;
+
+    const char *path = adev_env_value((char *const *)effective_envp, "PATH");
+    if (path == NULL) path = "/system/bin";
     bool saw_permission_error = false;
     char candidate[PATH_MAX];
     const char *component = path;
@@ -408,22 +643,25 @@ static int adev_path_exec(
         const size_t file_length = strlen(file);
         if (directory_length + 1 + file_length >= PATH_MAX) {
             errno = ENAMETOOLONG;
+            adev_runtime_env_release_exec(&prepared_environment);
             return -1;
         }
         memcpy(candidate, directory, directory_length);
         candidate[directory_length] = '/';
         memcpy(candidate + directory_length + 1, file, file_length + 1);
 
-        adev_recursive_execve(candidate, argv, envp);
+        adev_recursive_execve(candidate, argv, (char *const *)effective_envp);
         if (errno == EACCES) {
             saw_permission_error = true;
         } else if (errno != ENOENT && errno != ENOTDIR) {
+            adev_runtime_env_release_exec(&prepared_environment);
             return -1;
         }
 
         if (separator == NULL) break;
         component = separator + 1;
     }
+    adev_runtime_env_release_exec(&prepared_environment);
     errno = saw_permission_error ? EACCES : ENOENT;
     return -1;
 }

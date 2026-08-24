@@ -1,3 +1,14 @@
+# A Dev Studio 1.3.26
+
+This phone-test beta fixes the last OpenCode tool failure: the `bash`/`shell` tools' Bun fast path that sanitized the child environment, and the one remaining sysroot retarget.
+
+## Fixed in 1.3.26
+
+- **OpenCode shell tools use the broker.** `packages/core/src/tool/bash.ts` always routes through `libbin_adev_env.so --adev-opencode-shell-v1` and `packages/opencode/src/tool/shell.ts` (`shell` tool, id `bash`) does the same via `ChildProcess.make(broker, ...)`. The broker `adev_env --adev-opencode-shell-v1` restores the signed `adev-env.conf` contract (`PATH`/`LD_PRELOAD`/`PREFIX`/etc.) inside the APK-native executable before `execv("/system/bin/sh", ["-c", command])`, so `node`/`python`/`npm`/`npx` and `#!/usr/bin/env` shebangs work from the sanitized Bun child. `include/paths.h`/`pwd.h`/`termux-auth.h` are now retargeted via the base ` /data/data/com.termux/files` (not just `/usr`), so `adev-runtime-env-test` is 22/22 offline / 23/23 network from `debug agent build --tool bash`.
+- Verified on Infinix X689B via `opencode-device-runtime-probe.sh` (`debug agent build --tool bash`): `SHELL`/`PATH`/`LD_PRELOAD`/`PREFIX` correctly restored, `node`/`python`/`npm`/`npx` found, `22/22` and `23/23` pass.
+
+## Previous beta: 1.3.25
+
 # A Dev Studio 1.3.25
 
 This phone-test beta fixes the 8 OpenCode sandbox failures that remained after the runtime contract work.

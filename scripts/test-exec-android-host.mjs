@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -28,13 +30,30 @@ const urlBroker = read(
 );
 const xdgOpen = read('android/app/src/main/cpp/adev_xdg_open.cpp');
 const envLauncher = read('android/app/src/main/cpp/adev_env.cpp');
+const nodePreload = read('android/app/src/main/assets/runtime/lib/adev-node-preload.js');
+const childProcessCompat = read(
+  'android/app/src/main/assets/runtime/lib/adev-child-process-compat.js',
+);
 
 assert.match(resolver, /ADEV_MAX_SHEBANG_DEPTH 8/);
 assert.match(resolver, /for \(size_t depth = 0; depth < ADEV_MAX_SHEBANG_DEPTH; \+\+depth\)/);
 assert.match(resolver, /adev_read_shebang\(current_path/);
 assert.match(resolver, /current_path = resolved_paths\[depth\]/);
 assert.match(resolver, /RTLD_NEXT, "execve"/);
-for (const symbol of ['execve', 'execv', 'execvp', 'execvpe', 'execl', 'execlp', 'execle']) {
+assert.match(resolver, /adev_runtime_env_prepare_exec\(envp, &prepared_environment\)/);
+assert.match(resolver, /adev_shell_fallback\(\(char \*const \*\)effective_envp/);
+assert.match(resolver, /adev_next_execve\([\s\S]*?effective_envp/);
+for (const symbol of [
+  'execve',
+  'execv',
+  'execvp',
+  'execvpe',
+  'execl',
+  'execlp',
+  'execle',
+  'posix_spawn',
+  'posix_spawnp',
+]) {
   assert.match(resolver, new RegExp(`int ${symbol}\\(`));
   assert.match(
     resolverMap,
@@ -42,6 +61,39 @@ for (const symbol of ['execve', 'execv', 'execvp', 'execvpe', 'execl', 'execlp',
     `${symbol} must be exported at Bionic's LIBC symbol version`,
   );
 }
+assert.match(resolver, /RTLD_NEXT, "posix_spawn"/);
+assert.match(resolver, /adev_runtime_env_prepare_exec\(envp, &prepared_environment\)/);
+assert.match(resolver, /static int adev_spawn_via_broker\(/);
+assert.match(resolver, /"--adev-spawn-v1"/);
+assert.match(resolver, /search_path \? "path" : "direct"/);
+assert.match(resolver, /broker_argv\[index \+ 5\] = argv\[index\]/);
+assert.match(
+  resolver,
+  /adev_next_posix_spawn\([\s\S]*?broker,[\s\S]*?file_actions,[\s\S]*?attributes,[\s\S]*?broker_argv,[\s\S]*?broker_environment/,
+  'spawn interception must apply caller actions and attributes to the native broker',
+);
+assert.match(resolver, /F_DUPFD, 64/);
+assert.match(resolver, /ADEV_SPAWN_ERROR_FD=/);
+assert.match(resolver, /adev_spawn_wait_for_broker/);
+assert.match(resolver, /waitpid\(child/);
+assert.match(resolver, /return errno == 0 \? ENOMEM : errno/);
+assert.doesNotMatch(resolver, /adev_prepare_spawn_plan/);
+assert.match(resolver, /realpath\(candidate, destination\)/);
+assert.match(resolver, /strncmp\(destination, "\/data\/app\/", 10\) == 0/);
+assert.match(envLauncher, /"--adev-spawn-v1"/);
+assert.match(envLauncher, /"--adev-opencode-shell-v1"/);
+assert.match(
+  envLauncher,
+  /char\* shell_argv\[\] = \{[\s\S]*?"\/system\/bin\/sh"[\s\S]*?"-c"[\s\S]*?argv\[3\]/,
+);
+assert.match(envLauncher, /adev_runtime_env_apply\(\);[\s\S]*?execv\("\/system\/bin\/sh", shell_argv\)/);
+assert.match(envLauncher, /std::strcmp\(mode, "path"\)[\s\S]*?execvp\(target, original_argv\)/);
+assert.match(envLauncher, /std::strcmp\(mode, "direct"\)[\s\S]*?execv\(target, original_argv\)/);
+assert.match(envLauncher, /execv\("\/system\/bin\/sh", original_argv\)/);
+assert.match(envLauncher, /fcntl\(error_descriptor, F_SETFD, FD_CLOEXEC\)/);
+assert.match(envLauncher, /char\*\* original_argv = argv \+ 5/);
+assert.match(resolver, /if \(path == NULL\) path = "\/system\/bin"/);
+assert.doesNotMatch(resolver, /path == NULL \|\| path\[0\] == '\\0'/);
 assert.match(resolverMap, /^LIBC\s*\{/);
 assert.match(cmake, /--version-script=\$\{CMAKE_CURRENT_SOURCE_DIR\}\/adev_exec_compat\.map/);
 assert.match(resolver, /\/data\/data\/com\.termux\/files\/usr\/bin\/sh/);
@@ -55,9 +107,22 @@ assert.match(cmake, /OUTPUT_NAME "lib_adev_exec_compat"/);
 assert.match(gradle, /"liblib_adev_exec_compat\.so"/);
 assert.match(cmake, /add_executable\(adev_xdg_open adev_xdg_open\.cpp\)/);
 assert.match(gradle, /"libbin_adev_xdg_open\.so"/);
-assert.match(cmake, /add_executable\(adev_env adev_env\.cpp\)/);
+assert.match(cmake, /add_executable\([\s\S]*?adev_env[\s\S]*?adev_env\.cpp[\s\S]*?adev_exec_compat\.c[\s\S]*?adev_runtime_env\.c[\s\S]*?\)/);
 assert.match(cmake, /OUTPUT_NAME "bin_adev_env"/);
 assert.match(gradle, /"libbin_adev_env\.so"/);
+assert.match(nodePreload, /load\('adev-child-process-compat\.js'\)/);
+assert.match(childProcessCompat, /childProcess\.spawn =/);
+assert.match(childProcessCompat, /childProcess\.spawnSync =/);
+assert.match(childProcessCompat, /childProcess\.execFile =/);
+assert.match(childProcessCompat, /childProcess\.execFileSync =/);
+assert.match(childProcessCompat, /childProcess\.exec =/);
+assert.match(childProcessCompat, /childProcess\.execSync =/);
+assert.match(childProcessCompat, /\/proc\/self\/maps/);
+assert.match(childProcessCompat, /nativeResolverLoaded\(\)/);
+assert.match(childProcessCompat, /'\/storage\/self\/primary\/'/);
+assert.match(childProcessCompat, /'\/mnt\/runtime\/'/);
+assert.match(childProcessCompat, /'\/mnt\/media_rw\/'/);
+assert.match(runtimeManager, /File\(libDir, "adev-child-process-compat\.js"\)/);
 
 const preloadAssignment = runtimeManager.match(
   /env\["LD_PRELOAD"\] = listOfNotNull\(([\s\S]*?)\)\.joinToString\(":"\)/,
@@ -130,6 +195,56 @@ assert.doesNotMatch(deviceHarness, /achswap/i);
 assert.match(environmentHarness, /'shebang-arg'/);
 assert.match(environmentHarness, /loop\.error\?\.code === 'ELOOP'/);
 assert.match(environmentHarness, /invalid\.error\?\.code === 'ENOEXEC'/);
+
+// Exercise the actual exported Node APIs in a fresh process. process.execPath
+// stands in for the native env launcher on the host: it accepts a shebang JS
+// path as its first argument just as adev_env ultimately resolves it to Node.
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'adev-child-process-host-'));
+try {
+  const fixture = path.join(scratch, 'writable shebang.js');
+  fs.writeFileSync(
+    fixture,
+    '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)))\n',
+    {mode: 0o755},
+  );
+  const compatPath = path.join(
+    root,
+    'android/app/src/main/assets/runtime/lib/adev-child-process-compat.js',
+  );
+  const probe = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `const assert=require('node:assert/strict');\n` +
+        `process.env.MOBILEIDE_ENV=process.execPath;\n` +
+        `const compat=require(${JSON.stringify(compatPath)});\n` +
+        `const cp=require('node:child_process');\n` +
+        `const fixture=${JSON.stringify(fixture)};\n` +
+        `const expected='["one","two"]';\n` +
+        `for (const method of ['spawnSync','execFileSync']) {\n` +
+        `  const r=cp[method](fixture,['one','two'],{encoding:'utf8'});\n` +
+        `  const output=method==='spawnSync'?r.stdout:r;\n` +
+        `  assert.equal(String(output),expected,method);\n` +
+        `}\n` +
+        `Promise.all([\n` +
+        `  new Promise((resolve,reject)=>{let out='';const p=cp.spawn(fixture,['one','two']);p.stdout.on('data',v=>out+=v);p.on('error',reject);p.on('close',code=>{try{assert.equal(code,0);assert.equal(out,expected);resolve()}catch(e){reject(e)}})}),\n` +
+        `  new Promise((resolve,reject)=>cp.execFile(fixture,['one','two'],(error,stdout)=>{if(error)reject(error);else{try{assert.equal(stdout,expected);resolve()}catch(e){reject(e)}}})),\n` +
+        `]).then(()=>{\n` +
+        `  const envPlan=compat.route('/usr/bin/env');\n` +
+        `  assert.equal(envPlan.target,null);\n` +
+        `  const shellPlan=compat.route('/bin/sh');\n` +
+        `  assert.equal(shellPlan.target,'/system/bin/sh');\n` +
+        `  assert.equal(compat.route(process.execPath),null);\n` +
+        `  process.stdout.write('child-process bridge ok');\n` +
+        `}).catch(error=>{console.error(error);process.exitCode=1});`,
+    ],
+    {encoding: 'utf8'},
+  );
+  assert.equal(probe.status, 0, probe.stderr || probe.stdout);
+  assert.match(probe.stdout, /child-process bridge ok/);
+} finally {
+  fs.rmSync(scratch, {recursive: true, force: true});
+}
 
 const textRuntimeFiles = [
   'android/app/src/main/assets/runtime/bin/git-core/git-difftool--helper',

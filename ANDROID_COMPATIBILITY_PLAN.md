@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-24
-Application: A Dev Studio 1.3.25 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.17.4
+Application: A Dev Studio 1.3.26 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.17.5
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -45,6 +45,9 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | One authoritative environment + Next SWC WASM | **ARM64 API 30 VERIFIED — 1.3.23** | `08d791b` | Runtime 1.17.3 makes `AdevEnvironment` the single source for `HOME`/`PREFIX`/`PATH`/`TMPDIR`/`XDG`/`LD_LIBRARY_PATH`/`NODE_PATH`/`SHELL`/`TLS`; `NODE_OPTIONS` is exactly one `--require`; SWC WASM is cached under `cache/next-swc` and mapped into `node_modules/@next/swc-wasm-nodejs` (and `next/wasm/...`) with scoped layout. Device `adev-runtime-env-test` 22/22, Next 13/14/15, Vite, concurrent Express+Vite, OpenCode serve pass. Host `test-runtime-env-host` passes. |
 | Localhost dual-stack preview | **VERIFIED — 1.3.24** | `818706e` | Node `listen(0.0.0.0)` rewritten to `::` `ipv6Only:false` via `adev-listen-compat`; `HOSTNAME=127.0.0.1`; `network_security_config` allows cleartext loopback for phone-test/release. Probe binds on `0.0.0.0`/`127.0.0.1`/`::` all serve 200 on `localhost`, `127.0.0.1`, `::1`; Vite HMR verified in Chrome. Host `test-runtime-env-host` passes. |
 | OpenCode subprocess contract | **ARM64 API 30 VERIFIED — 22/22 OFFLINE / 23/23 NETWORK** | `aaf2dcb` + `9bae918` | The final raw-child gap was an ELF ABI mismatch: packaged Node imports `execve@LIBC`/`execvp@LIBC`, while the preload resolver exported unversioned symbols, so Android bound Node directly to Bionic and writable shebang/npm paths failed with EACCES. The resolver now exports `execve@@LIBC`/`execvp@@LIBC` for both ABIs and retains one bounded, loop-detecting recursive shebang implementation. The exact suite runs after the OpenCode launcher assembles `tagfix:opencode-compat:exec-compat:termux` and passes standard Node/Python/Bash shebangs, script-to-script argument preservation, ELOOP/ENOEXEC errors, direct `npm --version`/`root -g`/`prefix -g`, `npx --version`, Python shell, NODE_OPTIONS, and TLS. ARM64 API 30 instrumentation passes 22/22 offline and 23/23 with verified Python+Node HTTPS; x86_64/API matrix execution remains a release gate. |
+
+| OpenCode shell broker | **VERIFIED � 1.3.26** | `f9a358f` + `db2f90e` | `bash` (`core`) and `shell` (`opencode`, id `bash`) now always route through `libbin_adev_env.so --adev-opencode-shell-v1`; the broker restores the signed `adev-env.conf` contract (PATH/LD_PRELOAD/PREFIX/...) inside the APK-native executable before `execv("/system/bin/sh", ["-c", command])`, so `debug agent build --tool bash` with sanitized `PATH=/product/bin...` now yields the full ADEV `PATH`/`LD_PRELOAD`/`PREFIX` and `adev-runtime-env-test` 22/22 / 23/23. `opencode-device-runtime-probe.sh` passes on Infinix; `include/*.h` retarget now covers base `/data/data/com.termux/files`. |
+
 
 ## Executive result
 

@@ -7,6 +7,8 @@ LIBC {
         execl;
         execlp;
         execle;
+        posix_spawn;
+        posix_spawnp;
     local:
         *;
 };

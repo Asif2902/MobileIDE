@@ -27,6 +27,16 @@ assert.equal(manifest.runtime.globalLinuxSpoof, false);
 assert.match(manifest.runtime.tempPathPolicy, /app-private XDG cache temp/);
 assert.match(manifest.runtime.heapPointerTaggingPolicy, /API 29\/30/);
 assert.match(manifest.runtime.preloadOrder, /upstream tagfix/);
+assert.equal(
+  manifest.source.graphPatchFile,
+  'scripts/patches/opencode-1.17.9-android.patch',
+);
+const graphPatch = text(manifest.source.graphPatchFile);
+assert.match(graphPatch, /path\.join\(path\.dirname\(process\.execPath\), "libbin_adev_env\.so"\)/);
+assert.match(graphPatch, /--adev-opencode-shell-v1/);
+const graphBuilder = text('scripts/build-opencode-android-graph.ts');
+assert.match(graphBuilder, /target: "bun-linux-arm64"/);
+assert.match(graphBuilder, /Extracting module graph/);
 for (const capability of [
   'version',
   'help',
@@ -88,6 +98,8 @@ assert.match(launcher, /ADEV_OPENCODE_TMPDIR/);
 assert.match(launcher, /BUN_TMPDIR/);
 assert.match(launcher, /\{"SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /\{"ADEV_PYTHON_SHELL", "\/system\/bin\/sh"\}/);
+assert.match(launcher, /\{"ADEV_OPENCODE_SHELL", shell_broker\}/);
+assert.match(launcher, /libbin_adev_env\.so/);
 assert.match(launcher, /ADEV_OPENCODE_RG/);
 assert.match(launcher, /ADEV_OPENCODE_XDG_OPEN/);
 // The launcher must not re-derive the XDG base directories: they are part of
@@ -250,7 +262,7 @@ try {
   fs.writeFileSync(
     payloadSource,
     `#include <cstdio>\n#include <cstdlib>\nint main(int argc, char** argv) {\n` +
-      `  const char* names[] = {"HOME","ADEV_CONFIG_HOME","MOBILEIDE_WORKSPACES","GIT_CONFIG_GLOBAL","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","XDG_STATE_HOME","XDG_RUNTIME_DIR","TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
+      `  const char* names[] = {"HOME","ADEV_CONFIG_HOME","MOBILEIDE_WORKSPACES","GIT_CONFIG_GLOBAL","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_CACHE_HOME","XDG_STATE_HOME","XDG_RUNTIME_DIR","TMPDIR","TMP","TEMP","BUN_TMPDIR","ADEV_OPENCODE_TMPDIR","ADEV_OPENCODE_RG","ADEV_OPENCODE_XDG_OPEN","ADEV_OPENCODE_SHELL","ADEV_URL_OPENER_PORT","ADEV_URL_OPENER_SESSION","SHELL","OPENTUI_LIB_PATH","LD_LIBRARY_PATH","LD_PRELOAD","BUN_SELF_EXE","TERMUX_EXEC__PROC_SELF_EXE"};\n` +
       `  for (const char* name : names) std::printf("env:%s=%s\\n", name, std::getenv(name) ? std::getenv(name) : "");\n` +
       `  for (int i = 0; i < argc; ++i) std::printf("arg:%d=%s\\n", i, argv[i]);\n` +
       `  return (argc == 2 && std::string(argv[1]) == "exit23") ? 23 : 0;\n}\n`,
@@ -266,6 +278,7 @@ try {
     'liblib_opencode_opentui.so',
     'libbin_rg.so',
     'libbin_adev_xdg_open.so',
+    'libbin_adev_env.so',
   ]) {
     fs.writeFileSync(path.join(nativeDir, name), 'host-test-placeholder', {mode: 0o755});
   }
@@ -309,6 +322,7 @@ try {
   assert.match(doctor.stdout, /liblib_adev_opencode_compat\.so/);
   assert.match(doctor.stdout, /ripgrep=.*libbin_rg\.so/);
   assert.match(doctor.stdout, /xdg_open=.*libbin_adev_xdg_open\.so/);
+  assert.match(doctor.stdout, /shell_broker=.*libbin_adev_env\.so/);
   assert.match(doctor.stdout, /url_opener_port=41234/);
   assert.match(doctor.stdout, /url_opener_session=present/);
   assert.ok(
@@ -349,6 +363,7 @@ try {
     assert.match(result.stdout, /env:OPENTUI_LIB_PATH=.*liblib_opencode_opentui\.so/);
     assert.match(result.stdout, /env:ADEV_OPENCODE_RG=.*libbin_rg\.so/);
     assert.match(result.stdout, /env:ADEV_OPENCODE_XDG_OPEN=.*libbin_adev_xdg_open\.so/);
+    assert.match(result.stdout, /env:ADEV_OPENCODE_SHELL=.*libbin_adev_env\.so/);
     assert.match(result.stdout, /env:ADEV_URL_OPENER_PORT=41234/);
     assert.match(result.stdout, /env:ADEV_URL_OPENER_SESSION=host-test-url-session/);
     assert.match(result.stdout, /env:SHELL=\/system\/bin\/sh/);
@@ -461,6 +476,8 @@ const runtimePayload = read(
   'android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so',
 );
 assert.ok(runtimePayload.includes(Buffer.from('ADEV_OPENCODE_RG')));
+assert.ok(runtimePayload.includes(Buffer.from('libbin_adev_env.so')));
+assert.ok(runtimePayload.includes(Buffer.from('--adev-opencode-shell-v1')));
 assert.ok(runtimePayload.includes(Buffer.from('Bun.env.ADEV_OPENCODE_RG')));
 assert.ok(runtimePayload.includes(Buffer.from('dirname(process.execPath)')));
 assert.ok(runtimePayload.includes(Buffer.from('Bun.spawn([sibling')));

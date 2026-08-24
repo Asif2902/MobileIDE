@@ -20,6 +20,32 @@ extern "C" {
  */
 void adev_runtime_env_apply(void);
 
+/**
+ * Environment block prepared for an exec-family call.
+ *
+ * `values` either borrows the caller's block or owns a repaired copy. Call
+ * [adev_runtime_env_release_exec] on every path where exec returns.
+ */
+typedef struct {
+    char **values;
+    int owned;
+} adev_runtime_exec_env;
+
+/**
+ * Repair an Android/Bun-sanitized child environment from adev-env.conf.
+ *
+ * Existing caller values are preserved. PATH and LD_PRELOAD receive missing
+ * contract entries ahead of the caller's entries, while stale Termux values
+ * are replaced. Empty environments and ADEV_ENV_AUTOFILL=0 are deliberately
+ * left untouched so `env -i` retains its standard meaning.
+ */
+int adev_runtime_env_prepare_exec(
+    char *const envp[],
+    adev_runtime_exec_env *prepared
+);
+
+void adev_runtime_env_release_exec(adev_runtime_exec_env *prepared);
+
 #ifdef __cplusplus
 }
 #endif

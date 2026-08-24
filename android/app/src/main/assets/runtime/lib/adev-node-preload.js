@@ -42,6 +42,11 @@ function load(name) {
 
 // Package capability policy — reports Android/Bionic honestly, no platform spoof.
 load('adev-runtime-policy.js');
+// Route only Android-noexec scripts/runtime shims through the APK-native env
+// executable. The launcher embeds the same recursive C resolver as LD_PRELOAD,
+// so this also covers a Node child that received the preload text too late for
+// the dynamic linker to interpose its already-bound child_process symbols.
+load('adev-child-process-compat.js');
 // Structured listen/exit events for the app's Output panel and port routing.
 load('adev-server-events.js');
 

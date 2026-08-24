@@ -199,12 +199,14 @@ int launch_payload(int argc, char** argv) {
     const std::string opentui = join_path(native_dir, "liblib_opencode_opentui.so");
     const std::string ripgrep = join_path(native_dir, "libbin_rg.so");
     const std::string xdg_open = join_path(native_dir, "libbin_adev_xdg_open.so");
+    const std::string shell_broker = join_path(native_dir, "libbin_adev_env.so");
     if (ADEV_ACCESS(runtime.c_str(), ADEV_EXEC_ACCESS) != 0) {
         return unavailable("the Android runtime payload is not installed for this ABI.");
     }
     if (ADEV_ACCESS(tagfix.c_str(), 4) != 0 || ADEV_ACCESS(compat.c_str(), 4) != 0 ||
         ADEV_ACCESS(opentui.c_str(), 4) != 0 || ADEV_ACCESS(ripgrep.c_str(), 4) != 0 ||
-        ADEV_ACCESS(xdg_open.c_str(), ADEV_EXEC_ACCESS) != 0) {
+        ADEV_ACCESS(xdg_open.c_str(), ADEV_EXEC_ACCESS) != 0 ||
+        ADEV_ACCESS(shell_broker.c_str(), ADEV_EXEC_ACCESS) != 0) {
         return unavailable("one or more required Android compatibility libraries are missing.");
     }
 
@@ -248,16 +250,13 @@ int launch_payload(int argc, char** argv) {
         {"ADEV_CONFIG_HOME", config_home},
         {"GIT_CONFIG_GLOBAL", join_path(config_home, ".gitconfig")},
         /*
-         * Android has no /bin/sh. ADEV's general exec layer can translate that
-         * virtual path, but the inherited termux-exec translation route fails
-         * for Bun's direct `execve("/bin/sh", ...)` and reports
-         * `/bin/sh[3]: syntax error: unexpected '('`. Point OpenCode at
-         * Android's real shell so every agent command uses a valid,
-         * directly executable interpreter. This is process-scoped and does not
-         * change the user's interactive-shell preference.
+         * Keep shell identity separate from npm lifecycle dispatch. The native
+         * spawn broker restores the ADEV contract before this Android shell
+         * starts, and the inherited resolver handles writable CLI shebangs.
          */
         {"SHELL", "/system/bin/sh"},
         {"ADEV_PYTHON_SHELL", "/system/bin/sh"},
+        {"ADEV_OPENCODE_SHELL", shell_broker},
         {"ADEV_OPENCODE_RG", ripgrep},
         {"ADEV_OPENCODE_XDG_OPEN", xdg_open},
         {"OPENCODE_DISABLE_TUI_AUDIO", "1"},
@@ -392,6 +391,7 @@ int launch_payload(int argc, char** argv) {
             "compat=%s\n"
             "ripgrep=%s\n"
             "xdg_open=%s\n"
+            "shell_broker=%s\n"
             "url_opener_port=%s\n"
             "url_opener_session=%s\n"
             "temp=%s\n"
@@ -399,7 +399,7 @@ int launch_payload(int argc, char** argv) {
             "config_home=%s\n"
             "workspace_home=%s\n",
             ADEV_OPENCODE_VERSION, runtime.c_str(), opentui.c_str(), tagfix.c_str(),
-            compat.c_str(), ripgrep.c_str(), xdg_open.c_str(),
+            compat.c_str(), ripgrep.c_str(), xdg_open.c_str(), shell_broker.c_str(),
             url_opener_port.empty() ? "missing" : url_opener_port.c_str(),
             url_opener_session.empty() ? "missing" : "present", private_tmp.c_str(),
             workspace_home.c_str(), config_home.c_str(), workspace_home.c_str());

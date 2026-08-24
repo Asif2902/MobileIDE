@@ -18,8 +18,8 @@ $ComponentHashes = @{
     "libopentui.so" = "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44"
     "libtagfix.so" = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
 }
-$GraphRuntimeSha256 = "0f2a647620afd42b237092daadcba11d434ff87bb55acd048cde0b03fcf3e2c9"
-$GraphRuntimeBytes = 152589245
+$GraphRuntimeSha256 = "db2f90e9b044543c5983e2d0c3e3e20cf3a59c1f9206342ff3519a95e2a7b2c3"
+$GraphRuntimeBytes = 206540686
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $Destination = Join-Path $RepositoryRoot "android/app/src/main/jniLibs/arm64-v8a"
@@ -160,6 +160,7 @@ try {
             graphBuildBunArchiveSha256 = "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6"
             modelsSnapshotSha256 = "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1"
             graphBuildTarget = "bun-linux-arm64"
+            graphPatchFile = "scripts/patches/opencode-1.17.9-android.patch"
             graphRuntimeSha256 = $GraphRuntimeSha256
             graphRuntimeBytes = $GraphRuntimeBytes
             androidGraphPatches = @(
@@ -168,6 +169,7 @@ try {
                 "compile the module graph for ARM64 and route OpenTUI through OPENTUI_LIB_PATH",
                 "resolve the sibling APK-native ripgrep before environment, PATH, cache, or desktop downloads"
                 "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
+                "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"
             )
             upstreamSignature = "not-published; exact SHA-256 and source commits are pinned"
         }

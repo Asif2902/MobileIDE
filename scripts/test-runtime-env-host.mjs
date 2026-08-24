@@ -27,6 +27,7 @@ const runtimeManager = read(
 );
 const nativeEnv = read('android/app/src/main/cpp/adev_runtime_env.c');
 const execCompat = read('android/app/src/main/cpp/adev_exec_compat.c');
+const envLauncher = read('android/app/src/main/cpp/adev_env.cpp');
 const cmake = read('android/app/src/main/cpp/CMakeLists.txt');
 const preload = read(
   'android/app/src/main/assets/runtime/lib/adev-node-preload.js',
@@ -125,6 +126,35 @@ for (const directory of [
 assert.match(runtimeManager, /adevEnv\.ensureDirectories\(\)/);
 assert.match(runtimeManager, /adevEnv\.writeContractFiles\(\)/);
 
+// A partial asset extraction or stale PATH publication must never be accepted
+// as a ready runtime. This prevents incomplete publication from adding the same
+// interactive-vs-raw symptom; executable interception is tested separately.
+assert.match(runtimeManager, /private fun runtimeSupportAssetsComplete\(\)/);
+for (const required of [
+  'node_modules/npm/bin/npm-cli.js',
+  'node_modules/npm/bin/npx-cli.js',
+  'zipfile/_path/__init__.py',
+  'importlib/metadata/__init__.py',
+  'subprocess.py',
+]) {
+  assert.ok(runtimeManager.includes(required), `runtime readiness must require ${required}`);
+}
+for (const binding of ['node', 'npm', 'npx', 'python', 'python3']) {
+  assert.match(
+    runtimeManager,
+    new RegExp(`File\\(binDir, "${binding}"\\)`),
+    `runtime readiness must validate the ${binding} launcher`,
+  );
+}
+assert.match(runtimeManager, /File\(adevEnv\.shimDir, "env"\)/);
+assert.match(runtimeManager, /envShim\.canonicalFile != envNative\.canonicalFile/);
+assert.match(runtimeManager, /contract\.contains\("LD_LIBRARY_PATH=/);
+assert.match(
+  runtimeManager,
+  /catch \(e: IOException\) \{\s*Log\.e\(TAG, "Error extracting runtime assets", e\)\s*throw e/s,
+  'asset extraction failures must abort initialization before readiness markers are written',
+);
+
 // ---------------------------------------------------------------------------
 // Install locations are discovered, never hard-coded.
 // ---------------------------------------------------------------------------
@@ -184,6 +214,27 @@ assert.match(
 assert.match(nativeEnv, /strstr\(value, "\/com\.termux\/"\)/);
 assert.match(execCompat, /__attribute__\(\(constructor\)\)/);
 assert.match(execCompat, /adev_runtime_env_apply\(\);/);
+assert.match(nativeEnv, /int adev_runtime_env_prepare_exec\(/);
+assert.match(nativeEnv, /void adev_runtime_env_release_exec\(/);
+assert.match(nativeEnv, /ADEV_ENV_AUTOFILL/);
+assert.match(nativeEnv, /strcmp\(autofill, "0"\) == 0/);
+assert.match(nativeEnv, /count == 0/);
+assert.match(nativeEnv, /adev_android_baseline_env\(envp\)/);
+assert.match(nativeEnv, /\/apex\/com\.android\.runtime\/bin/);
+assert.match(nativeEnv, /strcmp\(name, "PATH"\) == 0 \|\| strcmp\(name, "LD_PRELOAD"\) == 0/);
+assert.match(nativeEnv, /adev_is_stale\(current\) \? NULL : current/);
+assert.match(nativeEnv, /const char \*shell = adev_block_value\(envp, "SHELL"\)/);
+assert.match(nativeEnv, /const char \*python_shell = adev_block_value\(envp, "ADEV_PYTHON_SHELL"\)/);
+assert.match(nativeEnv, /shell == NULL \|\| shell\[0\] == '\\0'/);
+assert.match(nativeEnv, /python_shell == NULL \|\| python_shell\[0\] == '\\0'/);
+assert.match(execCompat, /adev_runtime_env_prepare_exec\(envp, &prepared_environment\)/);
+assert.match(execCompat, /effective_envp/);
+assert.match(execCompat, /adev_runtime_env_release_exec\(&prepared_environment\)/);
+assert.match(
+  envLauncher,
+  /clearenv\(\)[\s\S]*?setenv\("ADEV_ENV_AUTOFILL", "0", 1\)/,
+  'env -i must opt out before adding assignments such as a baseline PATH',
+);
 assert.match(cmake, /add_library\(adev_exec_compat SHARED adev_exec_compat\.c adev_runtime_env\.c\)/);
 for (const target of ['adev_npm_shell', 'adev_busybox', 'adev_make', 'adev_opencode']) {
   assert.match(
@@ -464,7 +515,9 @@ assert.doesNotMatch(runtimeManager, /2>\/dev\/null \|\| \/system\/bin\//);
 assert.match(runtimeManager, /BuildConfig\.VERSION_CODE/);
 assert.match(
   runtimeManager,
-  /nativeMap:\$\{BuildConfig\.VERSION_CODE\}:\$\{BuildConfig\.VERSION_NAME\}/,
+  /runtimeContent:\$\{BuildConfig\.VERSION_CODE\}:\$\{BuildConfig\.VERSION_NAME\}/,
 );
+assert.match(runtimeManager, /"runtime-lock\.json"/);
+assert.match(runtimeManager, /"lib\/adev-child-process-compat\.js"/);
 
 process.stdout.write('Runtime environment + Next SWC host suite passed.\n');

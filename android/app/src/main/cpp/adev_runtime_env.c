@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 #endif
 
 #define ADEV_ENV_MAX_LINE 8192
+#define ADEV_ENV_MAX_ENTRIES 4096
 
 /*
  * Recovery layer for the runtime environment contract.
@@ -138,6 +140,236 @@ static bool adev_locate_conf(char out[PATH_MAX]) {
 /* A value that names the Termux packages cannot be valid in this app. */
 static bool adev_is_stale(const char *value) {
     return value != NULL && strstr(value, "/com.termux/") != NULL;
+}
+
+static const char *adev_block_value(char *const envp[], const char *name) {
+    if (envp == NULL || name == NULL) return NULL;
+    const size_t length = strlen(name);
+    for (size_t index = 0; envp[index] != NULL; ++index) {
+        if (strncmp(envp[index], name, length) == 0 && envp[index][length] == '=') {
+            return envp[index] + length + 1;
+        }
+    }
+    return NULL;
+}
+
+static bool adev_android_baseline_env(char *const envp[]) {
+    const char *android_root = adev_block_value(envp, "ANDROID_ROOT");
+    if (android_root != NULL && strcmp(android_root, "/system") == 0) return true;
+    const char *path = adev_block_value(envp, "PATH");
+    return path != NULL && strstr(path, "/apex/com.android.runtime/bin") != NULL &&
+        strstr(path, "/system/bin") != NULL;
+}
+
+static bool adev_exec_env_needs_contract(char *const envp[], size_t count) {
+    if (envp == NULL || count == 0) return false;
+    const char *autofill = adev_block_value(envp, "ADEV_ENV_AUTOFILL");
+    if (autofill != NULL && strcmp(autofill, "0") == 0) return false;
+    if (autofill != NULL && strcmp(autofill, "1") == 0) return true;
+    if (!adev_android_baseline_env(envp)) return false;
+
+    /* A complete ADEV block needs no copy; Bun's sanitized block lacks these. */
+    const char *path = adev_block_value(envp, "PATH");
+    const char *shell = adev_block_value(envp, "SHELL");
+    const char *python_shell = adev_block_value(envp, "ADEV_PYTHON_SHELL");
+    return adev_block_value(envp, "PREFIX") == NULL ||
+        adev_block_value(envp, "MOBILEIDE_NATIVE_LIB") == NULL ||
+        adev_block_value(envp, "LD_PRELOAD") == NULL ||
+        path == NULL || path[0] == '\0' ||
+        shell == NULL || shell[0] == '\0' ||
+        python_shell == NULL || python_shell[0] == '\0';
+}
+
+static size_t adev_block_find(char **values, size_t count, const char *name) {
+    const size_t length = strlen(name);
+    for (size_t index = 0; index < count; ++index) {
+        if (strncmp(values[index], name, length) == 0 && values[index][length] == '=') {
+            return index;
+        }
+    }
+    return SIZE_MAX;
+}
+
+static bool adev_colon_contains(const char *value, const char *entry, size_t length) {
+    const char *cursor = value;
+    while (cursor != NULL) {
+        const char *separator = strchr(cursor, ':');
+        const size_t item_length = separator == NULL
+            ? strlen(cursor)
+            : (size_t)(separator - cursor);
+        if (item_length == length && strncmp(cursor, entry, length) == 0) return true;
+        cursor = separator == NULL ? NULL : separator + 1;
+    }
+    return false;
+}
+
+/* Contract entries lead, caller-only entries follow, duplicates are omitted. */
+static char *adev_merge_colon_assignment(
+    const char *name,
+    const char *contract,
+    const char *current
+) {
+    const size_t name_length = strlen(name);
+    const size_t contract_length = strlen(contract);
+    const size_t current_length = current == NULL ? 0 : strlen(current);
+    const size_t capacity = name_length + 1 + contract_length + current_length + 2;
+    char *result = malloc(capacity);
+    if (result == NULL) return NULL;
+    int written = snprintf(result, capacity, "%s=%s", name, contract);
+    if (written < 0 || (size_t)written >= capacity) {
+        free(result);
+        errno = EOVERFLOW;
+        return NULL;
+    }
+
+    size_t used = (size_t)written;
+    const char *cursor = current;
+    while (cursor != NULL && *cursor != '\0') {
+        const char *separator = strchr(cursor, ':');
+        const size_t length = separator == NULL ? strlen(cursor) : (size_t)(separator - cursor);
+        if (length > 0 && !adev_colon_contains(contract, cursor, length)) {
+            if (used + length + 2 > capacity) {
+                free(result);
+                errno = EOVERFLOW;
+                return NULL;
+            }
+            result[used++] = ':';
+            memcpy(result + used, cursor, length);
+            used += length;
+            result[used] = '\0';
+        }
+        cursor = separator == NULL ? NULL : separator + 1;
+    }
+    return result;
+}
+
+static int adev_exec_env_apply_assignment(
+    char ***values,
+    size_t *count,
+    size_t *capacity,
+    char *line
+) {
+    char *separator = strchr(line, '=');
+    if (separator == NULL) return 0;
+    *separator = '\0';
+    const char *name = line;
+    const char *contract = separator + 1;
+    if (name[0] == '\0' || contract[0] == '\0') return 0;
+
+    const size_t found = adev_block_find(*values, *count, name);
+    const char *current = found == SIZE_MAX ? NULL : strchr((*values)[found], '=') + 1;
+    char *assignment = NULL;
+    if (strcmp(name, "PATH") == 0 || strcmp(name, "LD_PRELOAD") == 0) {
+        assignment = adev_merge_colon_assignment(
+            name,
+            contract,
+            adev_is_stale(current) ? NULL : current
+        );
+    } else if (current == NULL || current[0] == '\0' || adev_is_stale(current)) {
+        const size_t length = strlen(name) + strlen(contract) + 2;
+        assignment = malloc(length);
+        if (assignment != NULL) snprintf(assignment, length, "%s=%s", name, contract);
+    } else {
+        return 0;
+    }
+    if (assignment == NULL) return -1;
+
+    if (found != SIZE_MAX) {
+        free((*values)[found]);
+        (*values)[found] = assignment;
+        return 0;
+    }
+    if (*count + 1 >= *capacity) {
+        size_t next_capacity = *capacity > 0 ? *capacity * 2 : 32;
+        char **next = realloc(*values, next_capacity * sizeof(char *));
+        if (next == NULL) {
+            free(assignment);
+            return -1;
+        }
+        *values = next;
+        *capacity = next_capacity;
+    }
+    (*values)[(*count)++] = assignment;
+    (*values)[*count] = NULL;
+    return 0;
+}
+
+int adev_runtime_env_prepare_exec(
+    char *const envp[],
+    adev_runtime_exec_env *prepared
+) {
+    if (prepared == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    prepared->values = (char **)envp;
+    prepared->owned = 0;
+
+    size_t count = 0;
+    if (envp != NULL) {
+        while (envp[count] != NULL && count < ADEV_ENV_MAX_ENTRIES) ++count;
+        if (count == ADEV_ENV_MAX_ENTRIES) {
+            errno = E2BIG;
+            return -1;
+        }
+    }
+    if (!adev_exec_env_needs_contract(envp, count)) return 0;
+
+    char conf[PATH_MAX];
+    if (!adev_locate_conf(conf)) return 0;
+    size_t capacity = count + 32;
+    char **values = calloc(capacity, sizeof(char *));
+    if (values == NULL) return -1;
+    for (size_t index = 0; index < count; ++index) {
+        values[index] = strdup(envp[index]);
+        if (values[index] == NULL) {
+            adev_runtime_exec_env cleanup = {values, 1};
+            adev_runtime_env_release_exec(&cleanup);
+            return -1;
+        }
+    }
+    values[count] = NULL;
+
+    FILE *file = fopen(conf, "re");
+    if (file == NULL) {
+        adev_runtime_exec_env cleanup = {values, 1};
+        adev_runtime_env_release_exec(&cleanup);
+        return -1;
+    }
+    char line[ADEV_ENV_MAX_LINE];
+    int result = 0;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        size_t length = strlen(line);
+        while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r')) {
+            line[--length] = '\0';
+        }
+        if (length == 0 || line[0] == '#') continue;
+        if (adev_exec_env_apply_assignment(&values, &count, &capacity, line) != 0) {
+            result = -1;
+            break;
+        }
+    }
+    const int saved_errno = errno;
+    fclose(file);
+    if (result != 0) {
+        adev_runtime_exec_env cleanup = {values, 1};
+        adev_runtime_env_release_exec(&cleanup);
+        errno = saved_errno;
+        return -1;
+    }
+    prepared->values = values;
+    prepared->owned = 1;
+    return 0;
+}
+
+void adev_runtime_env_release_exec(adev_runtime_exec_env *prepared) {
+    if (prepared == NULL || !prepared->owned || prepared->values == NULL) return;
+    for (size_t index = 0; prepared->values[index] != NULL; ++index) {
+        free(prepared->values[index]);
+    }
+    free(prepared->values);
+    prepared->values = NULL;
+    prepared->owned = 0;
 }
 
 /*

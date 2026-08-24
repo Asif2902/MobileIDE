@@ -135,6 +135,7 @@ class RuntimeManager(private val context: Context) {
             if (!versionFile.isFile) return false
             if (versionFile.readText().trim() != CURRENT_RUNTIME_VERSION) return false
             if (!binDir.isDirectory) return false
+            if (!runtimeSupportAssetsComplete()) return false
 
             // Re-initialize whenever the bundled binary/library set changes, even if
             // the version string is unchanged. The fingerprint of native-map.json
@@ -168,9 +169,15 @@ class RuntimeManager(private val context: Context) {
 
             val bindings = mutableListOf(
                 File(binDir, "node"),
+                File(binDir, "npm"),
+                File(binDir, "npx"),
                 File(homeDir, ".adev-wrappers"),
                 File(homeDir, ".adev-agent-env")
             )
+            if (findNativeTool("libbin_python", ".so") != null) {
+                bindings += File(binDir, "python")
+                bindings += File(binDir, "python3")
+            }
             if (File(nativeLibDir, "libbin_opencode.so").isFile) {
                 bindings += File(binDir, "opencode")
             }
@@ -178,8 +185,9 @@ class RuntimeManager(private val context: Context) {
                 bindings += File(binDir, "xdg-open")
             }
 
-            bindings.all { file ->
+            if (!bindings.all { file ->
                 if (!file.isFile) return@all false
+                if (!file.canExecute() && file.parentFile == binDir) return@all false
                 val content = file.readText()
                 if (!content.contains(nativeLibDir.absolutePath)) return@all false
 
@@ -199,11 +207,70 @@ class RuntimeManager(private val context: Context) {
                     position = content.indexOf("/data/app/", position + 1)
                 }
                 true
+            }) return false
+
+            // `#!/usr/bin/env` must resolve to the native launcher, never to a
+            // script or Toybox. A stale/missing link recreates the exact split
+            // where interactive shell functions work but raw Node spawn does not.
+            val envNative = File(nativeLibDir, "libbin_adev_env.so")
+            val envShim = File(adevEnv.shimDir, "env")
+            if (!envNative.isFile || !envShim.isFile || !Files.isSymbolicLink(envShim.toPath())) {
+                return false
             }
+            if (envShim.canonicalFile != envNative.canonicalFile) return false
+
+            val shellShim = File(binDir, "sh")
+            if (!shellShim.isFile || !shellShim.canExecute()) return false
+
+            // The native recovery layer reads this flat file. Validate the
+            // current install paths before reporting readiness; otherwise an
+            // APK reinstall can leave children loading an old LD_PRELOAD path.
+            val contractFile = File(etcDir, AdevEnvironment.CONF_NAME)
+            if (!contractFile.isFile) return false
+            val contract = contractFile.readText()
+            if (!contract.contains("PREFIX=${runtimeRoot.absolutePath}\n")) return false
+            if (!contract.contains(adevEnv.shimDir.absolutePath)) return false
+            if (!contract.contains("LD_LIBRARY_PATH=${libDir.absolutePath}:${nativeLibDir.absolutePath}")) {
+                return false
+            }
+            if (contract.contains("/com.termux/")) return false
+
+            true
         } catch (e: Exception) {
             Log.w(TAG, "Runtime executable binding validation failed: ${e.message}")
             false
         }
+    }
+
+    /**
+     * Files whose absence makes the extracted runtime unusable even when its
+     * version/fingerprint markers happen to exist. Extraction used to log and
+     * swallow an IOException, so a truncated Python or npm tree could be marked
+     * ready and remain broken across every app restart.
+     */
+    private fun runtimeSupportAssetsComplete(): Boolean {
+        val required = listOf(
+            File(runtimeRoot, NATIVE_MAP_FILE),
+            File(runtimeRoot, PREFIX_RETARGET_FILE),
+            File(libDir, "node_modules/npm/bin/npm-cli.js"),
+            File(libDir, "node_modules/npm/bin/npx-cli.js"),
+            File(libDir, "adev-node-preload.js"),
+            File(libDir, "adev-child-process-compat.js"),
+            File(libDir, "adev-runtime-env-test.js")
+        )
+        if (!required.all { it.isFile && it.length() > 0L }) return false
+
+        val pythonLib = findPythonLibDir()
+        if (findNativeTool("libbin_python", ".so") != null) {
+            if (pythonLib == null) return false
+            val pythonRequired = listOf(
+                File(pythonLib, "zipfile/_path/__init__.py"),
+                File(pythonLib, "importlib/metadata/__init__.py"),
+                File(pythonLib, "subprocess.py")
+            )
+            if (!pythonRequired.all { it.isFile && it.length() > 0L }) return false
+        }
+        return true
     }
 
     /**
@@ -213,16 +280,29 @@ class RuntimeManager(private val context: Context) {
      */
     private fun assetNativeMapFingerprint(): String? {
         return try {
-            val bytes = context.assets.open("$RUNTIME_DIR/$NATIVE_MAP_FILE").use { it.readBytes() }
-            val nativeMap = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
-                .joinToString("") { "%02x".format(it) }
-            // The packaged runtime is more than its native binaries: the shell
-            // helpers, the Next.js launcher and the environment suite are all
-            // JavaScript shipped in the same APK. Hashing native-map.json alone
-            // meant a new APK whose runtime version string had not changed kept
-            // running the previously extracted JavaScript. Including the package
-            // version makes every install extract what it actually ships.
-            "$nativeMap:${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            listOf(
+                NATIVE_MAP_FILE,
+                "runtime-lock.json",
+                "lib/adev-node-preload.js",
+                "lib/adev-child-process-compat.js"
+            ).forEach { relativePath ->
+                digest.update(relativePath.toByteArray(Charsets.UTF_8))
+                context.assets.open("$RUNTIME_DIR/$relativePath").use { stream ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+            }
+            val runtimeContent = digest.digest().joinToString("") { "%02x".format(it) }
+            // The packaged runtime is more than its native-map paths. The signed
+            // lock captures helper-binary bytes, while these preload assets
+            // define child-process behavior. Hash both so an upgrade refreshes
+            // changed bindings and JavaScript even before a version bump.
+            "$runtimeContent:${BuildConfig.VERSION_CODE}:${BuildConfig.VERSION_NAME}"
         } catch (e: Exception) {
             Log.w(TAG, "Could not fingerprint the packaged runtime: ${e.message}")
             null
@@ -394,6 +474,7 @@ class RuntimeManager(private val context: Context) {
             }
         } catch (e: IOException) {
             Log.e(TAG, "Error extracting runtime assets", e)
+            throw e
         }
     }
 
@@ -1574,8 +1655,12 @@ adev_guard() {
                 } catch (_: Exception) {
                     continue
                 }
-                if (!original.contains(packagedPrefix)) continue
-                target.writeText(original.replace(packagedPrefix, runtimeRoot.absolutePath))
+                val basePrefix = "/data/data/com.termux/files"
+                if (!original.contains(packagedPrefix) && !original.contains(basePrefix)) continue
+                var updated = original
+                if (original.contains(packagedPrefix)) updated = updated.replace(packagedPrefix, runtimeRoot.absolutePath)
+                if (original.contains(basePrefix)) updated = updated.replace(basePrefix, runtimeRoot.absolutePath)
+                target.writeText(updated)
                 rewritten++
             }
             Log.i(TAG, "Retargeted $rewritten packaged sysroot files to ${runtimeRoot.absolutePath}")
