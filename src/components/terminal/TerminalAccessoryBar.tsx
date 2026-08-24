@@ -19,6 +19,12 @@ export interface TerminalAccessoryBarProps {
   onFontSmaller?: () => void;
   /** Scale font size larger */
   onFontLarger?: () => void;
+  /** Current persisted terminal font size. */
+  fontSize?: number;
+  /** Clear only the visible xterm screen, preserving history and the PTY. */
+  onClearScreen?: () => void;
+  /** Clear the visible screen and all local scrollback, preserving the PTY. */
+  onClearScrollback?: () => void;
   ctrlArmed: boolean;
   altArmed: boolean;
 }
@@ -108,6 +114,9 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
   onSelectText,
   onFontSmaller,
   onFontLarger,
+  fontSize,
+  onClearScreen,
+  onClearScrollback,
   ctrlArmed,
   altArmed,
 }) => {
@@ -141,7 +150,28 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
         <KeyButton label="Fn" onPress={() => setShowFn(v => !v)} active={showFn} wide />
         {onSelectText && <KeyButton label="SELECT" onPress={onSelectText} wide />}
         {onFontSmaller && <KeyButton label="A-" onPress={onFontSmaller} />}
+        {typeof fontSize === 'number' && (
+          <View style={styles.fontSizeBadge} accessibilityLabel={`Terminal font size ${fontSize}`}>
+            <Text style={styles.fontSizeText}>{fontSize}</Text>
+          </View>
+        )}
         {onFontLarger && <KeyButton label="A+" onPress={onFontLarger} />}
+        {onClearScreen && (
+          <KeyButton
+            label="SCREEN"
+            onPress={onClearScreen}
+            wide
+            accessibilityLabel="Clear visible terminal screen"
+          />
+        )}
+        {onClearScrollback && (
+          <KeyButton
+            label="HISTORY"
+            onPress={onClearScrollback}
+            wide
+            accessibilityLabel="Clear all terminal scrollback"
+          />
+        )}
         <TouchableOpacity
           style={[styles.key, styles.keyWide]}
           onPress={onCopy}
@@ -170,16 +200,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#252526',
     borderTopWidth: 1,
     borderTopColor: '#1e1e1e',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   row: {
     alignItems: 'center',
     paddingHorizontal: 4,
   },
   key: {
-    minWidth: 34,
-    height: 34,
-    paddingHorizontal: 8,
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: 7,
     marginHorizontal: 2,
     borderRadius: 5,
     backgroundColor: '#37373d',
@@ -187,7 +217,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   keyWide: {
-    minWidth: 50,
+    minWidth: 48,
   },
   keyActive: {
     backgroundColor: '#0e639c',
@@ -200,6 +230,17 @@ const styles = StyleSheet.create({
   },
   keyTextActive: {
     color: '#ffffff',
+  },
+  fontSizeBadge: {
+    minWidth: 24,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fontSizeText: {
+    color: '#8f8f99',
+    fontSize: 11,
+    fontFamily: 'monospace',
   },
 });
 

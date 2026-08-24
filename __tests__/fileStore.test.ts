@@ -60,6 +60,12 @@ jest.mock('../src/native', () => ({
       skippedEntries: 0,
     })),
     cancelTransfer: jest.fn(async () => true),
+    pickFile: jest.fn(async () => null),
+    importFile: jest.fn(async () => ({
+      name: 'config (1).json',
+      path: '/root/workspaces/current/config (1).json',
+      bytesCopied: 12,
+    })),
   },
   PtyNativeModule: {
     createSession: jest.fn(async (_cols: number, _rows: number, cwd: string) => ({
@@ -73,11 +79,12 @@ jest.mock('../src/native', () => ({
   PTY_EVENTS: {OUTPUT: 'onPtyOutput', EXIT: 'onPtyExit'},
 }));
 
-import {FileSystemNativeModule, MobileIDENativeModule, PtyNativeModule} from '../src/native';
+import {FileSystemNativeModule, MobileIDENativeModule, PtyNativeModule, StorageNativeModule} from '../src/native';
 import {useFileStore} from '../src/stores/fileStore';
 
 const mockedFileSystem = FileSystemNativeModule as jest.Mocked<typeof FileSystemNativeModule>;
 const mockedMobileIDE = MobileIDENativeModule as jest.Mocked<typeof MobileIDENativeModule>;
+const mockedStorage = StorageNativeModule as jest.Mocked<typeof StorageNativeModule>;
 
 describe('File workspace open contract', () => {
   beforeEach(() => {
@@ -180,5 +187,26 @@ describe('File workspace open contract', () => {
       '/real/root/workspaces/current',
     );
     expect(useFileStore.getState().error).toContain('directory unavailable');
+  });
+
+  it('imports a picked document into the active workspace and refreshes the tree', async () => {
+    mockedStorage.pickFile.mockResolvedValueOnce({
+      kind: 'documentUri',
+      value: 'content://downloads/config',
+      displayName: 'config.json',
+      mimeType: 'application/json',
+      size: 12,
+    });
+    mockedFileSystem.listDir.mockResolvedValueOnce([]);
+
+    const result = await useFileStore.getState().importFileFromDevice();
+
+    expect(mockedStorage.importFile).toHaveBeenCalledWith(
+      'content://downloads/config',
+      '/root/workspaces/current',
+      'config.json',
+    );
+    expect(mockedFileSystem.listDir).toHaveBeenCalledWith('/root/workspaces/current');
+    expect(result?.name).toBe('config (1).json');
   });
 });

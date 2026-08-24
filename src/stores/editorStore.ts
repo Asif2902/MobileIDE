@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { FileSystemNativeModule } from '../native';
+import { FileSystemNativeModule, MobileIDENativeModule } from '../native';
 
 export interface OpenFile {
   path: string;
@@ -26,6 +26,13 @@ export interface FileDiagnostics {
   problems: Problem[];
 }
 
+export interface EditorLocation {
+  path: string;
+  line: number;
+  column: number;
+  nonce: number;
+}
+
 interface EditorState {
   openFiles: OpenFile[];
   activeFilePath: string | null;
@@ -35,6 +42,7 @@ interface EditorState {
   diagnostics: Record<string, FileDiagnostics>;
   cursorLine: number;
   cursorColumn: number;
+  revealRequest: EditorLocation | null;
   
   // Actions
   openFile: (path: string) => Promise<void>;
@@ -44,14 +52,27 @@ interface EditorState {
   saveFile: (path: string) => Promise<void>;
   saveAllFiles: () => Promise<void>;
   setFontSize: (size: number) => void;
+  loadPreferences: () => Promise<void>;
   toggleWordWrap: () => void;
   setTheme: (theme: 'dark' | 'light') => void;
   setDiagnostics: (path: string, diagnostics: FileDiagnostics) => void;
   setCursor: (line: number, column: number) => void;
+  revealLocation: (path: string, line: number, column?: number) => Promise<void>;
 }
 
 // Language detection from file extension
-const getLanguageFromPath = (path: string): string => {
+export const getLanguageFromPath = (path: string): string => {
+  const fileName = getFileName(path).toLowerCase();
+  if (fileName === '.env' || fileName.startsWith('.env.')) return 'ini';
+  if (fileName === 'dockerfile' || fileName.startsWith('dockerfile.')) return 'dockerfile';
+  const wellKnownNames: Record<string, string> = {
+    'makefile': 'plaintext',
+    '.gitignore': 'plaintext',
+    '.npmrc': 'ini',
+    '.yarnrc': 'yaml',
+  };
+  if (wellKnownNames[fileName]) return wellKnownNames[fileName];
+
   const ext = path.split('.').pop()?.toLowerCase() || '';
   const languageMap: Record<string, string> = {
     'js': 'javascript',
@@ -87,12 +108,44 @@ const getLanguageFromPath = (path: string): string => {
     'dart': 'dart',
     'vue': 'html',
     'svelte': 'html',
+    'mjs': 'javascript',
+    'cjs': 'javascript',
+    'mts': 'typescript',
+    'cts': 'typescript',
+    'toml': 'ini',
+    'env': 'ini',
+    'dockerfile': 'dockerfile',
   };
   return languageMap[ext] || 'plaintext';
 };
 
 const getFileName = (path: string): string => {
   return path.split('/').pop() || path;
+};
+
+const EDITOR_SETTINGS_FILE = '.adev-editor-settings.json';
+
+const clampFontSize = (size: number): number => Math.max(8, Math.min(32, Math.round(size)));
+
+const getEditorSettingsPath = async (): Promise<string> => {
+  const paths = await MobileIDENativeModule.getRuntimePaths();
+  return `${paths.home}/${EDITOR_SETTINGS_FILE}`;
+};
+
+let preferenceWriteChain: Promise<void> = Promise.resolve();
+
+const persistEditorPreferences = (fontSize: number, wordWrap: boolean): Promise<void> => {
+  preferenceWriteChain = preferenceWriteChain
+    .then(async () => {
+      await FileSystemNativeModule.writeFile(
+        await getEditorSettingsPath(),
+        JSON.stringify({ fontSize: clampFontSize(fontSize), wordWrap }),
+      );
+    })
+    .catch(() => {
+      // Editor preferences are best-effort and must never block editing.
+    });
+  return preferenceWriteChain;
 };
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -104,6 +157,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   diagnostics: {},
   cursorLine: 1,
   cursorColumn: 1,
+  revealRequest: null,
 
   openFile: async (path: string) => {
     const state = get();
@@ -126,8 +180,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         isDirty: false,
       };
       
-      set(state => ({
-        openFiles: [...state.openFiles, newFile],
+      set(current => ({
+        openFiles: [...current.openFiles, newFile],
         activeFilePath: path,
       }));
     } catch (error) {
@@ -169,8 +223,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     
     try {
       await FileSystemNativeModule.writeFile(path, file.content);
-      set(state => ({
-        openFiles: state.openFiles.map(f =>
+      set(current => ({
+        openFiles: current.openFiles.map(f =>
           f.path === path
             ? { ...f, originalContent: f.content, isDirty: false }
             : f
@@ -192,11 +246,35 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setFontSize: (size: number) => {
-    set({ fontSize: Math.max(8, Math.min(32, size)) });
+    const fontSize = clampFontSize(size);
+    set({ fontSize });
+    persistEditorPreferences(fontSize, get().wordWrap).catch(() => {});
+  },
+
+  loadPreferences: async () => {
+    try {
+      const file = await getEditorSettingsPath();
+      if (!(await FileSystemNativeModule.exists(file))) return;
+      const parsed = JSON.parse(await FileSystemNativeModule.readFile(file)) as {
+        fontSize?: unknown;
+        wordWrap?: unknown;
+      };
+      set(state => ({
+        fontSize:
+          typeof parsed.fontSize === 'number' ? clampFontSize(parsed.fontSize) : state.fontSize,
+        wordWrap: typeof parsed.wordWrap === 'boolean' ? parsed.wordWrap : state.wordWrap,
+      }));
+    } catch {
+      // Ignore malformed or unavailable settings and retain safe defaults.
+    }
   },
 
   toggleWordWrap: () => {
-    set(state => ({ wordWrap: !state.wordWrap }));
+    set(state => {
+      const wordWrap = !state.wordWrap;
+      persistEditorPreferences(state.fontSize, wordWrap).catch(() => {});
+      return { wordWrap };
+    });
   },
 
   setTheme: (theme: 'dark' | 'light') => {
@@ -209,5 +287,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setCursor: (line: number, column: number) => {
     set({ cursorLine: line, cursorColumn: column });
+  },
+
+  revealLocation: async (path: string, line: number, column = 1) => {
+    await get().openFile(path);
+    set({
+      activeFilePath: path,
+      revealRequest: {
+        path,
+        line: Math.max(1, Math.round(line)),
+        column: Math.max(1, Math.round(column)),
+        nonce: Date.now(),
+      },
+    });
   },
 }));

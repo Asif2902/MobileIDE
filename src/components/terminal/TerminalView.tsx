@@ -9,11 +9,12 @@ import {
   useWindowDimensions,
   LayoutChangeEvent,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTerminalStore, getOutputBuffer } from '../../stores';
+import { useTerminalStore, getOutputBuffer, clearOutputBuffer } from '../../stores';
 import {
   PtyEventEmitter,
   PTY_EVENTS,
@@ -24,7 +25,6 @@ import {
 import { TerminalAccessoryBar } from './TerminalAccessoryBar';
 import { Icon } from '../icons';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WebViewAny = WebView as any;
 
 interface TerminalViewProps {
@@ -41,7 +41,6 @@ function fontForWidth(width: number): number {
 }
 
 export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = true }) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
   const pendingOutput = useRef<string[]>([]);
@@ -51,11 +50,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   // highlight the modifier while it waits for the next key.
   const [ctrlArmed, setCtrlArmed] = useState(false);
   const [altArmed, setAltArmed] = useState(false);
-  const [, setFontSize] = useState(() => fontForWidth(windowWidth));
+  const [fontSize, setFontSize] = useState(() => fontForWidth(windowWidth));
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(() => Keyboard.isVisible());
 
   // Selection modal state for finger text selection
   const [isSelectModalVisible, setIsSelectModalVisible] = useState(false);
   const [selectModalText, setSelectModalText] = useState('');
+  const [selectRange, setSelectRange] = useState({ start: 0, end: 0 });
   const selectInputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
 
@@ -87,12 +88,33 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
     );
   }, []);
 
+  const closeSelectionModal = useCallback(() => {
+    setIsSelectModalVisible(false);
+    setSelectModalText('');
+    setSelectRange({ start: 0, end: 0 });
+    postToWeb({ type: 'clearSelection' });
+  }, [postToWeb]);
+
   const changeFontSize = useCallback((delta: number) => {
     setFontSize(prev => {
       const next = Math.max(9, Math.min(22, prev + delta));
       postToWeb({ type: 'fontSize', size: next });
       return next;
     });
+  }, [postToWeb]);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+      postToWeb({ type: 'clearModifiers' });
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
   }, [postToWeb]);
 
   // Subscribe to terminal output
@@ -150,15 +172,14 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         handleMessage(${JSON.stringify(JSON.stringify({ type: 'focus' }))});
         true;
       `);
+    } else if (!active && isReady.current) {
+      postToWeb({ type: 'clearModifiers' });
     }
-  }, [active]);
+  }, [active, postToWeb]);
 
-  // Phone rotate / tablet split: re-fit and adapt font so text stays on-screen.
+  // Phone rotate / tablet split: re-fit while retaining the user's persisted zoom.
   useEffect(() => {
-    const next = fontForWidth(windowWidth);
-    setFontSize(next);
     if (isReady.current) {
-      postToWeb({ type: 'fontSize', size: next });
       postToWeb({ type: 'fit' });
     }
   }, [windowWidth, postToWeb]);
@@ -184,25 +205,21 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
       switch (message.type) {
         case 'ready':
           isReady.current = true;
-          // Flush pending output
-          pendingOutput.current.forEach(data => {
-            webViewRef.current?.injectJavaScript(`
-              handleMessage(${JSON.stringify(JSON.stringify({
-                type: 'output',
-                data
-              }))});
-              true;
-            `);
-          });
-          pendingOutput.current = [];
-          
-          // Load existing buffer
+          if (typeof message.fontSize === 'number') {
+            setFontSize(message.fontSize);
+          }
+
+          // The shared store listener normally captured the same output as this
+          // view's pending queue. Replay exactly one source to avoid duplicated
+          // startup text when the WebView becomes ready.
           const buffer = getOutputBuffer(sessionId);
-          if (buffer.length > 0) {
+          const replay = buffer.length > 0 ? buffer.join('') : pendingOutput.current.join('');
+          pendingOutput.current = [];
+          if (replay.length > 0) {
             webViewRef.current?.injectJavaScript(`
               handleMessage(${JSON.stringify(JSON.stringify({
                 type: 'output',
-                data: buffer.join('')
+                data: replay
               }))});
               true;
             `);
@@ -228,7 +245,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
           break;
 
         case 'openSelectionModal':
-          setSelectModalText(message.bufferText || '');
+          const selectionText = message.bufferText || '';
+          setSelectModalText(selectionText);
+          setSelectRange({ start: selectionText.length, end: selectionText.length });
           setIsSelectModalVisible(true);
           break;
 
@@ -237,6 +256,13 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
           ClipboardNativeModule.setString(message.text || '').catch(err => {
             console.error('Clipboard copy failed:', err);
           });
+          break;
+
+        case 'bufferCleared':
+          clearOutputBuffer(sessionId);
+          pendingOutput.current = [];
+          setSelectModalText('');
+          setSelectRange({ start: 0, end: 0 });
           break;
 
         case 'requestPaste':
@@ -283,7 +309,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         textZoom={100}
         overScrollMode="never"
       />
-      {active && isKeyboardBarVisible && (
+      {active && isKeyboardBarVisible && isKeyboardVisible && (
         <TerminalAccessoryBar
           ctrlArmed={ctrlArmed}
           altArmed={altArmed}
@@ -295,6 +321,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
           onSelectText={() => postToWeb({ type: 'openSelectModal' })}
           onFontSmaller={() => changeFontSize(-1)}
           onFontLarger={() => changeFontSize(1)}
+          fontSize={fontSize}
+          onClearScreen={() => postToWeb({ type: 'clearScreen' })}
+          onClearScrollback={() => postToWeb({ type: 'clearScrollback' })}
         />
       )}
 
@@ -302,7 +331,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
       <Modal
         visible={isSelectModalVisible}
         animationType="slide"
-        onRequestClose={() => setIsSelectModalVisible(false)}
+        onRequestClose={closeSelectionModal}
         presentationStyle="fullScreen"
       >
         <View
@@ -318,7 +347,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             <Text style={styles.modalTitle}>Select & copy</Text>
             <TouchableOpacity
               style={styles.closeButton}
-              onPress={() => setIsSelectModalVisible(false)}
+              onPress={closeSelectionModal}
             >
               <Icon name="close" size={20} color="#ffffff" />
             </TouchableOpacity>
@@ -330,6 +359,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             <TouchableOpacity
               style={styles.jumpBtn}
               onPress={() => {
+                setSelectRange({ start: 0, end: 0 });
                 selectInputRef.current?.setNativeProps?.({
                   selection: { start: 0, end: 0 },
                 });
@@ -341,6 +371,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
               style={styles.jumpBtn}
               onPress={() => {
                 const len = selectModalText.length;
+                setSelectRange({ start: len, end: len });
                 (selectInputRef.current as any)?.scrollToEnd?.({ animated: true });
                 selectInputRef.current?.setNativeProps?.({
                   selection: { start: len, end: len },
@@ -354,6 +385,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             ref={selectInputRef}
             style={styles.selectableInput}
             value={selectModalText}
+            selection={selectRange}
+            onSelectionChange={event => setSelectRange(event.nativeEvent.selection)}
             multiline
             // editable + no soft keyboard: Android can scroll + select reliably
             editable
@@ -372,18 +405,43 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
             selectTextOnFocus={false}
           />
           <View style={styles.modalFooter}>
+            <View style={styles.selectionActions}>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => {
+                  setSelectRange({ start: 0, end: selectModalText.length });
+                  selectInputRef.current?.focus();
+                }}
+              >
+                <Text style={styles.secondaryActionText}>Select all</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                disabled={selectRange.start === selectRange.end}
+                onPress={() => {
+                  const selected = selectModalText.slice(selectRange.start, selectRange.end);
+                  ClipboardNativeModule.setString(selected).catch(() => {});
+                  closeSelectionModal();
+                }}
+              >
+                <Text style={[
+                  styles.secondaryActionText,
+                  selectRange.start === selectRange.end && styles.disabledActionText,
+                ]}>Copy selection</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity
               style={styles.copyAllButton}
               onPress={() => {
                 ClipboardNativeModule.setString(selectModalText || '').catch(() => {});
-                setIsSelectModalVisible(false);
+                closeSelectionModal();
               }}
             >
               <Text style={styles.copyAllButtonText}>Copy all</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.modalCancelButton}
-              onPress={() => setIsSelectModalVisible(false)}
+              onPress={closeSelectionModal}
             >
               <Text style={styles.modalCancelText}>Close</Text>
             </TouchableOpacity>
@@ -467,6 +525,25 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     paddingTop: 12,
     gap: 8,
+  },
+  selectionActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryActionButton: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#2a2a2a',
+  },
+  secondaryActionText: {
+    color: '#c4b5fd',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  disabledActionText: {
+    color: '#60606a',
   },
   copyAllButton: {
     backgroundColor: '#8b5cf6',

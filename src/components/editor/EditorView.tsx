@@ -19,7 +19,6 @@ import type { WebViewMessageEvent } from 'react-native-webview';
 import { useEditorStore } from '../../stores';
 import { ClipboardNativeModule } from '../../native';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WebViewAny = WebView as any;
 
 const MONACO_URI = 'file:///android_asset/editor/index.html';
@@ -27,6 +26,14 @@ const MONACO_URI = 'file:///android_asset/editor/index.html';
 export interface EditorViewHandle {
   /** Ask the WebView + Monaco to take focus and show the soft keyboard. */
   focusEditor: () => void;
+  find: (query: string, direction?: 'next' | 'previous') => void;
+  replace: (query: string, replacement: string, replaceAll?: boolean) => void;
+}
+
+export interface EditorSearchResult {
+  query: string;
+  current: number;
+  total: number;
 }
 
 interface EditorViewProps {
@@ -34,13 +41,13 @@ interface EditorViewProps {
   content: string;
   language: string;
   onRequestFocus?: () => void;
+  onSearchResult?: (result: EditorSearchResult) => void;
 }
 
-export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function EditorView(
-  { filePath, content, language, onRequestFocus },
+export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function EditorViewComponent(
+  { filePath, content, language, onRequestFocus, onSearchResult },
   ref,
 ) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
   // Last path pushed into Monaco. Content updates from typing must NOT re-open
@@ -49,11 +56,18 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
   const contentRef = useRef(content);
   contentRef.current = content;
 
-  const { updateContent, setDiagnostics, setCursor, fontSize, wordWrap, theme, saveFile } =
-    useEditorStore();
+  const {
+    updateContent,
+    setDiagnostics,
+    setCursor,
+    fontSize,
+    wordWrap,
+    theme,
+    saveFile,
+    revealRequest,
+  } = useEditorStore();
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const readyTimer = useRef<any>(null);
 
   const startReadyTimer = useCallback(() => {
@@ -98,7 +112,21 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
     setTimeout(() => post({ type: 'focus' }), 80);
   }, [post]);
 
-  useImperativeHandle(ref, () => ({ focusEditor }), [focusEditor]);
+  const find = useCallback(
+    (query: string, direction: 'next' | 'previous' = 'next') => {
+      post({ type: 'search', query, direction });
+    },
+    [post],
+  );
+
+  const replace = useCallback(
+    (query: string, replacement: string, replaceAll = false) => {
+      post({ type: replaceAll ? 'replaceAll' : 'replace', query, replacement });
+    },
+    [post],
+  );
+
+  useImperativeHandle(ref, () => ({ focusEditor, find, replace }), [focusEditor, find, replace]);
 
   const pushFileToMonaco = useCallback(
     (path: string, fileContent: string | null, lang: string) => {
@@ -136,6 +164,15 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
     post({ type: 'setWordWrap', enabled: wordWrap });
   }, [wordWrap, post]);
 
+  useEffect(() => {
+    if (!revealRequest || revealRequest.path !== filePath) return;
+    post({
+      type: 'goToLocation',
+      line: revealRequest.line,
+      column: revealRequest.column,
+    });
+  }, [filePath, post, revealRequest]);
+
   const onLayout = useCallback(() => {
     post({ type: 'layout' });
   }, [post]);
@@ -163,6 +200,17 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
             post({ type: 'setFontSize', size: fontSize });
             post({ type: 'setWordWrap', enabled: wordWrap });
             pushFileToMonaco(filePath, contentRef.current, language);
+            if (revealRequest?.path === filePath) {
+              setTimeout(
+                () =>
+                  post({
+                    type: 'goToLocation',
+                    line: revealRequest.line,
+                    column: revealRequest.column,
+                  }),
+                80,
+              );
+            }
             setTimeout(() => post({ type: 'focus' }), 200);
             break;
 
@@ -206,6 +254,26 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
             });
             break;
 
+          case 'pasteRequest':
+            ClipboardNativeModule.getString()
+              .then(text => post({ type: 'pasteText', text: text || '' }))
+              .catch(err => console.error('Editor clipboard paste failed:', err));
+            break;
+
+          case 'searchResult':
+            onSearchResult?.({
+              query: message.query || '',
+              current: Number(message.current) || 0,
+              total: Number(message.total) || 0,
+            });
+            break;
+
+          case 'fontSizeChanged':
+            if (Number.isFinite(Number(message.size))) {
+              useEditorStore.getState().setFontSize(Number(message.size));
+            }
+            break;
+
           case 'fileOpened':
             onRequestFocus?.();
             break;
@@ -227,6 +295,8 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
       setDiagnostics,
       saveFile,
       onRequestFocus,
+      onSearchResult,
+      revealRequest,
     ],
   );
 

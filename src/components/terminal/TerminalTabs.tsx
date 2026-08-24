@@ -35,6 +35,9 @@ export const TerminalTabs: React.FC = () => {
               session.id === activeSessionId && styles.activeTab
             ]}
             onPress={() => setActiveSession(session.id)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: session.id === activeSessionId }}
+            accessibilityLabel={`Terminal ${index + 1}${session.isAlive ? '' : ', exited'}`}
           >
             <Text 
               style={[
@@ -49,6 +52,8 @@ export const TerminalTabs: React.FC = () => {
               style={styles.closeButton}
               onPress={() => closeSession(session.id)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Close terminal ${index + 1}`}
             >
               <Icon name="close" size={13} color="#969696" />
             </TouchableOpacity>
@@ -59,6 +64,9 @@ export const TerminalTabs: React.FC = () => {
       <TouchableOpacity
         style={styles.addButton}
         onPress={toggleKeyboardBar}
+        accessibilityRole="button"
+        accessibilityLabel="Toggle terminal extra keys above the keyboard"
+        accessibilityState={{ selected: isKeyboardBarVisible }}
       >
         <Icon name="keyboard" size={18} color={isKeyboardBarVisible ? '#ffffff' : '#6e6e6e'} />
       </TouchableOpacity>
@@ -66,6 +74,8 @@ export const TerminalTabs: React.FC = () => {
       <TouchableOpacity 
         style={styles.addButton}
         onPress={handleNewTerminal}
+        accessibilityRole="button"
+        accessibilityLabel="New terminal"
       >
         <Icon name="plus" size={18} color="#ffffff" />
       </TouchableOpacity>
@@ -80,7 +90,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#252526',
     borderBottomWidth: 1,
     borderBottomColor: '#1e1e1e',
-    height: 35,
+    height: 33,
   },
   scrollView: {
     flex: 1,
@@ -92,8 +102,10 @@ const styles = StyleSheet.create({
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    minWidth: 96,
+    maxWidth: 132,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     marginRight: 2,
     backgroundColor: '#2d2d2d',
     borderTopLeftRadius: 4,
@@ -103,6 +115,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e1e1e',
   },
   tabText: {
+    flexShrink: 1,
     color: '#969696',
     fontSize: 12,
     marginRight: 6,
@@ -119,9 +132,10 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   addButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginHorizontal: 4,
+    width: 42,
+    height: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addButtonText: {
     color: '#ffffff',

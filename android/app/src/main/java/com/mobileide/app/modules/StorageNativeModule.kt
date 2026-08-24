@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.BaseActivityEventListener
@@ -18,6 +19,7 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.mobileide.app.projects.ProjectConflictPolicy
 import com.mobileide.app.projects.ProjectImportSource
+import com.mobileide.app.projects.ImportedFileNaming
 import com.mobileide.app.projects.ProjectRecord
 import com.mobileide.app.projects.ProjectRegistry
 import com.mobileide.app.projects.ProjectTransferListener
@@ -27,7 +29,13 @@ import com.mobileide.app.projects.ProjectTransferOptions
 import com.mobileide.app.projects.ProjectTransferResult
 import com.mobileide.app.projects.ProjectTransferSnapshot
 import com.mobileide.app.projects.WorkspaceLocationPolicy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 
 /**
@@ -42,6 +50,7 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
         const val NAME = "StorageNative"
         private const val REQUEST_IMPORT_TREE = 0xADE1
         private const val REQUEST_EXPORT_TREE = 0xADE2
+        private const val REQUEST_IMPORT_FILE = 0xADE3
         const val EVENT_TRANSFER_PROGRESS = "onProjectTransferProgress"
         const val EVENT_TRANSFER_COMPLETE = "onProjectTransferComplete"
         const val EVENT_TRANSFER_ERROR = "onProjectTransferError"
@@ -49,6 +58,8 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
 
     private val pickerLock = Any()
     private val pendingPickers = mutableMapOf<Int, Promise>()
+    private val fileImportLock = Any()
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val runtimeManager by lazy {
         MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
@@ -109,7 +120,11 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
             resultCode: Int,
             data: Intent?
         ) {
-            if (requestCode != REQUEST_IMPORT_TREE && requestCode != REQUEST_EXPORT_TREE) return
+            if (
+                requestCode != REQUEST_IMPORT_TREE &&
+                requestCode != REQUEST_EXPORT_TREE &&
+                requestCode != REQUEST_IMPORT_FILE
+            ) return
             val promise = synchronized(pickerLock) { pendingPickers.remove(requestCode) } ?: return
             if (resultCode != Activity.RESULT_OK || data?.data == null) {
                 promise.resolve(null)
@@ -136,7 +151,18 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
                 return
             }
             try {
-                reactApplicationContext.contentResolver.takePersistableUriPermission(uri, grantedFlags)
+                if (grantedFlags != 0) {
+                    try {
+                        reactApplicationContext.contentResolver.takePersistableUriPermission(uri, grantedFlags)
+                    } catch (_: SecurityException) {
+                        // Some providers grant access for this activity only. The file is
+                        // copied immediately, so a persistent grant is not mandatory.
+                    }
+                }
+                if (requestCode == REQUEST_IMPORT_FILE) {
+                    promise.resolve(documentSelectionMap(uri))
+                    return
+                }
                 val tree = DocumentFile.fromTreeUri(reactApplicationContext, uri)
                     ?: throw IOException("Selected document tree is unavailable")
                 promise.resolve(Arguments.createMap().apply {
@@ -237,6 +263,63 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun pickExportTree(promise: Promise) = launchTreePicker(REQUEST_EXPORT_TREE, promise)
+
+    @ReactMethod
+    fun pickFile(promise: Promise) = launchFilePicker(promise)
+
+    @ReactMethod
+    fun importFile(
+        documentUri: String,
+        workspacePath: String,
+        displayName: String?,
+        promise: Promise
+    ) {
+        ioScope.launch {
+            try {
+                val workspace = File(runtimeManager.resolveVirtualPath(workspacePath)).canonicalFile
+                if (!workspace.isDirectory) {
+                    throw IOException("The active workspace is not an available directory")
+                }
+                val uri = Uri.parse(documentUri)
+                val providerName = queryDocumentName(uri)
+                val result = synchronized(fileImportLock) {
+                    val destination = ImportedFileNaming.uniqueDestination(
+                        workspace,
+                        providerName ?: displayName
+                    )
+                    val temporary = File.createTempFile(".adev-import-", ".tmp", workspace)
+                    var copied = 0L
+                    try {
+                        reactApplicationContext.contentResolver.openInputStream(uri).use { input ->
+                            if (input == null) throw IOException("The selected document cannot be opened")
+                            FileOutputStream(temporary).use { output ->
+                                copied = input.copyTo(output)
+                                output.fd.sync()
+                            }
+                        }
+                        if (!temporary.renameTo(destination)) {
+                            temporary.copyTo(destination, overwrite = false)
+                            temporary.delete()
+                        }
+                    } catch (error: Exception) {
+                        temporary.delete()
+                        // destination did not exist when selected and imports are
+                        // serialized, so any partial fallback copy belongs to us.
+                        destination.delete()
+                        throw error
+                    }
+                    Triple(destination.name, "$workspacePath/${destination.name}", copied)
+                }
+                promise.resolve(Arguments.createMap().apply {
+                    putString("name", result.first)
+                    putString("path", result.second)
+                    putDouble("bytesCopied", result.third.toDouble())
+                })
+            } catch (error: Exception) {
+                promise.reject("FILE_IMPORT_ERROR", "ADEV could not import the selected file: ${error.message}", error)
+            }
+        }
+    }
 
     @ReactMethod
     fun assessWorkspace(realPath: String, promise: Promise) {
@@ -390,6 +473,76 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    private fun launchFilePicker(promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("FILE_PICKER_UNAVAILABLE", "No foreground activity is available")
+            return
+        }
+        synchronized(pickerLock) {
+            if (pendingPickers.isNotEmpty()) {
+                promise.reject("FILE_PICKER_BUSY", "A document picker is already open")
+                return
+            }
+            pendingPickers[REQUEST_IMPORT_FILE] = promise
+        }
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+            activity.startActivityForResult(intent, REQUEST_IMPORT_FILE)
+        } catch (error: Exception) {
+            synchronized(pickerLock) { pendingPickers.remove(REQUEST_IMPORT_FILE) }
+            promise.reject("FILE_PICKER_UNAVAILABLE", error.message, error)
+        }
+    }
+
+    private fun documentSelectionMap(uri: Uri): WritableMap {
+        var name: String? = null
+        var size: Long? = null
+        reactApplicationContext.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) name = cursor.getString(nameIndex)
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex)
+            }
+        }
+        val safeName = ImportedFileNaming.sanitize(name ?: uri.lastPathSegment)
+        return Arguments.createMap().apply {
+            putString("kind", "documentUri")
+            putString("value", uri.toString())
+            putString("displayName", safeName)
+            reactApplicationContext.contentResolver.getType(uri)?.let { putString("mimeType", it) }
+            size?.let { putDouble("size", it.toDouble()) }
+        }
+    }
+
+    private fun queryDocumentName(uri: Uri): String? {
+        reactApplicationContext.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && index >= 0 && !cursor.isNull(index)) {
+                return cursor.getString(index)
+            }
+        }
+        return null
+    }
+
     private fun parseImportSource(source: ReadableMap): ProjectImportSource {
         fun requiredString(name: String): String {
             if (!source.hasKey(name) || source.isNull(name)) {
@@ -526,6 +679,7 @@ class StorageNativeModule(private val reactContext: ReactApplicationContext) :
             pendingPickers.clear()
         }
         if (transferManagerDelegate.isInitialized()) transferManager.close()
+        ioScope.cancel()
         reactApplicationContext.removeActivityEventListener(activityListener)
         super.invalidate()
     }

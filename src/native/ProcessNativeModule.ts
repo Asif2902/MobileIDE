@@ -90,6 +90,7 @@ export interface ProcessNativeInterface {
     persistent: boolean,
   ): Promise<ProcessInfo & { taskId: number; type: TaskType }>;
   stopTask(taskId: number): Promise<boolean>;
+  restartTask(taskId: number): Promise<ProcessInfo & { taskId: number }>;
   getTasks(includeExited: boolean): Promise<TaskDetails[]>;
   getTaskLogs(taskId: number, limit: number): Promise<TaskLog[]>;
   kill(processId: number): Promise<boolean>;

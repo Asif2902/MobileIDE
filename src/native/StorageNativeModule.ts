@@ -34,6 +34,20 @@ export interface TreeSelection {
   canWrite: boolean;
 }
 
+export interface DocumentSelection {
+  kind: 'documentUri';
+  value: string;
+  displayName: string;
+  mimeType?: string;
+  size?: number;
+}
+
+export interface ImportedDocument {
+  name: string;
+  path: string;
+  bytesCopied: number;
+}
+
 export type ProjectSource = {
   kind: 'rawPath' | 'treeUri';
   value: string;
@@ -106,6 +120,12 @@ export interface StorageNativeInterface {
   assessWorkspace(realPath: string): Promise<WorkspaceAssessment>;
   pickProjectTree(): Promise<TreeSelection | null>;
   pickExportTree(): Promise<TreeSelection | null>;
+  pickFile(): Promise<DocumentSelection | null>;
+  importFile(
+    documentUri: string,
+    workspacePath: string,
+    displayName?: string,
+  ): Promise<ImportedDocument>;
   beginImport(
     source: ProjectSource,
     requestedName: string | null,

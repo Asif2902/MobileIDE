@@ -1,5 +1,9 @@
 import { PtyNativeModule } from '../src/native';
-import { useTerminalStore } from '../src/stores/terminalStore';
+import {
+  clearOutputBuffer,
+  getOutputBuffer,
+  useTerminalStore,
+} from '../src/stores/terminalStore';
 
 jest.mock('../src/native', () => ({
   PtyNativeModule: {
@@ -32,6 +36,7 @@ describe('terminalStore', () => {
       creationError: null,
       isKeyboardBarVisible: true,
     });
+    clearOutputBuffer(41);
   });
 
   it('deduplicates concurrent terminal creation attempts', async () => {
@@ -136,5 +141,22 @@ describe('terminalStore', () => {
     await useTerminalStore.getState().refreshSessions();
 
     expect(useTerminalStore.getState().activeSessionId).toBe(4);
+  });
+
+  it('keeps terminal replay output until full scrollback is explicitly cleared', () => {
+    useTerminalStore.getState().handleOutput({
+      sessionId: 41,
+      taskId: 7,
+      data: 'first line\r\n',
+    });
+    useTerminalStore.getState().handleOutput({
+      sessionId: 41,
+      taskId: 7,
+      data: 'second line\r\n',
+    });
+
+    expect(getOutputBuffer(41).join('')).toContain('second line');
+    clearOutputBuffer(41);
+    expect(getOutputBuffer(41)).toEqual([]);
   });
 });

@@ -13,7 +13,7 @@
       /* Help Android WebView focus the hidden textarea */
       -webkit-user-select: text;
       user-select: text;
-      touch-action: manipulation;
+      touch-action: pan-x pan-y;
     }
     #editor { width: 100%; height: 100%; position: relative; }
     .loading {
@@ -43,13 +43,68 @@
       outline: none !important;
     }
     .monaco-editor, .monaco-editor .overflow-guard, .monaco-editor .monaco-scrollable-element {
-      -webkit-user-select: text;
-      user-select: text;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #mobile-edit-tools {
+      display: none;
+      position: fixed;
+      z-index: 1002;
+      height: 42px;
+      align-items: center;
+      gap: 2px;
+      max-width: calc(100vw - 16px);
+      padding: 4px;
+      border: 1px solid #4b4b53;
+      border-radius: 8px;
+      background: #2b2b30;
+      box-shadow: 0 5px 16px rgba(0, 0, 0, .45);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    #mobile-edit-tools.visible { display: flex; }
+    #mobile-edit-tools button {
+      height: 32px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 5px;
+      color: #e4e4e7;
+      background: transparent;
+      font: 600 12px sans-serif;
+    }
+    #mobile-edit-tools button:active { background: #45404f; color: #c4b5fd; }
+    .mobile-selection-handle {
+      display: none;
+      position: fixed;
+      z-index: 1001;
+      width: 22px;
+      height: 22px;
+      margin-left: -11px;
+      border: 3px solid #1e1e1e;
+      border-radius: 50%;
+      background: #8b5cf6;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .65);
+      touch-action: none;
+    }
+    .mobile-selection-handle.visible { display: block; }
+    .mobile-selection-handle.start { transform: translateY(-2px); }
+    .mobile-selection-handle.end { transform: translateY(2px); }
+    @media (max-width: 420px) {
+      #mobile-edit-tools button { padding: 0 7px; font-size: 11px; }
     }
   </style>
 </head>
 <body>
   <div id="editor"><div class="loading">Loading Editor...</div></div>
+  <div id="mobile-edit-tools" role="toolbar" aria-label="Text selection actions">
+    <button type="button" data-edit-action="copy">Copy</button>
+    <button type="button" data-edit-action="cut">Cut</button>
+    <button type="button" data-edit-action="paste">Paste</button>
+    <button type="button" data-edit-action="selectAll">Select all</button>
+    <button type="button" data-edit-action="delete">Delete</button>
+  </div>
+  <div id="selection-handle-start" class="mobile-selection-handle start" aria-hidden="true"></div>
+  <div id="selection-handle-end" class="mobile-selection-handle end" aria-hidden="true"></div>
 
   <script>
     var ASSET_BASE = 'file:///android_asset/editor/';
@@ -89,6 +144,14 @@
     var models = new Map();
     var fatalReported = false;
     var applyingExternalEdit = false;
+    var mobileSelectionActive = false;
+    var longPressTimer = null;
+    var longPressTriggered = false;
+    var touchStartPoint = null;
+    var currentFontSize = 14;
+    var pinchStartDistance = 0;
+    var pinchStartFontSize = 14;
+    var searchState = { query: '', matches: [], index: -1 };
 
     function postRN(payload) {
       try {
@@ -185,24 +248,278 @@
       } catch (e) {}
     }
 
-    function wireMobileFocus(host) {
-      // Sync focus on touchstart so Android still treats it as a user gesture.
-      var openKb = function () {
-        forceKeyboardFocus();
-        setTimeout(forceKeyboardFocus, 30);
-        setTimeout(forceKeyboardFocus, 120);
+    function distance(a, b) {
+      var dx = a.clientX - b.clientX;
+      var dy = a.clientY - b.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function clearLongPress() {
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+
+    function positionAtPoint(clientX, clientY) {
+      if (!editor) return null;
+      try {
+        var target = editor.getTargetAtClientPoint(clientX, clientY);
+        if (target && target.position) return target.position;
+      } catch (e) {}
+      return editor.getPosition();
+    }
+
+    function hideMobileSelection() {
+      mobileSelectionActive = false;
+      document.getElementById('mobile-edit-tools').classList.remove('visible');
+      document.getElementById('selection-handle-start').classList.remove('visible');
+      document.getElementById('selection-handle-end').classList.remove('visible');
+    }
+
+    function updateMobileSelection() {
+      if (!editor || !mobileSelectionActive) return;
+      var selection = editor.getSelection();
+      if (!selection || selection.isEmpty()) {
+        hideMobileSelection();
+        return;
+      }
+      var start = editor.getScrolledVisiblePosition(selection.getStartPosition());
+      var end = editor.getScrolledVisiblePosition(selection.getEndPosition());
+      if (!start || !end) {
+        hideMobileSelection();
+        return;
+      }
+      var hostRect = document.getElementById('editor').getBoundingClientRect();
+      var startHandle = document.getElementById('selection-handle-start');
+      var endHandle = document.getElementById('selection-handle-end');
+      startHandle.style.left = (hostRect.left + start.left) + 'px';
+      startHandle.style.top = (hostRect.top + start.top + start.height - 4) + 'px';
+      endHandle.style.left = (hostRect.left + end.left) + 'px';
+      endHandle.style.top = (hostRect.top + end.top + end.height - 4) + 'px';
+      startHandle.classList.add('visible');
+      endHandle.classList.add('visible');
+
+      var tools = document.getElementById('mobile-edit-tools');
+      tools.classList.add('visible');
+      var desiredLeft = hostRect.left + Math.min(start.left, end.left);
+      var desiredTop = hostRect.top + Math.min(start.top, end.top) - 50;
+      tools.style.left = Math.max(8, Math.min(window.innerWidth - tools.offsetWidth - 8, desiredLeft)) + 'px';
+      tools.style.top = Math.max(8, desiredTop) + 'px';
+    }
+
+    function selectWordAt(clientX, clientY) {
+      if (!editor || !editor.getModel()) return;
+      var position = positionAtPoint(clientX, clientY);
+      if (!position) return;
+      var model = editor.getModel();
+      var word = model.getWordAtPosition(position);
+      var endColumn = word ? word.endColumn : Math.min(model.getLineMaxColumn(position.lineNumber), position.column + 1);
+      var startColumn = word ? word.startColumn : position.column;
+      editor.setSelection(new monaco.Selection(
+        position.lineNumber,
+        startColumn,
+        position.lineNumber,
+        endColumn
+      ));
+      editor.revealPositionInCenterIfOutsideViewport(position);
+      mobileSelectionActive = true;
+      updateMobileSelection();
+    }
+
+    function wireSelectionHandle(handle, which) {
+      handle.addEventListener('touchstart', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var original = editor && editor.getSelection();
+        if (!original) return;
+        var fixed = which === 'start' ? original.getEndPosition() : original.getStartPosition();
+        var move = function (moveEvent) {
+          if (!moveEvent.touches.length) return;
+          moveEvent.preventDefault();
+          var point = moveEvent.touches[0];
+          var position = positionAtPoint(point.clientX, point.clientY);
+          if (!position) return;
+          editor.setSelection(which === 'start'
+            ? new monaco.Selection(position.lineNumber, position.column, fixed.lineNumber, fixed.column)
+            : new monaco.Selection(fixed.lineNumber, fixed.column, position.lineNumber, position.column));
+          updateMobileSelection();
+        };
+        var end = function () {
+          window.removeEventListener('touchmove', move);
+          window.removeEventListener('touchend', end);
+          updateMobileSelection();
+        };
+        window.addEventListener('touchmove', move, { passive: false });
+        window.addEventListener('touchend', end, { passive: true });
+      }, { passive: false });
+    }
+
+    function selectedText() {
+      if (!editor || !editor.getModel()) return '';
+      return editor.getModel().getValueInRange(editor.getSelection());
+    }
+
+    function replaceSelection(text, source) {
+      if (!editor || !editor.getModel()) return;
+      var range = editor.getSelection();
+      editor.pushUndoStop();
+      editor.executeEdits(source || 'mobile-edit', [{ range: range, text: text || '', forceMoveMarkers: true }]);
+      editor.pushUndoStop();
+      hideMobileSelection();
+      forceKeyboardFocus();
+    }
+
+    function handleMobileEditAction(action) {
+      if (!editor || !editor.getModel()) return;
+      var model = editor.getModel();
+      var selection = editor.getSelection();
+      if (action === 'copy') {
+        postRN({ type: 'copyText', text: selectedText() });
+      } else if (action === 'cut') {
+        postRN({ type: 'copyText', text: selectedText() });
+        replaceSelection('', 'mobile-cut');
+      } else if (action === 'paste') {
+        postRN({ type: 'pasteRequest' });
+      } else if (action === 'selectAll') {
+        editor.setSelection(model.getFullModelRange());
+        mobileSelectionActive = true;
+        updateMobileSelection();
+      } else if (action === 'delete' && selection && !selection.isEmpty()) {
+        replaceSelection('', 'mobile-delete');
+      }
+    }
+
+    function wireMobileEditing(host) {
+      var begin = function (event) {
+        if (!editor || !event.touches || !event.touches.length) return;
+        if (event.touches.length === 2) {
+          clearLongPress();
+          pinchStartDistance = distance(event.touches[0], event.touches[1]);
+          pinchStartFontSize = currentFontSize;
+          return;
+        }
+        var point = event.touches[0];
+        touchStartPoint = { x: point.clientX, y: point.clientY };
+        longPressTriggered = false;
+        clearLongPress();
+        longPressTimer = setTimeout(function () {
+          longPressTriggered = true;
+          selectWordAt(touchStartPoint.x, touchStartPoint.y);
+        }, 520);
       };
-      host.addEventListener('touchstart', openKb, { passive: true, capture: true });
-      host.addEventListener('touchend', openKb, { passive: true, capture: true });
-      host.addEventListener('pointerdown', openKb, { passive: true, capture: true });
-      host.addEventListener('click', openKb, { passive: true, capture: true });
-      document.addEventListener(
-        'touchstart',
-        function (e) {
-          if (host.contains(e.target)) openKb();
-        },
-        { passive: true, capture: true }
-      );
+      var move = function (event) {
+        if (event.touches && event.touches.length === 2 && pinchStartDistance > 0) {
+          event.preventDefault();
+          clearLongPress();
+          var scale = distance(event.touches[0], event.touches[1]) / pinchStartDistance;
+          var next = Math.max(8, Math.min(32, Math.round(pinchStartFontSize * scale)));
+          if (next !== currentFontSize) {
+            currentFontSize = next;
+            editor.updateOptions({ fontSize: next, lineHeight: Math.round(next * 1.55) });
+            postRN({ type: 'fontSizeChanged', size: next });
+          }
+          return;
+        }
+        if (!touchStartPoint || !event.touches || !event.touches.length) return;
+        var point = event.touches[0];
+        if (Math.abs(point.clientX - touchStartPoint.x) > 10 || Math.abs(point.clientY - touchStartPoint.y) > 10) {
+          clearLongPress();
+        }
+      };
+      var end = function () {
+        clearLongPress();
+        pinchStartDistance = 0;
+        if (!longPressTriggered) {
+          forceKeyboardFocus();
+          setTimeout(forceKeyboardFocus, 40);
+        }
+        touchStartPoint = null;
+      };
+      host.addEventListener('touchstart', begin, { passive: true, capture: true });
+      host.addEventListener('touchmove', move, { passive: false, capture: true });
+      host.addEventListener('touchend', end, { passive: true, capture: true });
+      host.addEventListener('click', function () {
+        if (!longPressTriggered) forceKeyboardFocus();
+      }, { passive: true, capture: true });
+
+      document.querySelectorAll('[data-edit-action]').forEach(function (button) {
+        button.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          handleMobileEditAction(button.getAttribute('data-edit-action'));
+        });
+      });
+      wireSelectionHandle(document.getElementById('selection-handle-start'), 'start');
+      wireSelectionHandle(document.getElementById('selection-handle-end'), 'end');
+    }
+
+    function findMatches(query) {
+      if (!editor || !editor.getModel() || !query) return [];
+      return editor.getModel().findMatches(query, false, false, false, null, true);
+    }
+
+    function reportSearch() {
+      postRN({
+        type: 'searchResult',
+        query: searchState.query,
+        current: searchState.index >= 0 ? searchState.index + 1 : 0,
+        total: searchState.matches.length
+      });
+    }
+
+    function runSearch(query, direction) {
+      query = query || '';
+      if (!editor || !query) {
+        searchState = { query: query, matches: [], index: -1 };
+        reportSearch();
+        return;
+      }
+      var changed = searchState.query !== query;
+      searchState.query = query;
+      searchState.matches = findMatches(query);
+      if (!searchState.matches.length) {
+        searchState.index = -1;
+        reportSearch();
+        return;
+      }
+      if (changed || searchState.index < 0) {
+        searchState.index = direction === 'previous' ? searchState.matches.length - 1 : 0;
+      } else if (direction === 'previous') {
+        searchState.index = (searchState.index - 1 + searchState.matches.length) % searchState.matches.length;
+      } else {
+        searchState.index = (searchState.index + 1) % searchState.matches.length;
+      }
+      var match = searchState.matches[searchState.index];
+      editor.setSelection(match.range);
+      editor.revealRangeInCenterIfOutsideViewport(match.range);
+      reportSearch();
+    }
+
+    function replaceSearchMatch(query, replacement, all) {
+      if (!editor || !query) return;
+      var matches = findMatches(query);
+      if (!matches.length) {
+        searchState = { query: query, matches: [], index: -1 };
+        reportSearch();
+        return;
+      }
+      editor.pushUndoStop();
+      if (all) {
+        editor.executeEdits('search-replace-all', matches.map(function (match) {
+          return { range: match.range, text: replacement || '', forceMoveMarkers: true };
+        }));
+      } else {
+        var index = searchState.query === query && searchState.index >= 0 ? searchState.index : 0;
+        var match = matches[Math.min(index, matches.length - 1)];
+        editor.executeEdits('search-replace', [{
+          range: match.range,
+          text: replacement || '',
+          forceMoveMarkers: true
+        }]);
+      }
+      editor.pushUndoStop();
+      searchState = { query: query, matches: findMatches(query), index: -1 };
+      if (!all && searchState.matches.length) runSearch(query, 'next');
+      else reportSearch();
     }
 
     require(['vs/editor/editor.main'], function () {
@@ -317,12 +634,19 @@
           });
         });
 
+        editor.onDidChangeCursorSelection(function () {
+          if (mobileSelectionActive) requestAnimationFrame(updateMobileSelection);
+        });
+        editor.onDidScrollChange(function () {
+          if (mobileSelectionActive) requestAnimationFrame(updateMobileSelection);
+        });
+
         // Ctrl/Cmd+S from hardware keyboard
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
           postRN({ type: 'saveRequest', path: currentPath, content: editor.getValue() });
         });
 
-        wireMobileFocus(host);
+        wireMobileEditing(host);
         // Layout after create — zero-size layout kills input on some WebViews
         setTimeout(function () {
           try { editor.layout(); } catch (e) {}
@@ -362,7 +686,13 @@
             }
             break;
           case 'setFontSize':
-            if (editor) editor.updateOptions({ fontSize: message.size });
+            if (editor) {
+              currentFontSize = Math.max(8, Math.min(32, Number(message.size) || 14));
+              editor.updateOptions({
+                fontSize: currentFontSize,
+                lineHeight: Math.round(currentFontSize * 1.55)
+              });
+            }
             break;
           case 'setWordWrap':
             if (editor) editor.updateOptions({ wordWrap: message.enabled ? 'on' : 'off' });
@@ -388,10 +718,33 @@
               if (find) find.run();
             }
             break;
+          case 'search':
+            runSearch(message.query, message.direction === 'previous' ? 'previous' : 'next');
+            break;
+          case 'replace':
+            replaceSearchMatch(message.query, message.replacement, false);
+            break;
+          case 'replaceAll':
+            replaceSearchMatch(message.query, message.replacement, true);
+            break;
+          case 'pasteText':
+            replaceSelection(message.text || '', 'mobile-paste');
+            break;
           case 'goToLine':
             if (editor) {
               editor.revealLineInCenter(message.line);
               editor.setPosition({ lineNumber: message.line, column: 1 });
+            }
+            break;
+          case 'goToLocation':
+            if (editor) {
+              var location = {
+                lineNumber: Math.max(1, Number(message.line) || 1),
+                column: Math.max(1, Number(message.column) || 1)
+              };
+              editor.setPosition(location);
+              editor.revealPositionInCenter(location);
+              editor.focus();
             }
             break;
           case 'focus':

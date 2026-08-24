@@ -295,6 +295,53 @@ class ProcessNativeModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun stopTask(taskId: Int, promise: Promise) = kill(taskId, promise)
 
+    @ReactMethod
+    fun restartTask(taskId: Int, promise: Promise) {
+        scope.launch {
+            try {
+                val process = getProcessManager().restartTask(
+                    taskId = taskId,
+                    onOutput = { restartedId, line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", restartedId)
+                            putInt("taskId", restartedId)
+                            putString("data", line)
+                            putString("stream", "stdout")
+                        })
+                    },
+                    onError = { restartedId, line ->
+                        sendEvent("onProcessOutput", Arguments.createMap().apply {
+                            putInt("processId", restartedId)
+                            putInt("taskId", restartedId)
+                            putString("data", line)
+                            putString("stream", "stderr")
+                        })
+                    },
+                    onExit = { restartedId, exitCode ->
+                        sendEvent("onProcessExit", Arguments.createMap().apply {
+                            putInt("processId", restartedId)
+                            putInt("taskId", restartedId)
+                            putInt("exitCode", exitCode)
+                        })
+                    }
+                )
+                withContext(Dispatchers.Main) {
+                    promise.resolve(Arguments.createMap().apply {
+                        putInt("processId", process.id)
+                        putInt("taskId", process.id)
+                        putInt("pid", process.pid)
+                        putString("command", process.getFullCommand())
+                        putString("cwd", process.workingDirectory)
+                    })
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    promise.reject("TASK_RESTART_ERROR", error.message, error)
+                }
+            }
+        }
+    }
+
     /**
      * Get active ports
      */

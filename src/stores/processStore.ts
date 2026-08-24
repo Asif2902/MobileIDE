@@ -24,6 +24,7 @@ interface ProcessState {
 
   refresh: () => Promise<void>;
   kill: (processId: number) => Promise<void>;
+  restart: (task: TaskDetails) => Promise<number | null>;
   clearLogs: () => void;
   appendLog: (line: ProcessLogLine) => void;
   /** Run a shell line in background (Vite/Express demos, builds). */
@@ -76,6 +77,25 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
       await get().refresh();
     } catch (e) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  restart: async (task: TaskDetails) => {
+    try {
+      set({ error: null });
+      const info = await ProcessNativeModule.restartTask(task.id);
+      get().appendLog({
+        processId: info.taskId,
+        stream: 'system',
+        data: `[restarted task ${task.id} as #${info.taskId}] ${task.command}`,
+        at: Date.now(),
+      });
+      await get().refresh();
+      return info.taskId;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      await get().refresh();
+      return null;
     }
   },
 

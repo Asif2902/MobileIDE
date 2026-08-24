@@ -366,6 +366,42 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     fun getTaskLogs(taskId: Int, limit: Int): List<TaskLog> =
         taskRegistry.getLogs(taskId, limit)
 
+    /**
+     * Restart a managed background task from its original executable and
+     * argument vector. TaskSnapshot.command is display text and deliberately
+     * is not reparsed, because doing so would lose quoting in commands such as
+     * `bash -c "npm run dev"`.
+     */
+    fun restartTask(
+        taskId: Int,
+        onOutput: ((Int, String) -> Unit)? = null,
+        onError: ((Int, String) -> Unit)? = null,
+        onExit: ((Int, Int) -> Unit)? = null
+    ): ManagedProcess {
+        val previous = processes[taskId]
+            ?: throw IOException("Task $taskId is not a restartable background process")
+        val snapshot = taskRegistry.getTask(taskId)
+            ?: throw IOException("Task $taskId is no longer registered")
+        val command = previous.command
+        val args = previous.args.toList()
+        val cwd = previous.workingDirectory
+
+        if (!killProcess(taskId)) {
+            throw IOException("Task $taskId did not stop cleanly; restart was cancelled")
+        }
+
+        return spawnProcess(
+            command = command,
+            args = args,
+            cwd = cwd,
+            taskType = snapshot.type,
+            persistent = snapshot.persistent,
+            onOutput = onOutput,
+            onError = onError,
+            onExit = onExit
+        )
+    }
+
     fun killProcess(processId: Int): Boolean {
         val managedProcess = processes[processId] ?: return false
         taskRegistry.stopping(processId)

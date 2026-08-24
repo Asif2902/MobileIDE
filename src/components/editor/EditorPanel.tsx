@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,10 @@ import {
   useWindowDimensions,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { useEditorStore } from '../../stores';
-import { EditorView, EditorViewHandle } from './EditorView';
+import { EditorSearchResult, EditorView, EditorViewHandle } from './EditorView';
 import { EditorTabs } from './EditorTabs';
 import { Icon } from '../icons';
 
@@ -26,12 +27,31 @@ export const EditorPanel: React.FC = () => {
     setFontSize,
     toggleWordWrap,
     wordWrap,
+    loadPreferences,
   } = useEditorStore();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isCompact = width < 420 || isLandscape;
   const [saving, setSaving] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replacement, setReplacement] = useState('');
+  const [searchResult, setSearchResult] = useState<EditorSearchResult>({
+    query: '',
+    current: 0,
+    total: 0,
+  });
   const editorRef = useRef<EditorViewHandle>(null);
+
+  useEffect(() => {
+    loadPreferences().catch(() => {});
+  }, [loadPreferences]);
+
+  useEffect(() => {
+    if (!searchVisible) return;
+    const timer = setTimeout(() => editorRef.current?.find(searchQuery, 'next'), 120);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchVisible, activeFilePath]);
 
   const activeFile = openFiles.find(f => f.path === activeFilePath);
   const diag = activeFile ? diagnostics[activeFile.path] : undefined;
@@ -61,6 +81,12 @@ export const EditorPanel: React.FC = () => {
       setSaving(false);
     }
   }, [saveAllFiles]);
+
+  const closeSearch = useCallback(() => {
+    setSearchVisible(false);
+    setSearchResult({ query: '', current: 0, total: 0 });
+    editorRef.current?.focusEditor();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -99,9 +125,20 @@ export const EditorPanel: React.FC = () => {
           <View style={styles.toolSpacer} />
 
           <TouchableOpacity
+            style={[styles.iconBtn, searchVisible && styles.iconBtnSelected]}
+            onPress={() => setSearchVisible(value => !value)}
+            accessibilityRole="button"
+            accessibilityLabel="Find and replace"
+          >
+            <Icon name="search" size={17} color={searchVisible ? '#c4b5fd' : '#aaa'} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => setFontSize(fontSize - 1)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease editor font size"
           >
             <Text style={styles.iconBtnText}>A−</Text>
           </TouchableOpacity>
@@ -109,10 +146,17 @@ export const EditorPanel: React.FC = () => {
             style={styles.iconBtn}
             onPress={() => setFontSize(fontSize + 1)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Increase editor font size"
           >
             <Text style={styles.iconBtnText}>A+</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={toggleWordWrap}>
+          <TouchableOpacity
+            style={[styles.iconBtn, wordWrap && styles.iconBtnSelected]}
+            onPress={toggleWordWrap}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle word wrap"
+          >
             <Text style={[styles.iconBtnText, wordWrap && styles.iconBtnActive]}>Wrap</Text>
           </TouchableOpacity>
 
@@ -121,8 +165,10 @@ export const EditorPanel: React.FC = () => {
             style={styles.iconBtn}
             onPress={() => editorRef.current?.focusEditor()}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Show editor keyboard"
           >
-            <Text style={styles.iconBtnText}>⌨</Text>
+            <Icon name="keyboard" size={18} color="#aaa" />
           </TouchableOpacity>
 
           {activeFile.isDirty && (
@@ -133,6 +179,84 @@ export const EditorPanel: React.FC = () => {
         </View>
       )}
 
+      {activeFile && searchVisible && (
+        <View style={styles.searchPanel}>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Find"
+              placeholderTextColor="#777"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => editorRef.current?.find(searchQuery, 'next')}
+              selectTextOnFocus
+              accessibilityLabel="Find text"
+            />
+            <Text style={styles.matchCount} numberOfLines={1}>
+              {searchResult.total > 0
+                ? `${searchResult.current}/${searchResult.total}`
+                : searchQuery
+                  ? '0/0'
+                  : '—'}
+            </Text>
+            <TouchableOpacity
+              style={styles.searchAction}
+              onPress={() => editorRef.current?.find(searchQuery, 'previous')}
+              accessibilityLabel="Previous match"
+            >
+              <Text style={styles.searchActionText}>↑</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.searchAction}
+              onPress={() => editorRef.current?.find(searchQuery, 'next')}
+              accessibilityLabel="Next match"
+            >
+              <Text style={styles.searchActionText}>↓</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.searchAction}
+              onPress={closeSearch}
+              accessibilityLabel="Close find and replace"
+            >
+              <Icon name="close" size={16} color="#aaa" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={styles.searchInput}
+              value={replacement}
+              onChangeText={setReplacement}
+              placeholder="Replace"
+              placeholderTextColor="#777"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={() => editorRef.current?.replace(searchQuery, replacement)}
+              accessibilityLabel="Replacement text"
+            />
+            <TouchableOpacity
+              style={styles.replaceAction}
+              onPress={() => editorRef.current?.replace(searchQuery, replacement)}
+              disabled={!searchQuery}
+              accessibilityLabel="Replace current match"
+            >
+              <Text style={styles.replaceActionText}>Replace</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.replaceAction}
+              onPress={() => editorRef.current?.replace(searchQuery, replacement, true)}
+              disabled={!searchQuery}
+              accessibilityLabel="Replace all matches"
+            >
+              <Text style={styles.replaceActionText}>All</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <View style={styles.editorContainer}>
         {activeFile ? (
           <EditorView
@@ -140,6 +264,7 @@ export const EditorPanel: React.FC = () => {
             filePath={activeFile.path}
             content={activeFile.content}
             language={activeFile.language}
+            onSearchResult={setSearchResult}
           />
         ) : (
           <View style={styles.welcomeScreen}>
@@ -224,8 +349,13 @@ const styles = StyleSheet.create({
   },
   toolSpacer: { flex: 1 },
   iconBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    minWidth: 34,
+    minHeight: 32,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
   },
   iconBtnText: {
     color: '#aaa',
@@ -235,11 +365,73 @@ const styles = StyleSheet.create({
   iconBtnActive: {
     color: '#c4b5fd',
   },
+  iconBtnSelected: {
+    backgroundColor: '#373044',
+  },
   dirtyBadge: {
     color: '#fbbf24',
     fontSize: 11,
     fontWeight: '600',
     marginLeft: 4,
+  },
+  searchPanel: {
+    backgroundColor: '#252526',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333338',
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+    gap: 5,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 72,
+    height: 36,
+    borderWidth: 1,
+    borderColor: '#45454b',
+    borderRadius: 6,
+    backgroundColor: '#1e1e1e',
+    color: '#e4e4e7',
+    fontSize: 13,
+    paddingHorizontal: 9,
+    paddingVertical: 0,
+  },
+  matchCount: {
+    width: 44,
+    color: '#a1a1aa',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  searchAction: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    backgroundColor: '#333338',
+  },
+  searchActionText: {
+    color: '#d4d4d8',
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  replaceAction: {
+    height: 34,
+    minWidth: 42,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    backgroundColor: '#373044',
+  },
+  replaceActionText: {
+    color: '#c4b5fd',
+    fontSize: 11,
+    fontWeight: '700',
   },
   statusBar: {
     minHeight: 26,

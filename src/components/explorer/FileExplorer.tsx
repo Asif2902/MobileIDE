@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useEditorStore, useFileStore, useRuntimeStore, useUIStore } from '../../stores';
 import {
   FileSystemNativeModule,
@@ -9,6 +9,8 @@ import {
   TransferOptions,
 } from '../../native';
 import { FileTreeItem } from './FileTreeItem';
+import {Icon} from '../icons';
+import {flattenVisibleTree} from './treeModel';
 
 const formatBytes = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -24,9 +26,11 @@ export const FileExplorer: React.FC = () => {
     currentWorkspaceAssessment,
     workspaces, 
     fileTree, 
+    expandedFolders,
     loadWorkspaces, 
     openWorkspace,
     openFolderFromDevice,
+    importFileFromDevice,
     externalRoots,
     createFile,
     createFolder,
@@ -78,7 +82,14 @@ export const FileExplorer: React.FC = () => {
     }
   }, [workspaces, currentWorkspace, openWorkspace]);
   
-  const rootEntries = currentWorkspace ? (fileTree.get(currentWorkspace) || []) : [];
+  const visibleEntries = useMemo(
+    () => flattenVisibleTree(
+      currentWorkspace ? (fileTree.get(currentWorkspace) || []) : [],
+      fileTree,
+      expandedFolders,
+    ),
+    [currentWorkspace, expandedFolders, fileTree],
+  );
   const workspaceName = currentWorkspace?.split('/').pop() || 'No Workspace';
 
   const handleNewFile = useCallback(() => {
@@ -96,6 +107,21 @@ export const FileExplorer: React.FC = () => {
     }
     setInputModal({ visible: true, type: 'folder', value: 'new-folder' });
   }, [currentWorkspace]);
+
+  const handleImportFile = useCallback(async () => {
+    if (!currentWorkspace) {
+      Alert.alert('No Workspace', 'Open a workspace before importing a file.');
+      return;
+    }
+    try {
+      const imported = await importFileFromDevice();
+      if (imported) {
+        Alert.alert('File imported', `${imported.name} was copied into ${workspaceName}.`);
+      }
+    } catch (importError) {
+      Alert.alert('Could not import file', (importError as Error)?.message || String(importError));
+    }
+  }, [currentWorkspace, importFileFromDevice, workspaceName]);
 
   const handleInputConfirm = useCallback(() => {
     const name = inputModal.value.trim();
@@ -322,21 +348,17 @@ export const FileExplorer: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header with text buttons */}
+      {/* Compact actions stay usable on narrow portrait screens. */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>EXPLORER</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.textButton} onPress={handleShowProjects}>
+          <TouchableOpacity accessibilityLabel="Private projects" style={styles.textButton} onPress={handleShowProjects}>
+            <Icon name="files" size={15} color="#d8d4e8" />
             <Text style={styles.textButtonLabel}>Projects</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.textButton} onPress={handleOpenFolder}>
+          <TouchableOpacity accessibilityLabel="Open device folder" style={styles.textButton} onPress={handleOpenFolder}>
+            <Icon name="folder-open" size={15} color="#d8d4e8" />
             <Text style={styles.textButtonLabel}>Open</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.textButton} onPress={handleNewFile}>
-            <Text style={styles.textButtonLabel}>+ File</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.textButton} onPress={handleNewFolder}>
-            <Text style={styles.textButtonLabel}>+ Folder</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -361,6 +383,25 @@ export const FileExplorer: React.FC = () => {
           </TouchableOpacity>
         </View>
       </View>
+
+      <ScrollView
+        horizontal
+        style={styles.workspaceActionScroller}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.workspaceActions}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleImportFile}>
+          <Icon name="file" size={15} color="#c4a7ff" />
+          <Text style={styles.actionButtonText}>Import file</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={handleNewFile}>
+          <Icon name="plus" size={14} color="#c4a7ff" />
+          <Text style={styles.actionButtonText}>New file</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={handleNewFolder}>
+          <Icon name="folder" size={15} color="#c4a7ff" />
+          <Text style={styles.actionButtonText}>New folder</Text>
+        </TouchableOpacity>
+      </ScrollView>
       
       {/* Error display */}
       {error && (
@@ -413,45 +454,39 @@ export const FileExplorer: React.FC = () => {
       )}
       
       {/* File tree */}
-      <ScrollView style={styles.treeContainer}>
-        {!isReady ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Initializing runtime...</Text>
-          </View>
-        ) : currentWorkspace ? (
-          rootEntries.length > 0 ? (
-            rootEntries.map((entry) => (
-              <FileTreeItem
-                key={entry.path}
-                entry={entry}
-                depth={0}
-              />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Empty folder</Text>
-              <Text style={styles.emptySubtext}>Use "+ File" or "+ Folder" above to create</Text>
-            </View>
-          )
-        ) : (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No workspace open</Text>
-            <Text style={styles.emptySubtext}>Select a workspace below</Text>
-            
-            {workspaces.length > 0 ? workspaces.map((ws) => (
-              <TouchableOpacity
-                key={ws.path}
-                style={styles.workspaceItem}
-                onPress={() => openWorkspace(ws.path)}
-              >
-                <Text style={styles.workspaceItemText}>{ws.name}</Text>
-              </TouchableOpacity>
-            )) : (
-              <Text style={styles.emptySubtext}>No workspaces found. Runtime may still be setting up.</Text>
-            )}
-          </View>
-        )}
-      </ScrollView>
+      {!isReady ? (
+        <View style={[styles.treeContainer, styles.emptyState]}>
+          <ActivityIndicator color="#a78bfa" />
+          <Text style={styles.emptyText}>Initializing workspace…</Text>
+        </View>
+      ) : currentWorkspace && visibleEntries.length > 0 ? (
+        <FlatList
+          style={styles.treeContainer}
+          data={visibleEntries}
+          keyExtractor={item => item.entry.path}
+          renderItem={({item}) => <FileTreeItem entry={item.entry} depth={item.depth} />}
+          initialNumToRender={32}
+          maxToRenderPerBatch={40}
+          windowSize={9}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+        />
+      ) : (
+        <ScrollView style={styles.treeContainer} contentContainerStyle={styles.emptyState}>
+          <Text style={styles.emptyText}>{currentWorkspace ? 'Empty folder' : 'No workspace open'}</Text>
+          <Text style={styles.emptySubtext}>
+            {currentWorkspace ? 'Create or import a file to get started.' : 'Choose a private project or open a device folder.'}
+          </Text>
+          {!currentWorkspace && workspaces.map(ws => (
+            <TouchableOpacity
+              key={ws.path}
+              style={styles.workspaceItem}
+              onPress={() => openWorkspace(ws.path)}>
+              <Text style={styles.workspaceItemText}>{ws.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       {/* App-private project picker. Git clones are registered here automatically. */}
       <Modal
@@ -665,7 +700,12 @@ export const FileExplorer: React.FC = () => {
             {browsePath ? (
               <View style={styles.pathBar}>
                 <TouchableOpacity style={styles.upBtn} onPress={goUp}>
-                  <Text style={styles.upBtnText}>{'\u2B06 Up'}</Text>
+                  <View style={styles.upButtonContent}>
+                    <View style={styles.upIcon}>
+                      <Icon name="chevron-right" size={15} color="#ffffff" />
+                    </View>
+                    <Text style={styles.upBtnText}>Up</Text>
+                  </View>
                 </TouchableOpacity>
                 <Text style={styles.pathBarText} numberOfLines={1} ellipsizeMode="head">{browsePath}</Text>
               </View>
@@ -685,8 +725,13 @@ export const FileExplorer: React.FC = () => {
                     style={styles.workspaceItem}
                     onPress={() => navigateTo(root.path)}
                   >
-                    <Text style={styles.workspaceItemText}>{'\uD83D\uDCC1  ' + root.name}</Text>
-                    <Text style={styles.pickerPath}>{root.path}</Text>
+                    <View style={styles.pickerItemContent}>
+                      <Icon name="folder" size={18} color="#c4a7ff" />
+                      <View style={styles.pickerItemCopy}>
+                        <Text style={styles.workspaceItemText}>{root.name}</Text>
+                        <Text style={styles.pickerPath}>{root.path}</Text>
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 ))
               ) : browseDirs.length > 0 ? (
@@ -696,8 +741,9 @@ export const FileExplorer: React.FC = () => {
                     style={styles.folderRow}
                     onPress={() => navigateTo(dir.path)}
                   >
-                    <Text style={styles.folderRowText} numberOfLines={1}>{'\uD83D\uDCC1  ' + dir.name}</Text>
-                    <Text style={styles.folderRowChevron}>{'\u203A'}</Text>
+                    <Icon name="folder" size={18} color="#c4a7ff" />
+                    <Text style={styles.folderRowText} numberOfLines={1} ellipsizeMode="middle">{dir.name}</Text>
+                    <Icon name="chevron-right" size={17} color="#888888" />
                   </TouchableOpacity>
                 ))
               ) : (
@@ -744,7 +790,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#1e1e1e',
   },
@@ -756,13 +802,16 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   textButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: '#3f3f46',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 6,
   },
   textButtonLabel: {
     fontSize: 12,
@@ -798,6 +847,36 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 10,
     color: '#73c991',
+  },
+  workspaceActions: {
+    minHeight: 42,
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
+  },
+  workspaceActionScroller: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 44,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 30,
+    paddingHorizontal: 9,
+    borderRadius: 6,
+    backgroundColor: '#333238',
+    borderWidth: 1,
+    borderColor: '#45434c',
+  },
+  actionButtonText: {
+    color: '#dedbe8',
+    fontSize: 11,
+    fontWeight: '600',
   },
   envButton: {
     backgroundColor: '#3f3f46',
@@ -898,6 +977,7 @@ const styles = StyleSheet.create({
   emptyState: {
     padding: 24,
     alignItems: 'center',
+    gap: 6,
   },
   emptyText: {
     fontSize: 15,
@@ -965,6 +1045,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  upButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  upIcon: {
+    transform: [{rotate: '-90deg'}],
+  },
+  pickerItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pickerItemCopy: {
+    flex: 1,
+  },
   pathBarText: {
     flex: 1,
     fontSize: 11,
@@ -983,11 +1079,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#ffffff',
-  },
-  folderRowChevron: {
-    fontSize: 18,
-    color: '#888888',
-    paddingLeft: 8,
+    marginLeft: 9,
   },
   modalOverlay: {
     flex: 1,

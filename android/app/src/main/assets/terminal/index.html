@@ -29,6 +29,8 @@
       overflow-y: auto !important;
       overflow-x: auto !important; /* long lines scroll horizontally, never clip off-screen forever */
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-x pan-y;
     }
     .xterm-screen { will-change: transform; }
   </style>
@@ -49,14 +51,34 @@
       return 14;
     }
 
+    const FONT_SIZE_KEY = 'adev-terminal-font-size';
+    let hasSavedFontSize = false;
+    function clampFontSize(value) {
+      return Math.max(9, Math.min(22, Number(value) || pickFontSize()));
+    }
+    function loadFontSize() {
+      try {
+        const saved = window.localStorage.getItem(FONT_SIZE_KEY);
+        if (saved !== null) {
+          hasSavedFontSize = true;
+          return clampFontSize(saved);
+        }
+      } catch (e) {}
+      return pickFontSize();
+    }
+    function saveFontSize(value) {
+      hasSavedFontSize = true;
+      try { window.localStorage.setItem(FONT_SIZE_KEY, String(value)); } catch (e) {}
+    }
+
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
-      fontSize: pickFontSize(),
+      fontSize: loadFontSize(),
       fontFamily: 'Menlo, Consolas, "Courier New", monospace',
       lineHeight: 1.15,
       letterSpacing: 0,
-      scrollback: 3000,
+      scrollback: 10000,
       convertEol: true,
       // Draw slightly beyond edges so last column isn't cut by WebView chrome
       windowsMode: false,
@@ -101,9 +123,10 @@
         const el = term.element;
         if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
 
-        // Re-pick font when rotating phone ↔ tablet
-        const fs = pickFontSize();
-        if (term.options.fontSize !== fs) {
+        // Keep responsive defaults until the user deliberately zooms. A saved
+        // zoom level must survive resize, keyboard changes and app restarts.
+        const fs = hasSavedFontSize ? term.options.fontSize : pickFontSize();
+        if (!hasSavedFontSize && term.options.fontSize !== fs) {
           term.options.fontSize = fs;
         }
 
@@ -320,9 +343,9 @@
 
     function copyToNative(text) {
       if (!text) return;
-      try { term.focus(); } catch (e) {}
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copyText', text: text }));
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copied', length: text.length }));
+      try { term.clearSelection(); } catch (e) {}
     }
 
     function getBufferText() {
@@ -375,6 +398,45 @@
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'requestPaste' }));
     }
 
+    function clearInteractionState() {
+      ctrlArmed = false;
+      altArmed = false;
+      notifyModifier();
+      try { term.clearSelection(); } catch (e) {}
+    }
+
+    // Batch small native output chunks into one xterm write. More importantly,
+    // only follow output while the user is already at the bottom; reading old
+    // build logs must not snap back to the prompt on every new byte.
+    let queuedOutput = [];
+    let outputFlushScheduled = false;
+    let followQueuedOutput = true;
+    function queueOutput(data) {
+      if (!data) return;
+      if (queuedOutput.length === 0) {
+        try {
+          const buffer = term.buffer.active;
+          followQueuedOutput = buffer.viewportY >= buffer.baseY - 1;
+        } catch (e) {
+          followQueuedOutput = true;
+        }
+      }
+      queuedOutput.push(data);
+      if (outputFlushScheduled) return;
+      outputFlushScheduled = true;
+      requestAnimationFrame(function () {
+        outputFlushScheduled = false;
+        const output = queuedOutput.join('');
+        queuedOutput = [];
+        const shouldFollow = followQueuedOutput;
+        term.write(output, function () {
+          if (shouldFollow) {
+            try { term.scrollToBottom(); } catch (e) {}
+          }
+        });
+      });
+    }
+
     document.addEventListener('message', (event) => { handleMessage(event.data); });
     window.addEventListener('message', (event) => { handleMessage(event.data); });
 
@@ -383,11 +445,21 @@
         const message = JSON.parse(data);
         switch (message.type) {
           case 'output':
-            term.write(message.data);
-            // Keep cursor in view when lots of npm output scrolls
-            try { term.scrollToBottom(); } catch (e) {}
+            queueOutput(message.data);
             break;
-          case 'clear': term.clear(); break;
+          case 'clear':
+          case 'clearScreen':
+            clearInteractionState();
+            // Erase the visible display locally. The PTY and its foreground
+            // process keep running, and older scrollback remains reachable.
+            term.write('\x1b[2J\x1b[H');
+            break;
+          case 'clearScrollback':
+            clearInteractionState();
+            term.clear();
+            term.write('\x1b[2J\x1b[H');
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'bufferCleared' }));
+            break;
           case 'resize':
             if (message.cols && message.rows) {
               try { term.resize(message.cols, message.rows); } catch (e) {}
@@ -396,7 +468,8 @@
           case 'fit': scheduleFit(); break;
           case 'theme': term.options.theme = message.theme; break;
           case 'fontSize':
-            term.options.fontSize = message.size;
+            term.options.fontSize = clampFontSize(message.size);
+            saveFontSize(term.options.fontSize);
             scheduleFit();
             break;
           case 'focus': term.focus(); scheduleFit(); break;
@@ -411,7 +484,8 @@
           case 'key': sendInput(message.data); break;
           case 'armCtrl': ctrlArmed = !ctrlArmed; notifyModifier(); term.focus(); break;
           case 'armAlt': altArmed = !altArmed; notifyModifier(); term.focus(); break;
-          case 'clearModifiers': ctrlArmed = false; altArmed = false; notifyModifier(); break;
+          case 'clearModifiers': clearInteractionState(); break;
+          case 'clearSelection': try { term.clearSelection(); } catch (e) {} break;
           case 'copy': handleCopyCommand(); break;
           case 'requestPasteFromNative': requestPasteFromNative(); break;
           case 'pasteText':
@@ -428,13 +502,42 @@
     }
 
     window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'ready', cols: term.cols, rows: term.rows
+      type: 'ready', cols: term.cols, rows: term.rows, fontSize: term.options.fontSize
     }));
 
-    document.getElementById('terminal').addEventListener('touchstart', () => {
+    const terminalElement = document.getElementById('terminal');
+    let longPressTimer = null;
+    let longPressX = 0;
+    let longPressY = 0;
+    function cancelLongPress() {
+      if (longPressTimer !== null) clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    terminalElement.addEventListener('touchstart', (event) => {
       term.focus();
       scheduleFit();
-    });
+      const touch = event.touches && event.touches[0];
+      if (!touch || event.touches.length !== 1) return;
+      longPressX = touch.clientX;
+      longPressY = touch.clientY;
+      cancelLongPress();
+      longPressTimer = setTimeout(function () {
+        longPressTimer = null;
+        if (navigator.vibrate) navigator.vibrate(20);
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'openSelectionModal', bufferText: getBufferText()
+        }));
+      }, 550);
+    }, { passive: true });
+    terminalElement.addEventListener('touchmove', (event) => {
+      const touch = event.touches && event.touches[0];
+      if (!touch) return cancelLongPress();
+      if (Math.abs(touch.clientX - longPressX) > 12 || Math.abs(touch.clientY - longPressY) > 12) {
+        cancelLongPress();
+      }
+    }, { passive: true });
+    terminalElement.addEventListener('touchend', cancelLongPress, { passive: true });
+    terminalElement.addEventListener('touchcancel', cancelLongPress, { passive: true });
   </script>
 </body>
 </html>

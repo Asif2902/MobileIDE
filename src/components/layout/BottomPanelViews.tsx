@@ -14,7 +14,7 @@ import { MobileIDENativeModule } from '../../native';
 import { Icon } from '../icons';
 
 export const ProblemsView: React.FC = () => {
-  const { diagnostics, openFile } = useEditorStore();
+  const { diagnostics, revealLocation } = useEditorStore();
 
   const allProblems: Array<{
     filePath: string;
@@ -57,7 +57,11 @@ export const ProblemsView: React.FC = () => {
         <TouchableOpacity
           key={`${prob.filePath}-${prob.line}-${prob.column}-${index}`}
           style={styles.problemItem}
-          onPress={() => openFile(prob.filePath)}
+          onPress={() => {
+            revealLocation(prob.filePath, prob.line, prob.column).catch(error =>
+              Alert.alert('Could not open problem', error?.message || String(error)),
+            );
+          }}
         >
           <Icon
             name={prob.severity === 'error' ? 'close' : 'problems'}
@@ -83,7 +87,7 @@ export const ProblemsView: React.FC = () => {
  * Dev servers / builds spawned via ProcessNative stream here.
  */
 export const OutputView: React.FC = () => {
-  const { processes, ports, logs, isLoading, error, refresh, kill, clearLogs, startTask } =
+  const { processes, ports, logs, isLoading, error, refresh, kill, restart, clearLogs } =
     useProcessStore();
 
   useEffect(() => {
@@ -94,22 +98,16 @@ export const OutputView: React.FC = () => {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const startDemo = (kind: 'web' | 'api') => {
-    const script =
-      kind === 'web'
-        ? 'adev-run-web'
-        : 'adev-run-api';
-    startTask(kind === 'web' ? 'VITE' : 'EXPRESS', 'bash', ['-c', script], null, true).then(id => {
-      if (id != null) {
-        Alert.alert(
-          kind === 'web' ? 'Vite starting' : 'API starting',
-          kind === 'web'
-            ? 'Installing if needed, then serving on :5173. Tap Open when ready.'
-            : 'Installing if needed, then serving on :3000. Tap Open when ready.',
-        );
-      }
-    });
-  };
+  // An interactive terminal shell is infrastructure, not a development
+  // server. Show background tasks plus terminal-owned tasks once a verified
+  // listening port proves that they are serving something.
+  const managedTasks = processes.filter(
+    task =>
+      task.isRunning &&
+      (task.source === 'BACKGROUND' ||
+        task.ports.length > 0 ||
+        ports.some(port => port.taskId === task.id)),
+  );
 
   return (
     <View style={styles.container}>
@@ -127,93 +125,59 @@ export const OutputView: React.FC = () => {
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      {/* One-tap JS apps — no need to fight the terminal */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Start app (Node / Vite / Express)</Text>
-        <View style={styles.runRow}>
-          <TouchableOpacity style={styles.runBtn} onPress={() => startDemo('web')}>
-            <Text style={styles.runBtnText}>▶ demo-web</Text>
-            <Text style={styles.runBtnSub}>Vite :5173</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.runBtn, styles.runBtnApi]} onPress={() => startDemo('api')}>
-            <Text style={styles.runBtnText}>▶ demo-api</Text>
-            <Text style={styles.runBtnSub}>Express :3000</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.muted}>
-          Or in Terminal: adev-run-web · adev-run-api · cd your-app && npm i && npm run dev
-        </Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          Running ({processes.filter(p => p.isRunning).length})
-          {isLoading ? ' …' : ''}
-        </Text>
-        {processes.length === 0 ? (
-          <Text style={styles.muted}>Nothing running yet. Tap a Start button above.</Text>
+        <Text style={styles.sectionTitle}>Development processes{isLoading ? ' …' : ''}</Text>
+        {managedTasks.length === 0 ? (
+          <View style={styles.outputEmpty}>
+            <Icon name="output" size={30} color="#52525b" />
+            <Text style={styles.outputEmptyTitle}>No running development servers</Text>
+            <Text style={styles.outputEmptyHint}>
+              Start a project command in Terminal. Verified ports and controls will appear here.
+            </Text>
+          </View>
         ) : (
-          processes.map(p => (
-            <View key={p.id} style={styles.procRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.procCmd} numberOfLines={1}>
-                  #{p.id} {p.command}
+          managedTasks.map(task => {
+            const taskPorts = ports.filter(port => port.taskId === task.id);
+            return (
+              <View key={task.id} style={styles.serverCard}>
+                <View style={styles.serverHeader}>
+                  <View style={styles.runningDot} />
+                  <Text style={styles.procCmd} numberOfLines={1}>
+                    {task.command}
+                  </Text>
+                  <Text style={styles.taskType}>{task.type}</Text>
+                </View>
+                <Text style={styles.taskMeta} numberOfLines={1} ellipsizeMode="middle">
+                  PID {task.pid} · group {task.processGroupId} · {task.cwd}
                 </Text>
-                <Text style={styles.muted} numberOfLines={1}>
-                  {p.state.toLowerCase()} · {p.type.toLowerCase()} · {p.source.toLowerCase()} · {p.cwd}
-                </Text>
+                <View style={styles.serverActions}>
+                  {taskPorts.map(port => (
+                    <TouchableOpacity
+                      key={`${task.id}-${port.port}`}
+                      style={styles.openBtn}
+                      onPress={() => {
+                        MobileIDENativeModule.openUrl(port.url).catch(e =>
+                          Alert.alert('Open failed', e?.message || String(e)),
+                        );
+                      }}
+                    >
+                      <Text style={styles.openBtnText}>Open :{port.port}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity style={styles.secondaryBtn} onPress={() => restart(task)}>
+                    <Text style={styles.secondaryBtnText}>Restart</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.stopBtn} onPress={() => kill(task.id)}>
+                    <Text style={styles.stopBtnText}>Stop</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              {p.isRunning && p.source === 'BACKGROUND' && (
-                <TouchableOpacity style={styles.killBtn} onPress={() => kill(p.id)}>
-                  <Text style={styles.killBtnText}>Kill</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ))
+            );
+          })
         )}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preview (tap Open)</Text>
-        {ports.length === 0 ? (
-          <Text style={styles.muted}>No open ports yet. Start demo-web or demo-api first.</Text>
-        ) : (
-          ports.map(port => (
-            <View key={`${port.port}-${port.taskId}`} style={styles.portRow}>
-              <Text style={styles.logText}>
-                :{port.port} → task {port.taskId} · verified {port.source.toLowerCase()}
-              </Text>
-              <TouchableOpacity
-                style={styles.openBtn}
-                onPress={() => {
-                  MobileIDENativeModule.openUrl(port.url).catch(e =>
-                    Alert.alert('Open failed', e?.message || String(e)),
-                  );
-                }}
-              >
-                <Text style={styles.openBtnText}>Open</Text>
-              </TouchableOpacity>
-            </View>
-          ))
-        )}
-        <View style={styles.quickOpenRow}>
-          {[5173, 3000, 4173, 8080].map(p => (
-            <TouchableOpacity
-              key={p}
-              style={styles.quickOpenBtn}
-              onPress={() => {
-                MobileIDENativeModule.openUrl(`http://127.0.0.1:${p}`).catch(e =>
-                  Alert.alert('Open failed', e?.message || String(e)),
-                );
-              }}
-            >
-              <Text style={styles.quickOpenText}>:{p}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={[styles.section, { flex: 1 }]}>
+      <View style={[styles.section, styles.logSection]}>
         <Text style={styles.sectionTitle}>Log</Text>
         <ScrollView style={styles.logBox}>
           {logs.length === 0 ? (
@@ -236,7 +200,7 @@ export const OutputView: React.FC = () => {
             ))
           )}
           {isLoading && logs.length === 0 ? (
-            <ActivityIndicator size="small" color="#8b5cf6" style={{ marginTop: 8 }} />
+            <ActivityIndicator size="small" color="#8b5cf6" style={styles.loadingIndicator} />
           ) : null}
         </ScrollView>
       </View>
@@ -247,24 +211,47 @@ export const OutputView: React.FC = () => {
 export const DebugView: React.FC = () => {
   const { ports, processes } = useProcessStore();
   useEffect(() => {
-    useProcessStore.getState().refresh();
+    const refresh = useProcessStore.getState().refresh;
+    refresh();
+    const timer = setInterval(refresh, 4000);
+    return () => clearInterval(timer);
   }, []);
+
+  const running = processes.filter(task => task.isRunning);
 
   return (
     <View style={styles.container}>
       <ScrollView style={styles.logBox}>
-        <Text style={styles.sectionTitle}>Debug / runtime snapshot</Text>
-        <Text style={styles.logText}>
-          No source-level debugger is attached. Use this panel for a quick process snapshot.
+        <Text style={styles.sectionTitle}>Runtime process snapshot</Text>
+        <Text style={styles.snapshotNotice}>
+          Process inspection only — no source-level debugger is attached.
         </Text>
-        <Text style={styles.logText}> </Text>
-        <Text style={styles.logText}>Processes: {processes.length}</Text>
-        <Text style={styles.logText}>Open ports: {ports.map(p => p.port).join(', ') || 'none'}</Text>
-        <Text style={styles.logText}> </Text>
-        <Text style={styles.muted}>
-          Tip: run servers in the Terminal tab (`npm start`, `npx vite`, …). Pure JS packages
-          install normally; native node-gyp modules use the bundled Android C/C++ toolchain.
-        </Text>
+        {running.length === 0 ? (
+          <Text style={styles.outputEmptyHint}>No active processes.</Text>
+        ) : (
+          running.map(task => {
+            const taskPorts = ports.filter(port => port.taskId === task.id);
+            return (
+              <View key={task.id} style={styles.snapshotCard}>
+                <Text style={styles.procCmd} selectable>
+                  {task.command}
+                </Text>
+                <Text style={styles.taskMeta} selectable>
+                  task {task.id} · PID {task.pid} · group {task.processGroupId}
+                </Text>
+                <Text style={styles.taskMeta} selectable>
+                  {task.type.toLowerCase()} · {task.source.toLowerCase()} · {task.state.toLowerCase()}
+                </Text>
+                <Text style={styles.taskMeta} selectable numberOfLines={2}>
+                  cwd: {task.cwd}
+                </Text>
+                <Text style={styles.taskMeta} selectable>
+                  ports: {taskPorts.map(port => port.port).join(', ') || 'none'}
+                </Text>
+              </View>
+            );
+          })
+        )}
       </ScrollView>
     </View>
   );
@@ -341,37 +328,15 @@ const styles = StyleSheet.create({
     color: '#c4b5fd',
     fontSize: 11,
   },
-  runRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 6,
-  },
-  runBtn: {
-    flex: 1,
-    backgroundColor: '#1e3a5f',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-  },
-  runBtnApi: {
-    backgroundColor: '#1a3d2e',
-    borderColor: '#22c55e',
-  },
-  runBtnText: {
-    color: '#f4f4f5',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  runBtnSub: {
-    color: '#a1a1aa',
-    fontSize: 11,
-    marginTop: 2,
-  },
   section: {
     paddingHorizontal: 12,
     paddingTop: 8,
+  },
+  logSection: {
+    flex: 1,
+  },
+  loadingIndicator: {
+    marginTop: 8,
   },
   sectionTitle: {
     color: '#a1a1aa',
@@ -380,63 +345,118 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textTransform: 'uppercase',
   },
-  procRow: {
+  outputEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 150,
+    paddingHorizontal: 28,
+  },
+  outputEmptyTitle: {
+    color: '#d4d4d8',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 10,
+  },
+  outputEmptyHint: {
+    color: '#71717a',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  serverCard: {
+    backgroundColor: '#232326',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#3f3f46',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  serverHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a2a',
+  },
+  runningDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#22c55e',
+    marginRight: 7,
   },
   procCmd: {
     color: '#e4e4e7',
     fontSize: 12,
     fontFamily: 'monospace',
+    flex: 1,
   },
-  killBtn: {
-    backgroundColor: '#7f1d1d',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
+  taskType: {
+    color: '#a78bfa',
+    fontSize: 9,
+    fontWeight: '700',
     marginLeft: 8,
   },
-  killBtnText: {
-    color: '#fecaca',
+  taskMeta: {
+    color: '#8b8b94',
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: 'monospace',
+    lineHeight: 16,
+    marginTop: 4,
   },
-  portRow: {
+  serverActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 9,
   },
   openBtn: {
     backgroundColor: '#8b5cf6',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 4,
-    marginLeft: 8,
   },
   openBtnText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '600',
   },
-  quickOpenRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 8,
-  },
-  quickOpenBtn: {
-    backgroundColor: '#2a2a2a',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  secondaryBtn: {
+    backgroundColor: '#3f3f46',
+    paddingHorizontal: 11,
+    paddingVertical: 5,
     borderRadius: 4,
   },
-  quickOpenText: {
-    color: '#c4b5fd',
+  secondaryBtnText: {
+    color: '#e4e4e7',
     fontSize: 11,
+    fontWeight: '600',
+  },
+  stopBtn: {
+    backgroundColor: '#451a1a',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#7f1d1d',
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 4,
+  },
+  stopBtnText: {
+    color: '#fca5a5',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  snapshotNotice: {
+    color: '#a1a1aa',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  snapshotCard: {
+    backgroundColor: '#232326',
+    borderLeftWidth: 2,
+    borderLeftColor: '#8b5cf6',
+    padding: 10,
+    marginBottom: 8,
+    borderRadius: 4,
   },
   logBox: {
     flex: 1,

@@ -11,6 +11,7 @@ import {
   TransferOptions,
   TransferSnapshot,
   WorkspaceAssessment,
+  ImportedDocument,
 } from '../native';
 import { useTerminalStore } from './terminalStore';
 
@@ -72,6 +73,7 @@ interface FileState {
   initWorkspace: () => Promise<void>;
   requestStorageAccess: () => Promise<boolean>;
   openFolderFromDevice: () => Promise<ExternalRoot[]>;
+  importFileFromDevice: () => Promise<ImportedDocument | null>;
   importProject: (
     source: ProjectSource,
     requestedName: string | null,
@@ -241,6 +243,28 @@ export const useFileStore = create<FileState>((set, get) => ({
     } catch (error) {
       set({ error: (error as Error).message });
       return [];
+    }
+  },
+
+  importFileFromDevice: async () => {
+    const workspacePath = get().currentWorkspace;
+    if (!workspacePath) {
+      throw new Error('Open a workspace before importing a file.');
+    }
+    set({error: null});
+    try {
+      const selection = await StorageNativeModule.pickFile();
+      if (!selection) return null;
+      const imported = await StorageNativeModule.importFile(
+        selection.value,
+        workspacePath,
+        selection.displayName,
+      );
+      await get().refreshDirectory(workspacePath);
+      return imported;
+    } catch (error) {
+      set({error: (error as Error).message || 'File import failed'});
+      throw error;
     }
   },
 

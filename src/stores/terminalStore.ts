@@ -36,8 +36,12 @@ interface TerminalState {
   handleExit: (event: TerminalExitEvent) => void;
 }
 
-// Output buffer for each terminal (sessionId -> output chunks)
+// Output buffer for each terminal (sessionId -> output chunks). Keep enough
+// history for useful terminal selection/replay without letting a noisy build
+// grow the JS heap forever.
 const outputBuffers = new Map<number, string[]>();
+const outputBufferSizes = new Map<number, number>();
+const MAX_OUTPUT_BUFFER_CHARS = 2_000_000;
 let createSessionInFlight: Promise<number> | null = null;
 
 export const getOutputBuffer = (sessionId: number): string[] => {
@@ -46,6 +50,7 @@ export const getOutputBuffer = (sessionId: number): string[] => {
 
 export const clearOutputBuffer = (sessionId: number): void => {
   outputBuffers.delete(sessionId);
+  outputBufferSizes.delete(sessionId);
 };
 
 export const useTerminalStore = create<TerminalState>((set, _get) => ({
@@ -84,6 +89,7 @@ export const useTerminalStore = create<TerminalState>((set, _get) => ({
         // Output can arrive before the native create promise resolves. Preserve it.
         if (!outputBuffers.has(session.sessionId)) {
           outputBuffers.set(session.sessionId, []);
+          outputBufferSizes.set(session.sessionId, 0);
         }
 
         set(state => ({
@@ -183,6 +189,7 @@ export const useTerminalStore = create<TerminalState>((set, _get) => ({
         sessions.forEach(session => {
           if (!outputBuffers.has(session.id)) {
             outputBuffers.set(session.id, []);
+            outputBufferSizes.set(session.id, 0);
           }
         });
 
@@ -209,11 +216,12 @@ export const useTerminalStore = create<TerminalState>((set, _get) => ({
   handleOutput: (event: TerminalOutputEvent) => {
     const buffer = outputBuffers.get(event.sessionId) || [];
     buffer.push(event.data);
-    // Keep buffer size manageable
-    if (buffer.length > 1000) {
-      buffer.splice(0, buffer.length - 1000);
+    let size = (outputBufferSizes.get(event.sessionId) || 0) + event.data.length;
+    while (size > MAX_OUTPUT_BUFFER_CHARS && buffer.length > 1) {
+      size -= buffer.shift()?.length || 0;
     }
     outputBuffers.set(event.sessionId, buffer);
+    outputBufferSizes.set(event.sessionId, size);
   },
 
   handleExit: (event: TerminalExitEvent) => {
