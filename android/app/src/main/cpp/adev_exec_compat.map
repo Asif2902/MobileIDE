@@ -1,0 +1,12 @@
+LIBC {
+    global:
+        execve;
+        execv;
+        execvp;
+        execvpe;
+        execl;
+        execlp;
+        execle;
+    local:
+        *;
+};

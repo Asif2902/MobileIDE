@@ -216,14 +216,33 @@ try {
     const interpreter = path.join(scratch, 'interpreter.js');
     fs.writeFileSync(
       interpreter,
-      '#!/usr/bin/env node\nconsole.log("chained")\n',
+      '#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)))\n',
       {mode: 0o755},
     );
     const script = path.join(scratch, 'chained.txt');
-    fs.writeFileSync(script, `#!${interpreter}\npayload\n`, {mode: 0o755});
-    const result = run(script, []);
+    fs.writeFileSync(script, `#!${interpreter} shebang-arg\npayload\n`, {mode: 0o755});
+    const result = run(script, ['caller-arg']);
     assert(result.status === 0, `exited ${result.status}: ${result.stderr}`);
-    assert(result.stdout === 'chained', result.stdout);
+    assert(
+      result.stdout === JSON.stringify(['shebang-arg', script, 'caller-arg']),
+      `arguments were reordered: ${result.stdout}`,
+    );
+
+    const loopA = path.join(scratch, 'loop-a');
+    const loopB = path.join(scratch, 'loop-b');
+    fs.writeFileSync(loopA, `#!${loopB}\n`, {mode: 0o755});
+    fs.writeFileSync(loopB, `#!${loopA}\n`, {mode: 0o755});
+    const loop = spawnSync(loopA, [], {encoding: 'utf8', env: process.env});
+    assert(loop.error?.code === 'ELOOP', `loop returned ${loop.error?.code || loop.status}`);
+
+    const malformed = path.join(scratch, 'malformed-shebang');
+    fs.writeFileSync(malformed, '#!   \npayload\n', {mode: 0o755});
+    const invalid = spawnSync(malformed, [], {encoding: 'utf8', env: process.env});
+    assert(
+      invalid.error?.code === 'ENOEXEC',
+      `malformed shebang returned ${invalid.error?.code || invalid.status}`,
+    );
+    return 'arguments + loop/format errors';
   });
 
   check('`env` runs the runtime interpreters, not Toybox behaviour', () => {
@@ -293,23 +312,21 @@ try {
   });
 
   if (network) {
-    check('Python HTTPS verifies certificates', () => {
+    check('Python and Node HTTPS verify certificates', () => {
       const python = process.env.PYTHON || 'python';
-      const result = run(python, [
+      const pythonResult = run(python, [
         '-c',
         'import urllib.request;print(urllib.request.urlopen("https://github.com", timeout=30).status)',
       ], {timeoutMs: 90000});
-      assert(result.status === 0, result.stderr);
-      assert(result.stdout === '200', result.stdout);
-    });
-
-    check('Node HTTPS verifies certificates', () => {
-      const result = run(process.execPath, [
+      assert(pythonResult.status === 0, pythonResult.stderr);
+      assert(pythonResult.stdout === '200', pythonResult.stdout);
+      const nodeResult = run(process.execPath, [
         '-e',
         "require('https').get('https://registry.npmjs.org/-/ping',r=>{console.log(r.statusCode);r.resume()}).on('error',e=>{console.error(e.message);process.exit(1)})",
       ], {timeoutMs: 90000});
-      assert(result.status === 0, result.stderr);
-      assert(result.stdout === '200', result.stdout);
+      assert(nodeResult.status === 0, nodeResult.stderr);
+      assert(nodeResult.stdout === '200', nodeResult.stdout);
+      return 'Python + Node';
     });
   }
 
@@ -321,12 +338,17 @@ try {
     const clean = {...process.env};
     delete clean.PREFIX;
     delete clean.ADEV_RUNTIME;
+    const npmVersion = run('npm', ['--version'], {env: clean});
+    assert(npmVersion.status === 0, npmVersion.stderr);
     const root = run('npm', ['root', '-g'], {env: clean});
     assert(root.status === 0, root.stderr);
     assert(root.stdout.startsWith('/'), root.stdout);
     const prefix = run('npm', ['prefix', '-g'], {env: clean});
     assert(prefix.status === 0, prefix.stderr);
-    return `${prefix.stdout}`;
+    const npxVersion = run('npx', ['--version'], {env: clean});
+    assert(npxVersion.status === 0, npxVersion.stderr);
+    assert(npxVersion.stdout === npmVersion.stdout, `npm=${npmVersion.stdout} npx=${npxVersion.stdout}`);
+    return `npm ${npmVersion.stdout}, ${prefix.stdout}`;
   });
 
   check('the Next launcher finds npm without PREFIX', () => {

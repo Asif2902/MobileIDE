@@ -170,6 +170,14 @@ bool launcher_doctor_requested(int argc, char** argv) {
     return argc == 2 && std::strcmp(argv[1], "--adev-launcher-doctor") == 0;
 }
 
+bool runtime_environment_test_requested(int argc, char** argv) {
+    if (argc < 2 || argc > 3 ||
+        std::strcmp(argv[1], "--adev-runtime-env-test") != 0) {
+        return false;
+    }
+    return argc == 2 || std::strcmp(argv[2], "--network") == 0;
+}
+
 int launch_payload(int argc, char** argv) {
 #ifndef ADEV_OPENCODE_HOST_TEST
     // Restore the shared runtime environment contract first: HOME, PATH,
@@ -396,6 +404,46 @@ int launch_payload(int argc, char** argv) {
             url_opener_session.empty() ? "missing" : "present", private_tmp.c_str(),
             workspace_home.c_str(), config_home.c_str(), workspace_home.c_str());
         return 0;
+    }
+
+    /*
+     * Run the shipped contract suite after constructing the exact OpenCode
+     * environment and preload order. This is intentionally a launcher
+     * diagnostic rather than a second implementation of the contract: the
+     * suite enters the packaged Node ELF with the same HOME, PATH, XDG, TLS,
+     * Python and LD_PRELOAD values that the Bun/OpenCode payload hands to its
+     * tools. It gives instrumentation and developers a provider-independent
+     * way to certify raw child_process behaviour.
+     */
+    if (runtime_environment_test_requested(argc, argv)) {
+        const char* runtime_root_value = std::getenv("ADEV_RUNTIME");
+        if (!absolute_path(runtime_root_value)) runtime_root_value = std::getenv("PREFIX");
+        const std::string runtime_root = absolute_path(runtime_root_value)
+            ? canonical_private_directory(runtime_root_value)
+            : std::string{};
+        const std::string node = join_path(native_dir, "libbin_node.so");
+        const std::string suite = join_path(runtime_root, "lib/adev-runtime-env-test.js");
+        if (runtime_root.empty() || ADEV_ACCESS(node.c_str(), ADEV_EXEC_ACCESS) != 0 ||
+            ADEV_ACCESS(suite.c_str(), 4) != 0) {
+            return unavailable("the runtime environment test dependencies are missing.");
+        }
+        std::vector<char*> test_arguments = {
+            const_cast<char*>(node.c_str()),
+            const_cast<char*>(suite.c_str()),
+        };
+        if (argc == 3) test_arguments.push_back(argv[2]);
+        test_arguments.push_back(nullptr);
+#ifdef _WIN32
+        const intptr_t result = _spawnv(_P_WAIT, node.c_str(), test_arguments.data());
+        if (result >= 0) return static_cast<int>(result);
+#elif defined(__ANDROID__) && defined(SYS_execve)
+        syscall(SYS_execve, node.c_str(), test_arguments.data(), environ);
+#else
+        execv(node.c_str(), test_arguments.data());
+#endif
+        std::fprintf(stderr, "opencode: failed to launch runtime environment suite: %s\n",
+                     std::strerror(errno));
+        return errno == EACCES ? 126 : 71;
     }
 
     std::vector<char*> forwarded;

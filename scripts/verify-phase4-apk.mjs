@@ -195,6 +195,22 @@ try {
   };
   visit(path.join(temp, 'lib'));
 
+  // The packaged Node executable imports Android's versioned exec APIs. A
+  // plain, unversioned LD_PRELOAD export does not interpose those references,
+  // which regresses raw child_process shebang/npm launches to EACCES even
+  // though interactive shell wrappers still work.
+  for (const abi of abis) {
+    const resolver = path.join(temp, 'lib', abi, 'liblib_adev_exec_compat.so');
+    const symbols = run(readelf, ['--dyn-syms', '--wide', resolver]);
+    for (const symbol of ['execve', 'execvp']) {
+      assert.match(
+        symbols,
+        new RegExp(`\\b${symbol}@@LIBC\\b`),
+        `${abi} resolver does not interpose ${symbol}@LIBC`,
+      );
+    }
+  }
+
   let relocatableObjects = 0;
   let minimumAlignment = Number.MAX_SAFE_INTEGER;
   const failures = [];

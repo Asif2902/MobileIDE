@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const resolver = read('android/app/src/main/cpp/adev_exec_compat.c');
+const resolverMap = read('android/app/src/main/cpp/adev_exec_compat.map');
 const cmake = read('android/app/src/main/cpp/CMakeLists.txt');
 const gradle = read('android/app/build.gradle');
 const runtimeManager = read(
@@ -18,6 +19,9 @@ const subprocess = read(
 const pathsHeader = read('android/app/src/main/assets/runtime/include/paths.h');
 const deviceHarness = read(
   'android/app/src/main/assets/runtime/lib/adev-phase1-test.js',
+);
+const environmentHarness = read(
+  'android/app/src/main/assets/runtime/lib/adev-runtime-env-test.js',
 );
 const urlBroker = read(
   'android/app/src/main/java/com/mobileide/app/runtime/ExternalUrlBroker.kt',
@@ -32,7 +36,14 @@ assert.match(resolver, /current_path = resolved_paths\[depth\]/);
 assert.match(resolver, /RTLD_NEXT, "execve"/);
 for (const symbol of ['execve', 'execv', 'execvp', 'execvpe', 'execl', 'execlp', 'execle']) {
   assert.match(resolver, new RegExp(`int ${symbol}\\(`));
+  assert.match(
+    resolverMap,
+    new RegExp(`\\b${symbol};`),
+    `${symbol} must be exported at Bionic's LIBC symbol version`,
+  );
 }
+assert.match(resolverMap, /^LIBC\s*\{/);
+assert.match(cmake, /--version-script=\$\{CMAKE_CURRENT_SOURCE_DIR\}\/adev_exec_compat\.map/);
 assert.match(resolver, /\/data\/data\/com\.termux\/files\/usr\/bin\/sh/);
 assert.match(resolver, /strcmp\(path, "\/bin\/sh"\)/);
 assert.match(resolver, /adev_is_virtual_shell\(filename\)/);
@@ -116,6 +127,9 @@ assert.match(deviceHarness, /'virtual \/bin\/sh direct path'/);
 assert.match(deviceHarness, /androidShell\.stdout\.trim\(\) !== virtualShell\.stdout\.trim\(\)/);
 assert.match(deviceHarness, /'python subprocess shell'/);
 assert.doesNotMatch(deviceHarness, /achswap/i);
+assert.match(environmentHarness, /'shebang-arg'/);
+assert.match(environmentHarness, /loop\.error\?\.code === 'ELOOP'/);
+assert.match(environmentHarness, /invalid\.error\?\.code === 'ENOEXEC'/);
 
 const textRuntimeFiles = [
   'android/app/src/main/assets/runtime/bin/git-core/git-difftool--helper',

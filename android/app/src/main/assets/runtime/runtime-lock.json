@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.17.3",
+  "runtimeVersion": "1.17.4",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -13,8 +13,8 @@
       "nativeFiles": [
         {
           "packagedName": "libbin_adev_busybox.so",
-          "sha256": "107a95821e4b78f286455bb96eb3e7088ef48789a12490dcf7f31bf970d82484",
-          "bytes": 37400,
+          "sha256": "84818bea3798b1dfcb03f49248f82df309ad23f276e9aed9889b80f2afb37f62",
+          "bytes": 37976,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -41,15 +41,15 @@
         },
         {
           "packagedName": "libbin_adev_make.so",
-          "sha256": "1d53a562680d9690eb316e6c8a6beb076e8ea6331a37209d317839fae8f4f549",
-          "bytes": 37536,
+          "sha256": "3edd66ccd09afeb007017938d333aaef51e4892f911c23988e28319273ac8439",
+          "bytes": 38112,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "6e31b0375941797d3642b1ae6dadc1f58b3cfc1eb50b45cec7b8ae5f982f84db",
-          "bytes": 15752,
+          "sha256": "2146abc90fc30ff692ca19d4ff826b339e683e647ffc5f97b7cf8bd7d0d3f3fb",
+          "bytes": 16328,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -242,8 +242,8 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "e6499924b2e620e61acffae6c9d798cd7319745cdcf8eeb7e6c6303419ee04e6",
-          "bytes": 51528,
+          "sha256": "d91b8785b11c09cfd764fb0ae57f3862641fa6b719d41e981ea8c46bf062291e",
+          "bytes": 60800,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -283,8 +283,8 @@
         },
         {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "245e35b99b5d9eeaf3ebe9f05dda51eee43a1257a37cbf1e9b443ba5988db252",
-          "bytes": 17160,
+          "sha256": "f293ebe183523bbf406390b31a7d1f4e7a4e33a2b9ae1894140c98f17203c662",
+          "bytes": 17776,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1950,8 +1950,8 @@
       "nativeFiles": [
         {
           "packagedName": "libbin_adev_busybox.so",
-          "sha256": "c42639ecf8ffad7da8d62ff8137a15187d0fb5e24c44401d20454b014de927bf",
-          "bytes": 36984,
+          "sha256": "9d4b282152ca890fe32889c9e2ff25a8621b00b3a0846191f4de8c5a0e2cb6c1",
+          "bytes": 37528,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1978,15 +1978,15 @@
         },
         {
           "packagedName": "libbin_adev_make.so",
-          "sha256": "1935b1857b1f2145815368eecd4903e28fef0869ba2742965faa6b958f3b3abc",
-          "bytes": 37160,
+          "sha256": "3329c3ee9d175bf40b73cbf9828ab9ceba10660eebc1119cd7469956e57c2d89",
+          "bytes": 37704,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "6442ed1e30917bad197e3a3d5e77e116502462ef298736fab0fbce9d176524fb",
-          "bytes": 16168,
+          "sha256": "f65494989b3058b3e35a84d564a96bbab0ff87e95dd76e69fcc0ff9837307268",
+          "bytes": 16712,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1999,15 +1999,15 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "a1f52b47e862293cbc6140852d7420a67614a6ab0c58892acce8433e4087872e",
-          "bytes": 53432,
+          "sha256": "826bcd9b66a52c00edaba39d3eafc98a08f2e1a0eae90e2619d0b6e41ce21958",
+          "bytes": 64008,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "bc370b98e5bf114b5f7b7561ed64abccefb75e823c23fabb0da359c6d8c1ffde",
-          "bytes": 17736,
+          "sha256": "56180aef86a1fed2875672f21af026f0662d7c8aef16ffc62f89999eec8dbfce",
+          "bytes": 18336,
           "runtimePaths": [],
           "owner": "app-native"
         },

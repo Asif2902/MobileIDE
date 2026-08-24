@@ -60,6 +60,69 @@ class CompatibilityInstrumentationTest {
     private fun networkMatrixRequested(): Boolean =
         InstrumentationRegistry.getArguments().getString("adevNetwork") == "true"
 
+    private fun runOpenCodeEnvironmentMatrix(network: Boolean) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = RuntimeManager(context)
+        // A local phone-test APK may deliberately reuse the release version
+        // while changing a shipped suite. Opt-in refresh simulates the normal
+        // versioned upgrade extraction without deleting workspaces or caches.
+        if (InstrumentationRegistry.getArguments().getString("adevRefreshRuntime") == "true") {
+            File(context.filesDir, "runtime/.runtime_fingerprint").delete()
+        }
+        if (!manager.isRuntimeReady()) manager.initializeRuntime()
+        val workspace = File(manager.getWorkspacesDir(), ".adev-opencode-environment").apply {
+            mkdirs()
+            check(isDirectory)
+        }
+        try {
+            val launcher = File(manager.getNativeLibDir(), "libbin_opencode.so")
+            assertTrue("OpenCode Android launcher is missing", launcher.isFile)
+            val command = mutableListOf(launcher.absolutePath, "--adev-runtime-env-test")
+            if (network) command += "--network"
+            val processBuilder = ProcessBuilder(command)
+                .directory(workspace)
+                .redirectErrorStream(true)
+            processBuilder.environment().apply {
+                clear()
+                putAll(manager.getEnvironment(workspace.absolutePath))
+            }
+            val process = processBuilder.start()
+            val readerExecutor = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "adev-opencode-environment-output").apply { isDaemon = true }
+            }
+            val outputFuture = readerExecutor.submit<String> {
+                process.inputStream.bufferedReader().use { it.readText() }
+            }
+            try {
+                assertTrue(
+                    "OpenCode runtime environment suite timed out",
+                    process.waitFor(if (network) 10 else 5, TimeUnit.MINUTES)
+                )
+                val output = outputFuture.get(10, TimeUnit.SECONDS)
+                Log.i("AdevCompatibility", output.takeLast(32 * 1024))
+                assertEquals(
+                    "OpenCode runtime environment suite failed:\n${output.takeLast(32 * 1024)}",
+                    0,
+                    process.exitValue()
+                )
+                val expected = if (network) {
+                    "23/23 runtime environment checks passed"
+                } else {
+                    "22/22 runtime environment checks passed"
+                }
+                assertTrue(
+                    "Missing $expected:\n${output.takeLast(32 * 1024)}",
+                    output.contains(expected)
+                )
+            } finally {
+                if (process.isAlive) process.destroyForcibly()
+                readerExecutor.shutdownNow()
+            }
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
     private fun runPhase5Matrix(network: Boolean) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = RuntimeManager(context)
@@ -144,6 +207,18 @@ class CompatibilityInstrumentationTest {
     fun bundledDeveloperRuntimePassesNetworkFrameworkMatrix() {
         assumeTrue("Network matrix not requested", networkMatrixRequested())
         runPhase5Matrix(network = true)
+    }
+
+    @Test
+    fun openCodeExecutionEnvironmentPassesRuntimeContract() {
+        assumeFalse("Network matrix requested", networkMatrixRequested())
+        runOpenCodeEnvironmentMatrix(network = false)
+    }
+
+    @Test
+    fun openCodeExecutionEnvironmentPassesNetworkRuntimeContract() {
+        assumeTrue("Network matrix not requested", networkMatrixRequested())
+        runOpenCodeEnvironmentMatrix(network = true)
     }
 
     /**

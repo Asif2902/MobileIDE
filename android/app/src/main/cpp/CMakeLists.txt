@@ -46,6 +46,12 @@ target_link_libraries(adev_exec_compat PRIVATE dl)
 target_link_options(adev_exec_compat PRIVATE
     "-Wl,-z,max-page-size=16384"
     "-Wl,-z,common-page-size=16384"
+    # Bionic publishes exec* as LIBC-versioned symbols. Packaged Node imports
+    # execve@LIBC/execvp@LIBC, so an unversioned preload export is skipped and
+    # Node reaches Bionic's raw exec path (EACCES on writable app storage).
+    # Export the resolver under the same ABI version so every ordinary
+    # child_process call enters the one recursive ADEV launcher.
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/adev_exec_compat.map"
     "-Wl,--strip-all"
 )
 
