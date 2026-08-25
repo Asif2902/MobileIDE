@@ -29,6 +29,14 @@ const urlBroker = read(
   'android/app/src/main/java/com/mobileide/app/runtime/ExternalUrlBroker.kt',
 );
 const xdgOpen = read('android/app/src/main/cpp/adev_xdg_open.cpp');
+const gitLauncher = read('android/app/src/main/cpp/adev_git_launcher.cpp');
+const secretCli = read('android/app/src/main/cpp/adev_secret_cli.cpp');
+const credentialBroker = read(
+  'android/app/src/main/java/com/mobileide/app/git/GitCredentialBroker.kt',
+);
+const secretVault = read(
+  'android/app/src/main/java/com/mobileide/app/security/CliSecretVault.kt',
+);
 const envLauncher = read('android/app/src/main/cpp/adev_env.cpp');
 const nodePreload = read('android/app/src/main/assets/runtime/lib/adev-node-preload.js');
 const childProcessCompat = read(
@@ -176,6 +184,43 @@ assert.match(xdgOpen, /ADEV_URL_OPENER_SESSION/);
 assert.match(xdgOpen, /INADDR_LOOPBACK/);
 assert.match(xdgOpen, /json_escape\(url\)/);
 assert.doesNotMatch(xdgOpen, /system\(|popen\(/);
+
+// Generic CLI platform bridges (PLAN-009).
+// The URL opener must be exposed under its generic name and through the
+// standard $BROWSER discovery mechanism, never "none" anymore.
+assert.match(runtimeManager, /writeScript\(\s*"adev-open-url"/);
+assert.match(runtimeManager, /listOf\("adev-open-url", "xdg-open"\)/);
+assert.match(runtimeManager, /"BROWSER" to "adev-open-url"/);
+assert.doesNotMatch(runtimeManager, /"BROWSER" to "none"/);
+assert.doesNotMatch(runtimeManager, /export BROWSER=none/);
+assert.match(
+  runtimeManager,
+  /Os\.symlink\(xdgOpen\.absolutePath, link\.absolutePath\)/,
+);
+// Foreign static binaries fork/exec PATH entries directly; git must resolve
+// to the exec-safe launcher ELF ahead of the noexec shell trampoline.
+assert.match(runtimeManager, /File\(adevEnv\.shimDir, "git"\)/);
+assert.match(
+  runtimeManager,
+  /Os\.symlink\(gitLauncher\.absolutePath, link\.absolutePath\)/,
+);
+assert.match(gitLauncher, /adev_runtime_env_apply\(\)/);
+assert.match(gitLauncher, /libbin_git\.so/);
+assert.match(gitLauncher, /MOBILEIDE_GIT/);
+assert.match(gitLauncher, /\/storage\/", "\/sdcard\/", "\/mnt\/media_rw\/"/);
+assert.match(gitLauncher, /return 73;/);
+assert.doesNotMatch(gitLauncher, /system\(|popen\(/);
+// The secret vault stays inside the app sandbox: Keystore AES/GCM records and
+// a session-authenticated loopback broker; the CLI reads values on stdin.
+assert.match(secretCli, /ADEV_GIT_CREDENTIAL_PORT/);
+assert.match(secretCli, /read_all_stdin/);
+assert.doesNotMatch(secretCli, /system\(|popen\(/);
+assert.match(secretVault, /AndroidKeyStore/);
+assert.match(secretVault, /AES\/GCM\/NoPadding/);
+assert.match(secretVault, /SHA-256/);
+for (const action of ['secret-get', 'secret-set', 'secret-delete', 'secret-list']) {
+  assert.match(credentialBroker, new RegExp(`"${action}" ->`));
+}
 
 assert.match(subprocess, /os\.environ\.get\('ADEV_PYTHON_SHELL'\)/);
 assert.doesNotMatch(subprocess, /\/data\/data\/com\.termux\/files\/usr\/bin\/sh/);

@@ -983,7 +983,9 @@ class RuntimeManager(private val context: Context) {
             // Display/bind hostname. 0.0.0.0 is not a valid URL host in Chrome;
             // Node listen is rewritten to dual-stack `::` so localhost still works.
             agentEnv.appendLine("export HOSTNAME=127.0.0.1")
-            agentEnv.appendLine("export BROWSER=none")
+            // Generic Android URL bridge — foreign CLIs (gh, Go $BROWSER
+            // users, xdg-open lookups) open http(s) links through the app.
+            agentEnv.appendLine("export BROWSER=adev-open-url")
             agentEnv.appendLine("export ADEV_PACKAGE_POLICY_FILE=\"${File(libDir, "adev-runtime-policy.json").absolutePath}\"")
             agentEnv.appendLine("export ADEV_PACKAGE_MANAGER_LOCK=\"${File(libDir, "adev-package-managers.json").absolutePath}\"")
             agentEnv.appendLine("export COREPACK_HOME=\"${File(cacheDir, "corepack").absolutePath}\"")
@@ -1069,6 +1071,11 @@ class RuntimeManager(private val context: Context) {
             val ripgrep = File(nativeLibDir, "libbin_rg.so")
             val openCode = File(nativeLibDir, "libbin_opencode.so")
             val xdgOpen = File(nativeLibDir, "libbin_adev_xdg_open.so")
+            // APK-native launchers that foreign processes must be able to exec
+            // directly (GitHub CLI and other static binaries do fork/exec on
+            // PATH entries without a shell).
+            val gitLauncher = File(nativeLibDir, "libbin_adev_git_launcher.so")
+            val secretCli = File(nativeLibDir, "libbin_adev_secret.so")
             val clangResourceDir = findClangResourceDir()
             val npmCli = File(libDir, "node_modules/npm/bin/npm-cli.js")
             val npxCli = File(libDir, "node_modules/npm/bin/npx-cli.js")
@@ -1252,6 +1259,24 @@ adev_guard() {
                 }
             }
             if (git.exists()) {
+                // Foreign executables — GitHub CLI, Go/Rust binaries, anything
+                // that fork/execs a PATH entry without a shell — cannot run the
+                // shell-script trampoline below: it lives on Android's noexec
+                // app storage and fails EACCES before its shebang is read.
+                // A symlink in the shim directory resolves to this exec-safe
+                // APK-native launcher, which applies the same shared-storage
+                // guard as interactive shells and then execs Git in place.
+                if (gitLauncher.isFile) {
+                    adevEnv.shimDir.mkdirs()
+                    adevEnv.shimDir.setWritable(true, false)
+                    try {
+                        val link = File(adevEnv.shimDir, "git")
+                        if (link.exists() || isSymlink(link)) link.delete()
+                        Os.symlink(gitLauncher.absolutePath, link.absolutePath)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "git launcher shim failed: ${e.message}")
+                    }
+                }
                 writeScript("git", guarded("git", "exec \"${git.absolutePath}\" \"\$@\""))
             }
             if (bash.exists()) {
@@ -1365,6 +1390,46 @@ adev_guard() {
                     "xdg-open",
                     "#!/system/bin/sh\nexec \"${xdgOpen.absolutePath}\" \"\$@\"\n"
                 )
+                // Generic Android URL bridge for any CLI tool:
+                //   adev-open-url https://example.com
+                writeScript(
+                    "adev-open-url",
+                    "#!/system/bin/sh\nexec \"${xdgOpen.absolutePath}\" \"\$@\"\n"
+                )
+                // Browser-opening libraries (Go's $BROWSER handling, xdg-open
+                // lookups) fork/exec these names directly. Scripts on the
+                // noexec data directory fail EACCES for them, so both names
+                // also exist as exec-safe symlinks to the ELF in the shim
+                // directory that leads PATH.
+                adevEnv.shimDir.mkdirs()
+                adevEnv.shimDir.setWritable(true, false)
+                listOf("adev-open-url", "xdg-open").forEach { name ->
+                    try {
+                        val link = File(adevEnv.shimDir, name)
+                        if (link.exists() || isSymlink(link)) link.delete()
+                        Os.symlink(xdgOpen.absolutePath, link.absolutePath)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "$name url-opener shim failed: ${e.message}")
+                    }
+                }
+            }
+            if (secretCli.isFile) {
+                // Generic secure secret store for CLI tools:
+                //   printf '%s' "$TOKEN" | adev-secret set gh:token
+                //   adev-secret get gh:token
+                writeScript(
+                    "adev-secret",
+                    "#!/system/bin/sh\nexec \"${secretCli.absolutePath}\" \"\$@\"\n"
+                )
+                adevEnv.shimDir.mkdirs()
+                adevEnv.shimDir.setWritable(true, false)
+                try {
+                    val link = File(adevEnv.shimDir, "adev-secret")
+                    if (link.exists() || isSymlink(link)) link.delete()
+                    Os.symlink(secretCli.absolutePath, link.absolutePath)
+                } catch (e: Exception) {
+                    Log.w(TAG, "adev-secret shim failed: ${e.message}")
+                }
             }
 
             // netstat/ss/lsof: Android 10+ hides /proc/net from apps (SELinux),
@@ -1687,11 +1752,16 @@ adev_guard() {
                 } catch (_: Exception) {
                     continue
                 }
-                val basePrefix = "/data/data/com.termux/files"
-                if (!original.contains(packagedPrefix) && !original.contains(basePrefix)) continue
+                // Detect-and-repair only: both stale prefixes mark packaged
+                // files needing retarget; neither is ever an install default.
+                if (!original.contains(packagedPrefix) &&
+                    !original.contains("/data/data/com.termux/files")
+                ) continue
                 var updated = original
                 if (original.contains(packagedPrefix)) updated = updated.replace(packagedPrefix, runtimeRoot.absolutePath)
-                if (original.contains(basePrefix)) updated = updated.replace(basePrefix, runtimeRoot.absolutePath)
+                if (original.contains("/data/data/com.termux/files")) {
+                    updated = updated.replace("/data/data/com.termux/files", runtimeRoot.absolutePath)
+                }
                 target.writeText(updated)
                 rewritten++
             }
@@ -1831,7 +1901,9 @@ adev_guard() {
 
                 ## Frontend / backend (essentials)
                 Env is set for device servers:
-                  HOST=0.0.0.0  BROWSER=none
+                  HOST=0.0.0.0  BROWSER=adev-open-url
+                (dev servers do not auto-open; CLIs that open links — gh, Go
+                tools honoring BROWSER — launch the Android browser instead)
 
                 Seed projects (created once under workspaces/):
                   demo-web   Vite frontend   → npm install && npm run dev  (port 5173)
@@ -2423,6 +2495,9 @@ adev_guard() {
             "nano" to File(nativeLibDir, "libbin_nano.so").isFile,
             "rg" to File(nativeLibDir, "libbin_rg.so").isFile,
             "xdg-open" to File(nativeLibDir, "libbin_adev_xdg_open.so").isFile,
+            "adev-open-url" to File(nativeLibDir, "libbin_adev_xdg_open.so").isFile,
+            "foreign-git-exec" to File(nativeLibDir, "libbin_adev_git_launcher.so").isFile,
+            "secret-cli" to File(nativeLibDir, "libbin_adev_secret.so").isFile,
             "busybox" to (
                 File(nativeLibDir, "libbin_busybox.so").isFile &&
                     File(nativeLibDir, "libbin_adev_busybox.so").isFile
@@ -2620,6 +2695,8 @@ adev_guard() {
                 File(nativeLibDir, "libbin_adev_xdg_open.so").absolutePath,
             "ADEV_OPENCODE_XDG_OPEN" to
                 File(nativeLibDir, "libbin_adev_xdg_open.so").absolutePath,
+            "ADEV_GIT_LAUNCHER" to File(nativeLibDir, "libbin_adev_git_launcher.so").absolutePath,
+            "ADEV_SECRET_CLI" to File(nativeLibDir, "libbin_adev_secret.so").absolutePath,
             "ADEV_RUNTIME_VERSION" to CURRENT_RUNTIME_VERSION,
             "ADEV_APP_VERSION" to appVersionName(),
             "ADEV_ABI" to (Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"),
@@ -2640,8 +2717,10 @@ adev_guard() {
             // Next.js reads HOSTNAME for bind *and* printed URLs. 0.0.0.0 is
             // not a valid URL in Android Chrome.
             "HOSTNAME" to "127.0.0.1",
-            // Don't try to open a desktop browser from the CLI.
-            "BROWSER" to "none",
+            // Generic Android URL bridge: ACTION_VIEW through the app's
+            // authenticated broker. Foreign CLIs discover it the standard way
+            // — $BROWSER for GitHub CLI / Go programs, xdg-open for the rest.
+            "BROWSER" to "adev-open-url",
             // npm progress is NOT forced off: on a real PTY (terminal) the
             // spinner/reify bar animates; npm disables progress on non-TTY
             // streams itself, so piped/agent runs stay quiet automatically.

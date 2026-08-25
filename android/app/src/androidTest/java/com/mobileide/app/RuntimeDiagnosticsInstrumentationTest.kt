@@ -16,10 +16,12 @@ import java.util.concurrent.TimeUnit
  * Device-side developer diagnostics.
  *
  * This class lives in the androidTest source set, so it is never part of the
- * shipped application package. It runs a shell script that a developer staged
- * in the app's *external* files directory (`adb push`-able, app-readable) with
+ * shipped application package. It runs a shell script supplied either inside
+ * the instrumentation bundle (`-e adevDiagnosticScript`, preferred — scoped
+ * storage makes adb-pushed files unreadable for the app on Android 11+) or
+ * staged in the app's *external* files directory (`adb push`-able) with
  * exactly the environment [RuntimeManager.getEnvironment] hands to every other
- * ADEV process, then writes the transcript back to the same directory.
+ * ADEV process, then writes the transcript back to that directory.
  *
  * The point is to exercise the real runtime contract — the same env, the same
  * shell, the same PATH — instead of an approximation assembled by the test.
@@ -48,14 +50,34 @@ class RuntimeDiagnosticsInstrumentationTest {
         val manager = RuntimeManager(context)
         if (!manager.isRuntimeReady()) manager.initializeRuntime()
 
-        val directory = diagnosticsDir()
-        val script = File(directory, "$name.sh")
-        assertTrue("Diagnostic script is missing: $script", script.isFile)
+        // Preferred transport: the script arrives inside the instrumentation
+        // bundle (`-e adevDiagnosticScript <text>` or its Base64 form
+        // `adevDiagnosticScriptB64`, preferred — scoped storage makes
+        // adb-pushed files unreadable for the app on Android 11+). The staged
+        // file route stays available for devices where it works.
+        val inlineBase64 = arguments.getString("adevDiagnosticScriptB64") ?: ""
+        val inlineScript = when {
+            inlineBase64.isNotEmpty() -> String(
+                android.util.Base64.decode(inlineBase64, android.util.Base64.DEFAULT),
+                Charsets.UTF_8
+            )
+            else -> arguments.getString("adevDiagnosticScript") ?: ""
+        }
+        assumeTrue("Inline diagnostic exceeds 256 KiB", inlineScript.length <= 256 * 1024)
+        var source: String? = null
+        if (inlineScript.isNotEmpty()) {
+            source = inlineScript
+        } else {
+            val directory = diagnosticsDir()
+            val script = File(directory, "$name.sh")
+            assertTrue("Diagnostic script is missing: $script", script.isFile)
+            source = script.readText()
+        }
 
         // filesDir is noexec; copy the staged script somewhere the runtime shell
         // can read it and pass it as an argument rather than exec'ing it.
         val staged = File(manager.getTmpDir(), "adev-diagnostic-$name.sh")
-        staged.writeText(script.readText())
+        staged.writeText(source)
 
         val workspace = File(manager.getWorkspacesDir()).apply { mkdirs() }
         val shellCandidates = listOf(
@@ -95,7 +117,7 @@ class RuntimeDiagnosticsInstrumentationTest {
         }
         transcript.appendLine()
         transcript.appendLine("adev-diagnostic-exit: $exitCode")
-        File(directory, "$name.out").writeText(transcript.toString())
+        File(diagnosticsDir(), "$name.out").writeText(transcript.toString())
         Log.i("AdevDiagnostic", "$name exited $exitCode")
         assertTrue("Diagnostic script $name exited $exitCode", exitCode == 0)
     }

@@ -54,7 +54,18 @@ $PREFIX/cache/, $PREFIX/tmp/
   corepack-style package managers under `$PREFIX/lib/package-managers/`
   (pnpm, yarn).
 - Python 3 incl. subprocesses, pip against real TLS.
-- git clone/push over HTTPS (bundled remote-https helper).
+- git clone/push over HTTPS (bundled remote-https helper). Foreign CLIs that
+  spawn git themselves (GitHub CLI, Go binaries) resolve an exec-safe launcher
+  with the same workspace guard — `fork/exec … bin/git: permission denied`
+  should not happen anymore; report it if it does.
+- Opening http(s) links from any CLI: `adev-open-url https://…` (or
+  `xdg-open`) launches the Android browser. `$BROWSER=adev-open-url` is
+  exported, so GitHub CLI / Go programs discover it without configuration.
+- Secure secret storage for any tool: `printf '%s' "$TOKEN" | adev-secret set
+  gh/token`, then `adev-secret get gh/token`; also `adev-secret list` /
+  `delete`. Values are AES/GCM-sealed under AndroidKeyStore inside the app and
+  travel over stdin + loopback only — never argv, history, or dotfiles. Git's
+  own credentials use the same Keystore-backed helper automatically.
 - Native addon builds ON DEVICE: node-gyp + clang + make + sysroot
   (N-API C/C++ and V8 addons compile, link, load).
 - Dev servers: Vite, Next 13/14/15 (`dev/build/start`), Express — concurrent,

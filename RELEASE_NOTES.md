@@ -1,10 +1,23 @@
+# A Dev Studio 1.3.28
+
+This phone-test beta adds the generic CLI platform bridges that GitHub CLI and future tools (Codex, Grok, OpenCode) need: opening links through Android, secure credential storage, and exec-safe Git for foreign processes.
+
+## New in 1.3.28
+
+- **`adev-open-url` â€” generic ACTION_VIEW bridge.** Any CLI can now open http(s) links in the Android browser: `adev-open-url https://github.com/login/device`. The same ELF also answers as `xdg-open`, and the environment exports `BROWSER=adev-open-url`, so browser-opening libraries discover it the standard way. This fixes GitHub CLI device login failing with `exec: "none": executable file not found in $PATH` (ADEV previously exported `BROWSER=none`; `gh` tried to execute that string). Both names exist as exec-safe symlinks in `bin/adev-shims/` so static binaries that fork/exec PATH entries work without a shell.
+- **Secure credentials for any CLI.** New `adev-secret` command backed by an AndroidKeyStore AES/GCM vault inside the app: `printf '%s' "$TOKEN" | adev-secret set gh/token`, then `adev-secret get gh/token` (also `list`/`delete`). Values travel over stdin + a session-authenticated loopback broker only - never argv, shell history, or dotfiles. Git keeps using its existing Keystore-backed credential helper (wired via `credential.helper`), which is what keeps tokens out of remote URLs when `gh` drives git.
+- **Foreign CLIs can spawn ADEV Git again.** GitHub CLI's internal git calls died with `fork/exec .../runtime/bin/git: permission denied`: static Go binaries exec a PATH entry directly, and the old `bin/git` shell trampoline lives on Android's noexec storage. A new APK-native launcher (`libbin_adev_git_launcher.so`, symlinked as `bin/adev-shims/git`) now leads PATH resolution: it applies the same shared-storage workspace guard as interactive shells, restores the runtime contract if the parent lost it, and execs the bundled Git ELF in place. The `bin/git` trampoline and shell functions remain for explicit-path callers.
+- Honest limits: GitHub CLI still stores *its own* config token in `$XDG_CONFIG_HOME/gh/hosts.yml` plaintext because upstream `gh` has no keyring backend on this platform; that file lives in app-private storage. Use `adev-secret` + `GH_TOKEN=$(adev-secret get gh/token)` if you want the token out of there.
+
+## Previous beta: 1.3.27
+
 # A Dev Studio 1.3.27
 
 This phone-test beta makes long installs visible again and turns the Android port-permission dead end into working tooling.
 
 ## Fixed in 1.3.27
 
-- **npm install animates again.** The environment contract forced NPM_CONFIG_PROGRESS=false, which disabled npm's spinner everywhere — including real terminals, so 
+- **npm install animates again.** The environment contract forced NPM_CONFIG_PROGRESS=false, which disabled npm's spinner everywhere ï¿½ including real terminals, so 
 pm install looked dead for minutes. The override is gone: npm now shows its spinner/reify progress on any TTY and keeps piped (agent/background) runs quiet automatically.
 - **
 etstat / ss / lsof work on Android 10+.** These commands always died with Permission denied because SELinux hides /proc/net from apps on every version since 10. They are now A Dev Studio shims that render the verified task-port registry ($PREFIX/tmp/adev-ports.json, mirrored by TaskRegistry on every change): listening servers started inside the app, with PID/task columns; lsof -i :PORT filters and -t prints kill-ready PIDs. Installed into in/adev-shims/ so they win over the broken toybox variants.

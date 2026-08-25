@@ -58,8 +58,24 @@ bool write_all(int descriptor, const std::string& payload) {
     return true;
 }
 
+/*
+ * The same ELF serves several command names (xdg-open for Unix conventions,
+ * adev-open-url as the explicit generic bridge). Report under whichever name
+ * the caller used.
+ */
+std::string program_name() {
+    char buffer[4096];
+    const ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (length <= 0) return "adev-open-url";
+    buffer[length] = '\0';
+    std::string path(buffer);
+    const auto separator = path.find_last_of('/');
+    return separator == std::string::npos ? path : path.substr(separator + 1);
+}
+
 int unavailable(const char* message) {
-    std::fprintf(stderr, "xdg-open: %s\n", message);
+    const std::string name = program_name();
+    std::fprintf(stderr, "%s: %s\n", name.c_str(), message);
     return 69;
 }
 
@@ -124,17 +140,41 @@ bool read_capability(
     return true;
 }
 
+/*
+ * Extract a simple JSON string value ("key":"value") from a broker response
+ * so rejections reach the user with their actual reason.
+ */
+bool response_error(const std::string& response, std::string* out) {
+    const std::string needle = "\"error\":\"";
+    const size_t start = response.find(needle);
+    if (start == std::string::npos) return false;
+    size_t cursor = start + needle.size();
+    while (cursor < response.size()) {
+        char ch = response[cursor++];
+        if (ch == '"') {
+            *out = response.substr(
+                start + needle.size(), cursor - 1 - (start + needle.size())
+            );
+            return true;
+        }
+        if (ch == '\\' && cursor < response.size()) cursor++;
+    }
+    return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    const std::string usage = "usage: " + program_name() +
+        " [--capability-file <private-file>] <http-or-https-url>";
     if (argc == 2 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
-        std::puts("usage: xdg-open [--capability-file <private-file>] <http-or-https-url>");
+        std::puts(usage.c_str());
         return 0;
     }
     const bool uses_capability_file = argc == 4 && std::strcmp(argv[1], "--capability-file") == 0;
     const char* url = uses_capability_file ? argv[3] : (argc == 2 ? argv[1] : nullptr);
     if (url == nullptr || url[0] == '\0' || std::strlen(url) > kMaxUrlBytes) {
-        std::fprintf(stderr, "usage: xdg-open [--capability-file <private-file>] <http-or-https-url>\n");
+        std::fprintf(stderr, "%s\n", usage.c_str());
         return 64;
     }
 
@@ -198,6 +238,11 @@ int main(int argc, char** argv) {
         return unavailable("the Android URL broker response was too large");
     }
     if (response.find("\"ok\":true") != std::string::npos) return 0;
-    std::fprintf(stderr, "xdg-open: Android rejected the URL request\n");
+    std::string error;
+    if (response_error(response, &error) && !error.empty()) {
+        std::fprintf(stderr, "%s: %s\n", program_name().c_str(), error.c_str());
+        return 1;
+    }
+    std::fprintf(stderr, "%s: Android rejected the URL request\n", program_name().c_str());
     return 1;
 }

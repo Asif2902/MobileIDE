@@ -3,6 +3,7 @@ package com.mobileide.app.git
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -16,6 +17,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
+import com.mobileide.app.security.CliSecretVault
 
 class GitCredentialBroker private constructor(context: Context) {
     companion object {
@@ -32,6 +35,7 @@ class GitCredentialBroker private constructor(context: Context) {
     }
 
     private val store = GitCredentialStore(context)
+    private val vault = CliSecretVault.get(context)
     private val sessionBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
     private val session = Base64.encodeToString(
         sessionBytes,
@@ -150,6 +154,28 @@ class GitCredentialBroker private constructor(context: Context) {
             }
             "cleanup-ssh" -> JSONObject()
                 .put("ok", store.cleanupSsh(input.optString("lease")))
+            // Generic vault for CLI tools beyond Git. Same authenticated
+            // loopback and session rule; values never enter logs or argv.
+            // Validation failures throw IllegalArgumentException, which the
+            // connection handler reports as {"ok":false,"error":…}.
+            "secret-get" -> {
+                val value = vault.get(CliSecretVault.requireValidKey(input.optString("key")))
+                JSONObject().put("ok", value != null).apply {
+                    if (value != null) put("value", value)
+                    else put("error", "Secret not found")
+                }
+            }
+            "secret-set" -> JSONObject().put(
+                "ok",
+                vault.put(input.optString("key"), input.optString("value"))
+            )
+            "secret-delete" -> JSONObject().put(
+                "ok",
+                vault.delete(input.optString("key"))
+            )
+            "secret-list" -> JSONObject()
+                .put("ok", true)
+                .put("keys", JSONArray(vault.listKeys()))
             else -> JSONObject().put("ok", false).put("error", "Unsupported broker action")
         }
     }

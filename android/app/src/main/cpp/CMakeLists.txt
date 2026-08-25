@@ -218,6 +218,51 @@ set_target_properties(adev_git_credential PROPERTIES
     SUFFIX ".so"
 )
 
+# APK-native Git entrypoint for foreign processes (GitHub CLI, Go programs).
+# Resolves PATH lookups of `git` to an exec-safe ELF that applies the shared
+# storage workspace guard and then execs the bundled libbin_git.so in place.
+add_executable(adev_git_launcher adev_git_launcher.cpp adev_runtime_env.c)
+
+target_link_options(adev_git_launcher PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_git_launcher PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_git_launcher PRIVATE NDEBUG)
+
+set_target_properties(adev_git_launcher PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_git_launcher"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+# Generic secure secret CLI for any CLI tool. Thin client of the app's
+# authenticated loopback vault broker; values travel via stdin, never argv.
+add_executable(adev_secret_cli adev_secret_cli.cpp)
+
+target_link_options(adev_secret_cli PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+
+target_compile_options(adev_secret_cli PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_secret_cli PRIVATE NDEBUG)
+
+set_target_properties(adev_secret_cli PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_secret"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Android xdg-open bridge. The CLI connects to an authenticated loopback
 # broker in the app process; that broker performs the validated ACTION_VIEW.
 add_executable(adev_xdg_open adev_xdg_open.cpp)
