@@ -285,7 +285,9 @@ class RuntimeManager(private val context: Context) {
                 NATIVE_MAP_FILE,
                 "runtime-lock.json",
                 "lib/adev-node-preload.js",
-                "lib/adev-child-process-compat.js"
+                "lib/adev-child-process-compat.js",
+                // Agent-facing guide: refresh extracted copy whenever edited.
+                "share/adev/SKILL.md"
             ).forEach { relativePath ->
                 digest.update(relativePath.toByteArray(Charsets.UTF_8))
                 context.assets.open("$RUNTIME_DIR/$relativePath").use { stream ->
@@ -328,6 +330,12 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Creating directories...", 0.05f)
         createDirectoryStructure()
         restoreBinWritability()
+
+        // Mirror verified task ports to a file the netstat/ss/lsof trampolines
+        // render — Android 10+ hides /proc/net from apps, so shell tools cannot
+        // enumerate sockets from the kernel.
+        com.mobileide.app.process.TaskRegistry.portSnapshotFile =
+            File(runtimeRoot, "tmp/adev-ports.json")
 
         onProgress?.invoke("Extracting runtime files...", 0.1f)
         extractRuntimeAssets(onProgress)
@@ -1357,6 +1365,30 @@ adev_guard() {
                     "xdg-open",
                     "#!/system/bin/sh\nexec \"${xdgOpen.absolutePath}\" \"\$@\"\n"
                 )
+            }
+
+            // netstat/ss/lsof: Android 10+ hides /proc/net from apps (SELinux),
+            // so busybox/toybox variants always die with EACCES. Render the
+            // TaskRegistry snapshot of app-owned listening servers instead —
+            // same command names, honest output, no permission errors.
+            val portsCli = File(libDir, "adev-ports-cli.js")
+            if (node.exists() && portsCli.isFile) {
+                adevEnv.shimDir.mkdirs()
+                listOf("netstat", "ss", "lsof").forEach { tool ->
+                    val body = "#!/system/bin/sh\nexec \"${node.absolutePath}\" " +
+                        "\"${portsCli.absolutePath}\" $tool \"\$@\"\n"
+                    writeScript(tool, body)
+                    // Also ahead of /system/bin: toybox ships broken variants
+                    // there and runtime/bin comes AFTER /system/bin in PATH.
+                    try {
+                        val shim = File(adevEnv.shimDir, tool)
+                        if (shim.exists()) shim.delete()
+                        shim.writeText(body)
+                        Os.chmod(shim.absolutePath, 0b111101101)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "$tool shim failed: ${e.message}")
+                    }
+                }
             }
 
             Log.i(TAG, "PATH trampolines written under ${binDir.absolutePath}")
@@ -2610,10 +2642,10 @@ adev_guard() {
             "HOSTNAME" to "127.0.0.1",
             // Don't try to open a desktop browser from the CLI.
             "BROWSER" to "none",
-            // Keep npm progress bounded without falsifying TTY/CI behavior.
-            "NPM_CONFIG_PROGRESS" to "false",
+            // npm progress is NOT forced off: on a real PTY (terminal) the
+            // spinner/reify bar animates; npm disables progress on non-TTY
+            // streams itself, so piped/agent runs stay quiet automatically.
             "NPM_CONFIG_LOGLEVEL" to "warn",
-            "npm_config_progress" to "false",
             "npm_config_loglevel" to "warn",
             // Vite / webpack friendliness
             "VITE_CJS_IGNORE_WARNING" to "true"

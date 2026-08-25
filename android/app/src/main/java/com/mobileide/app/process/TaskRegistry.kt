@@ -131,6 +131,14 @@ class TaskRegistry private constructor() {
 
         @Volatile private var instance: TaskRegistry? = null
 
+        /**
+         * When set (RuntimeManager does this during init), every port change is
+         * mirrored to this JSON file so the netstat/ss/lsof trampolines can
+         * report app-owned listening servers — Android 10+ hides /proc/net from
+         * apps, so shell tools cannot read kernel tables directly.
+         */
+        @Volatile var portSnapshotFile: java.io.File? = null
+
         fun shared(): TaskRegistry =
             instance ?: synchronized(this) {
                 instance ?: TaskRegistry().also { instance = it }
@@ -478,12 +486,43 @@ class TaskRegistry private constructor() {
 
     private fun notifyPorts() {
         val snapshot = getActivePorts()
+        writeSnapshotFile(snapshot)
         portListeners.forEach { listener ->
             try {
                 listener(snapshot)
             } catch (error: Exception) {
                 Log.w(TAG, "Port listener failed: ${error.message}")
             }
+        }
+    }
+
+    private fun writeSnapshotFile(ports: List<VerifiedPort>) {
+        val target = portSnapshotFile ?: return
+        try {
+            val payload = JSONObject()
+            payload.put("updatedAt", System.currentTimeMillis())
+            val array = org.json.JSONArray()
+            ports.forEach { port ->
+                val entry = JSONObject()
+                entry.put("port", port.port)
+                entry.put("pid", port.pid)
+                entry.put("processGroupId", port.processGroupId)
+                entry.put("taskId", port.taskId)
+                entry.put("url", port.url)
+                entry.put("source", port.source)
+                array.put(entry)
+            }
+            payload.put("ports", array)
+            target.parentFile?.mkdirs()
+            val tmp = File(target.parentFile, target.name + ".tmp")
+            tmp.writeText(payload.toString())
+            if (!tmp.renameTo(target)) {
+                tmp.delete()
+                // Rename can fail across odd filesystems; fall back to direct.
+                target.writeText(payload.toString())
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Port snapshot write failed: ${error.message}")
         }
     }
 }

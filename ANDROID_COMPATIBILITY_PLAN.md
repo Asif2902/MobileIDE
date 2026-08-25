@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-24
-Application: A Dev Studio 1.3.26 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.17.5
+Application: A Dev Studio 1.3.27 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.17.6
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -47,6 +47,9 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | OpenCode subprocess contract | **ARM64 API 30 VERIFIED â€” 22/22 OFFLINE / 23/23 NETWORK** | `aaf2dcb` + `9bae918` | The final raw-child gap was an ELF ABI mismatch: packaged Node imports `execve@LIBC`/`execvp@LIBC`, while the preload resolver exported unversioned symbols, so Android bound Node directly to Bionic and writable shebang/npm paths failed with EACCES. The resolver now exports `execve@@LIBC`/`execvp@@LIBC` for both ABIs and retains one bounded, loop-detecting recursive shebang implementation. The exact suite runs after the OpenCode launcher assembles `tagfix:opencode-compat:exec-compat:termux` and passes standard Node/Python/Bash shebangs, script-to-script argument preservation, ELOOP/ENOEXEC errors, direct `npm --version`/`root -g`/`prefix -g`, `npx --version`, Python shell, NODE_OPTIONS, and TLS. ARM64 API 30 instrumentation passes 22/22 offline and 23/23 with verified Python+Node HTTPS; x86_64/API matrix execution remains a release gate. |
 
 | OpenCode shell broker | **VERIFIED — 1.3.26** | `f9a358f` + `db2f90e` | `bash` (`core`) and `shell` (`opencode`, id `bash`) now always route through `libbin_adev_env.so --adev-opencode-shell-v1`; the broker restores the signed `adev-env.conf` contract (PATH/LD_PRELOAD/PREFIX/...) inside the APK-native executable before `execv("/system/bin/sh", ["-c", command])`, so `debug agent build --tool bash` with sanitized `PATH=/product/bin...` now yields the full ADEV `PATH`/`LD_PRELOAD`/`PREFIX` and `adev-runtime-env-test` 22/22 / 23/23. `opencode-device-runtime-probe.sh` passes on Infinix; `include/*.h` retarget now covers base `/data/data/com.termux/files`. |
+
+| Terminal port tooling (npm spinner, netstat/ss/lsof, agent guide) | **ARM64 API 30 VERIFIED — 1.3.27** | 	his release | The env contract no longer forces NPM_CONFIG_PROGRESS=false, so npm's spinner animates on real PTYs while piped agent runs stay quiet. Android 10+ SELinux hides /proc/net from apps forever; 
+etstat/ss/lsof are now ADEV shims in in/adev-shims/ rendering the TaskRegistry snapshot ($PREFIX/tmp/adev-ports.json) of app-owned listening servers with PID/task columns and lsof -i :PORT / -t filtering. TaskRegistry mirrors verified ports on every change; new TaskRegistryPortsTest proves event ? probe ? publish ? snapshot ? unpublish without /proc/net. Agent-facing $PREFIX/share/adev/SKILL.md ships the environment contract, platform truths, and self-checks. Device: shims resolve ahead of toybox, tables exit 0, suite stays 22/22 offline / 23/23 network (Infinix X689B). |
 
 
 ## Executive result

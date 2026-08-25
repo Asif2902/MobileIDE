@@ -1,3 +1,17 @@
+# A Dev Studio 1.3.27
+
+This phone-test beta makes long installs visible again and turns the Android port-permission dead end into working tooling.
+
+## Fixed in 1.3.27
+
+- **npm install animates again.** The environment contract forced NPM_CONFIG_PROGRESS=false, which disabled npm's spinner everywhere — including real terminals, so 
+pm install looked dead for minutes. The override is gone: npm now shows its spinner/reify progress on any TTY and keeps piped (agent/background) runs quiet automatically.
+- **
+etstat / ss / lsof work on Android 10+.** These commands always died with Permission denied because SELinux hides /proc/net from apps on every version since 10. They are now A Dev Studio shims that render the verified task-port registry ($PREFIX/tmp/adev-ports.json, mirrored by TaskRegistry on every change): listening servers started inside the app, with PID/task columns; lsof -i :PORT filters and -t prints kill-ready PIDs. Installed into in/adev-shims/ so they win over the broken toybox variants.
+- **Agent environment guide shipped** at $PREFIX/share/adev/SKILL.md: layout, hard platform truths (noexec, single env contract, /proc/net block), what works, what is impossible, and self-check commands. Refreshed automatically on upgrade via the runtime content fingerprint.
+- Regression-tested on device: new TaskRegistryPortsTest proves listen-event ? loopback probe ? published port ? snapshot ? unpublish without /proc/net; contract suite stays 22/22 offline / 23/23 network on Infinix X689B.
+
+## Previous beta: 1.3.26
 # A Dev Studio 1.3.26
 
 This phone-test beta fixes the last OpenCode tool failure: the `bash`/`shell` tools' Bun fast path that sanitized the child environment, and the one remaining sysroot retarget.
