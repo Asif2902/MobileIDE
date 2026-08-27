@@ -1,3 +1,13 @@
+# A Dev Studio 1.3.31
+
+This beta upgrades the bundled Android-native OpenCode runtime itself from 1.17.9 to upstream 1.18.23.
+
+- OpenCode is rebuilt from exact upstream commit `ef2880f379129aa048be9e9353e30aa168d42c17` as an ARM64 Android/Bionic PIE; no glibc or musl executable is substituted.
+- OpenTUI is upgraded in lockstep to 0.4.5 and rebuilt from exact commit `0c8c4f7cff2927e3df63a9757a45eff9a343611c` against NDK r29. The exported native API matches all 342 symbols required by OpenCode 1.18.23.
+- The existing ADEV Android compatibility contract remains applied: private temp paths, native shell broker, sibling ripgrep, Android URL opening, disabled unsafe desktop plugin installs, and external Bionic renderer selection.
+- The source patches, builder transformation, payload hashes, AArch64 ABI, Android linker, PIE flags, dependency closure, and 16 KiB-or-greater ELF alignment are pinned and host-verified.
+- OpenCode's upstream spinner registration is retained; the older ADEV-only spinner injection is no longer needed.
+
 # A Dev Studio 1.3.30
 
 This phone-test build improves perceived performance and replaces OpenCode's unsafe desktop self-update path with an ADEV-managed Android compatibility layer.

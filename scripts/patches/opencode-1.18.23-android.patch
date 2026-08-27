@@ -1,0 +1,318 @@
+diff --git a/packages/core/src/filesystem/fff.bun.ts b/packages/core/src/filesystem/fff.bun.ts
+index 9843419..34285cc 100644
+--- a/packages/core/src/filesystem/fff.bun.ts
++++ b/packages/core/src/filesystem/fff.bun.ts
+@@ -1,5 +1,4 @@
+ import {
+-  FileFinder,
+   type DirItem,
+   type DirSearchResult,
+   type FileItem,
+@@ -30,7 +29,6 @@ export interface Search {
+ export interface DirSearch {
+   items: DirItem[]
+   scores: DirSearchResult["scores"]
+-  totalMatched: number
+   totalDirs: number
+ }
+ 
+@@ -52,7 +50,6 @@ export interface Grep {
+   items: GrepResult["items"]
+   totalMatched: number
+   totalFilesSearched: number
+-  totalFiles: number
+   filteredFileCount: number
+   nextCursor: Cursor
+   regexFallbackError?: string
+@@ -111,12 +108,40 @@ export interface Picker {
+   getHistoricalQuery(offset: number): Result<string | null>
+ }
+ 
++// ADEV Android: @ff-labs/fff-bun resolves its glibc/musl binding through
++// Bun's standalone-import.meta helpers, which are undefined for modules in
++// the TUI worker graph — evaluating the package eagerly crashed every TUI
++// boot before any flag could disable it. Load it lazily instead; when the
++// binding cannot load (Android/Bionic), callers degrade to the ripgrep path.
++type FffModule = typeof import("@ff-labs/fff-bun")
++
++let loaded: FffModule | undefined
++let loadFailed = false
++
++function loadModule(): FffModule | null {
++  if (loaded) return loaded
++  if (loadFailed) return null
++  try {
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    loaded = require("@ff-labs/fff-bun") as FffModule
++    return loaded
++  } catch {
++    loadFailed = true
++    return null
++  }
++}
++
+ export function available() {
+-  return FileFinder.isAvailable()
++  const mod = loadModule()
++  return mod ? mod.FileFinder.isAvailable() : false
+ }
+ 
+ export function create(opts: Init): Result<Picker> {
+-  const made = FileFinder.create(opts)
++  const mod = loadModule()
++  if (!mod) {
++    return { ok: false, error: "fff-bun is unavailable on this platform" }
++  }
++  const made = mod.FileFinder.create(opts)
+   if (!made.ok) return made
+   const pick = made.value
+   return {
+diff --git a/packages/core/src/global.ts b/packages/core/src/global.ts
+index a192a4b..fe5619f 100644
+--- a/packages/core/src/global.ts
++++ b/packages/core/src/global.ts
+@@ -12,7 +12,10 @@ const data = path.join(xdgData!, app)
+ const cache = path.join(xdgCache!, app)
+ const config = path.join(xdgConfig!, app)
+ const state = path.join(xdgState!, app)
+-const tmp = path.join(os.tmpdir(), app)
++// This source tree is used only to produce the Android/Bionic standalone
++// module graph. XDG_CACHE_HOME is supplied by ADEV's native launcher and is
++// app-private, whereas Android's root filesystem has no writable /tmp.
++const tmp = path.join(cache, "tmp")
+ 
+ const paths = {
+   get home() {
+diff --git a/packages/core/src/ripgrep/binary.ts b/packages/core/src/ripgrep/binary.ts
+index 762a8e6..87f3d89 100644
+--- a/packages/core/src/ripgrep/binary.ts
++++ b/packages/core/src/ripgrep/binary.ts
+@@ -91,6 +91,20 @@ export namespace RipgrepBinary {
+       return Service.of({
+         filepath: yield* Effect.cached(
+           Effect.gen(function* () {
++            // This graph is built only for ADEV's Android payload. Resolve the
++            // bundled Bionic ripgrep beside the current executable first so a
++            // stale desktop cache can never win even if Bun snapshots process.env.
++            const sibling = path.join(path.dirname(process.execPath), "libbin_rg.so")
++            const android = (yield* fs.isFile(sibling).pipe(Effect.orDie))
++              ? sibling
++              : (Bun.env.ADEV_OPENCODE_RG ?? process.env.ADEV_OPENCODE_RG)
++            if (android) {
++              if (!path.isAbsolute(android) || !(yield* fs.isFile(android).pipe(Effect.orDie))) {
++                throw new Error(`ADEV_OPENCODE_RG is not a valid absolute ripgrep path: ${android}`)
++              }
++              return android
++            }
++
+             const system = yield* Effect.sync(() => which(process.platform === "win32" ? "rg.exe" : "rg"))
+             if (system && (yield* fs.isFile(system).pipe(Effect.orDie))) return system
+ 
+diff --git a/packages/core/src/tool/bash.ts b/packages/core/src/tool/bash.ts
+index 2242376..b299e08 100644
+--- a/packages/core/src/tool/bash.ts
++++ b/packages/core/src/tool/bash.ts
+@@ -155,9 +155,13 @@ const layer = Layer.effectDiscard(
+               const shell =
+                 Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
+                   .shell ?? defaultShell()
+-              const command = ChildProcess.make(input.command, [], {
++              // This graph is built only for ADEV Android. Always route through
++              // the APK-native broker so the sanitized Bun child environment
++              // gains the signed ADEV contract before the shell sees the command.
++              // Affected Bun builds omit custom variables from process.env.
++              const broker = path.join(path.dirname(process.execPath), "libbin_adev_env.so")
++              const command = ChildProcess.make(broker, ["--adev-opencode-shell-v1", "--", input.command], {
+                 cwd: target.canonical,
+-                shell,
+                 stdin: "ignore",
+                 detached: process.platform !== "win32",
+                 forceKillAfter: Duration.seconds(3),
+diff --git a/packages/opencode/src/cli/cmd/tui.ts b/packages/opencode/src/cli/cmd/tui.ts
+index 95ffac7..2614b06 100644
+--- a/packages/opencode/src/cli/cmd/tui.ts
++++ b/packages/opencode/src/cli/cmd/tui.ts
+@@ -294,7 +294,15 @@ export const TuiThreadCommand = cmd({
+               auto: args.auto || args.yolo || args["dangerously-skip-permissions"],
+             },
+           }),
+-        )
++        ).catch((error) => {
++          // ADEV Android: surface the real failure instead of the bare
++          // "Unexpected error" wrapper so boot faults are diagnosable.
++          console.error(
++            "ADEV_TUI_BOOT_FAIL",
++            error instanceof Error ? (error.stack ?? error.message) : String(error),
++          )
++          throw error
++        })
+       } finally {
+         await stop()
+       }
+diff --git a/packages/opencode/src/cli/cmd/web.ts b/packages/opencode/src/cli/cmd/web.ts
+index 69a981a..55cf9f3 100644
+--- a/packages/opencode/src/cli/cmd/web.ts
++++ b/packages/opencode/src/cli/cmd/web.ts
+@@ -3,8 +3,28 @@ import { UI } from "../ui"
+ import { effectCmd } from "../effect-cmd"
+ import { withNetworkOptions, resolveNetworkOptions } from "../network"
+ import { Flag } from "@opencode-ai/core/flag/flag"
+-import open from "open"
+ import { networkInterfaces } from "os"
++import path from "path"
++
++async function openBrowser(url: string) {
++  // This module graph is Android-only: enter the verified APK-native helper
++  // directly. Bun.file().exists() is unreliable for extracted APK libraries
++  // on some Android releases and must not trigger a desktop xdg-open fallback.
++  const sibling = path.join(path.dirname(process.execPath), "libbin_adev_xdg_open.so")
++  const home = process.env.HOME
++  if (!home) throw new Error("Android browser bridge requires HOME")
++  // Pass only the path to an owner-only app-private capability file. Some Bun
++  // standalone builds omit inherited environment entries in native children;
++  // putting the rotating session token in argv would expose it unnecessarily.
++  const capability = path.join(home, ".adev-url-opener-v1")
++  const child = Bun.spawn([sibling, "--capability-file", capability, url], {
++    stdin: "ignore",
++    stdout: "ignore",
++    stderr: "inherit",
++  })
++  const code = await child.exited
++  if (code !== 0) throw new Error(`Android browser bridge exited with code ${code}`)
++}
+ 
+ function getNetworkIPs() {
+   const nets = networkInterfaces()
+@@ -72,11 +92,11 @@ export const WebCommand = effectCmd({
+       }
+ 
+       // Open localhost in browser
+-      open(localhostUrl).catch(() => {})
++      openBrowser(localhostUrl).catch(() => {})
+     } else {
+       const displayUrl = server.url.toString()
+       UI.println(UI.Style.TEXT_INFO_BOLD + "  Web interface:    ", UI.Style.TEXT_NORMAL, displayUrl)
+-      open(displayUrl).catch(() => {})
++      openBrowser(displayUrl).catch(() => {})
+     }
+ 
+     yield* Effect.never
+diff --git a/packages/opencode/src/cli/tui/layer.ts b/packages/opencode/src/cli/tui/layer.ts
+index a592b86..70dc1f2 100644
+--- a/packages/opencode/src/cli/tui/layer.ts
++++ b/packages/opencode/src/cli/tui/layer.ts
+@@ -1,8 +1,18 @@
+ import { run as runTui, type TuiInput } from "@opencode-ai/tui"
++import { setRenderLibPath } from "@opentui/core"
+ import { Global } from "@opencode-ai/core/global"
+ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+ import { Effect } from "effect"
+ 
+ export function run(input: TuiInput) {
++  // This graph is built only for ADEV Android. Bun embeds the Linux
++  // glibc/musl OpenTUI builds in the compiled module graph, which Bionic can
++  // never dlopen, so select the APK-native Bionic libopentui.so before the
++  // renderer resolves its FFI library. ADEV's native launcher exports
++  // OPENTUI_LIB_PATH for exactly this file.
++  const androidRenderLib = process.env.OPENTUI_LIB_PATH
++  if (androidRenderLib && require("fs").existsSync(androidRenderLib)) {
++    setRenderLibPath(androidRenderLib)
++  }
+   return runTui(input).pipe(Effect.provide(AppNodeBuilder.build(Global.node)))
+ }
+diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
+index 86238f1..ffc52db 100644
+--- a/packages/opencode/src/config/config.ts
++++ b/packages/opencode/src/config/config.ts
+@@ -435,26 +435,30 @@ const layer = Layer.effect(
+ 
+           yield* ensureGitignore(dir).pipe(Effect.orDie)
+ 
+-          const dep = yield* npmSvc
+-            .install(dir, {
+-              add: [
+-                {
+-                  name: "@opencode-ai/plugin",
+-                  version: InstallationLocal ? undefined : InstallationVersion,
+-                },
+-              ],
+-            })
+-            .pipe(
+-              Effect.exit,
+-              Effect.tap((exit) =>
+-                Exit.isFailure(exit)
+-                  ? Effect.logWarning("background dependency install failed", { dir, error: String(exit.cause) })
+-                  : Effect.void,
+-              ),
+-              Effect.asVoid,
+-              Effect.forkDetach,
+-            )
+-          deps.push(dep)
++          if (process.env.TERMUX_VERSION || process.env.ANDROID_ROOT) {
++            yield* Effect.logInfo("skipping dependency install on Android Termux", { dir })
++          } else {
++            const dep = yield* npmSvc
++              .install(dir, {
++                add: [
++                  {
++                    name: "@opencode-ai/plugin",
++                    version: InstallationLocal ? undefined : InstallationVersion,
++                  },
++                ],
++              })
++              .pipe(
++                Effect.exit,
++                Effect.tap((exit) =>
++                  Exit.isFailure(exit)
++                    ? Effect.logWarning("background dependency install failed", { dir, error: String(exit.cause) })
++                    : Effect.void,
++                ),
++                Effect.asVoid,
++                Effect.forkDetach,
++              )
++            deps.push(dep)
++          }
+ 
+           result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
+           result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.load(dir)))
+diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
+index 13540a7..c4e2d34 100644
+--- a/packages/opencode/src/index.ts
++++ b/packages/opencode/src/index.ts
+@@ -130,6 +130,7 @@ try {
+   if (formatted) UI.error(formatted)
+   if (formatted === undefined) {
+     UI.error("Unexpected error" + EOL)
++    process.stderr.write((e instanceof Error ? (e.stack ?? e.message) : String(e)) + EOL)
+     process.stderr.write(errorMessage(e) + EOL)
+   }
+   process.exitCode = 1
+diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
+index 1e4423e..05b1186 100644
+--- a/packages/opencode/src/tool/shell.ts
++++ b/packages/opencode/src/tool/shell.ts
+@@ -481,7 +481,23 @@ export const ShellTool = Tool.define(
+       const code: number | null = yield* Effect.scoped(
+         Effect.gen(function* () {
+           yield* Effect.addFinalizer(closeSink)
+-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
++          let handle
++          try {
++            const brokerPath = path.join(path.dirname(process.execPath), "libbin_adev_env.so")
++            if (require("fs").existsSync(brokerPath)) {
++              const brokerCmd = ChildProcess.make(brokerPath, ["--adev-opencode-shell-v1", "--", input.command], {
++                cwd: input.cwd,
++                env: input.env,
++                stdin: "ignore",
++                detached: process.platform !== "win32",
++              })
++              handle = yield* spawner.spawn(brokerCmd)
++            } else {
++              handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
++            }
++          } catch {
++            handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
++          }
+ 
+           yield* Effect.forkScoped(
+             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {

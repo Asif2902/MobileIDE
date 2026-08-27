@@ -285,42 +285,53 @@ def sha256Hex = { java.io.File f ->
 
 def openCodeRuntimeArchive = file("src/main/prebuilt/arm64-v8a/libbin_opencode_runtime.so.gz")
 def openCodeRuntimeBinary = new File(jniLibsArm64Dir, "libbin_opencode_runtime.so")
-def openCodeRuntimeSha256 = "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7"
+def openCodeRuntimeSha256 = "3ce052a0e3d66e96bba71818e1403969c18a532f62cc06dba070929b15f16156"
+def openTuiArchive = file("src/main/prebuilt/arm64-v8a/liblib_opencode_opentui.so.gz")
+def openTuiBinary = new File(jniLibsArm64Dir, "liblib_opencode_opentui.so")
+def openTuiSha256 = "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a"
+
+def restoreGzipPayload = { java.io.File archive, java.io.File binary, String expectedSha256, String label ->
+    if (!archive.isFile()) {
+        throw new GradleException("Missing pinned ${label} archive: ${archive}")
+    }
+    binary.parentFile.mkdirs()
+    def temporaryBinary = new File(binary.parentFile, "${binary.name}.tmp")
+    try {
+        archive.withInputStream { archiveInput ->
+            new java.util.zip.GZIPInputStream(archiveInput).withCloseable { gzipInput ->
+                temporaryBinary.withOutputStream { output -> gzipInput.transferTo(output) }
+            }
+        }
+        def restoredHash = sha256Hex(temporaryBinary)
+        if (restoredHash != expectedSha256) {
+            throw new GradleException(
+                "${label} SHA-256 mismatch: expected ${expectedSha256}, got ${restoredHash}"
+            )
+        }
+        java.nio.file.Files.move(
+            temporaryBinary.toPath(),
+            binary.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+        )
+        logger.lifecycle("[runtime] restored pinned ${label} from gzip")
+    } finally {
+        temporaryBinary.delete()
+    }
+}
 
 task restoreOpenCodeRuntime {
-    description = "Restore the pinned ARM64 OpenCode runtime from its Git-friendly gzip payload"
-    inputs.file(openCodeRuntimeArchive)
-    outputs.file(openCodeRuntimeBinary)
+    description = "Restore pinned ARM64 OpenCode/OpenTUI binaries from Git-friendly gzip payloads"
+    inputs.files(openCodeRuntimeArchive, openTuiArchive)
+    outputs.files(openCodeRuntimeBinary, openTuiBinary)
     outputs.upToDateWhen {
-        openCodeRuntimeBinary.isFile() && sha256Hex(openCodeRuntimeBinary) == openCodeRuntimeSha256
+        openCodeRuntimeBinary.isFile() &&
+            sha256Hex(openCodeRuntimeBinary) == openCodeRuntimeSha256 &&
+            openTuiBinary.isFile() &&
+            sha256Hex(openTuiBinary) == openTuiSha256
     }
     doLast {
-        if (!openCodeRuntimeArchive.isFile()) {
-            throw new GradleException("Missing pinned OpenCode runtime archive: ${openCodeRuntimeArchive}")
-        }
-        openCodeRuntimeBinary.parentFile.mkdirs()
-        def temporaryBinary = new File(openCodeRuntimeBinary.parentFile, "${openCodeRuntimeBinary.name}.tmp")
-        try {
-            openCodeRuntimeArchive.withInputStream { archiveInput ->
-                new java.util.zip.GZIPInputStream(archiveInput).withCloseable { gzipInput ->
-                    temporaryBinary.withOutputStream { output -> gzipInput.transferTo(output) }
-                }
-            }
-            def restoredHash = sha256Hex(temporaryBinary)
-            if (restoredHash != openCodeRuntimeSha256) {
-                throw new GradleException(
-                    "OpenCode runtime SHA-256 mismatch: expected ${openCodeRuntimeSha256}, got ${restoredHash}"
-                )
-            }
-            java.nio.file.Files.move(
-                temporaryBinary.toPath(),
-                openCodeRuntimeBinary.toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-            )
-            logger.lifecycle("[runtime] restored pinned OpenCode ARM64 payload from gzip")
-        } finally {
-            temporaryBinary.delete()
-        }
+        restoreGzipPayload(openCodeRuntimeArchive, openCodeRuntimeBinary, openCodeRuntimeSha256, "OpenCode ARM64 payload")
+        restoreGzipPayload(openTuiArchive, openTuiBinary, openTuiSha256, "OpenTUI ARM64 renderer")
     }
 }
 

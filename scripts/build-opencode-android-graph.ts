@@ -63,6 +63,31 @@ if (solidRendererSource.includes(unknownComponentThrow)) {
   )
 }
 
+// OpenTUI 0.4+ statically imports both Linux ARM64 renderer packages when the
+// standalone graph is cross-compiled. Those packages contain glibc/musl .so
+// files that cannot run on Android and add tens of megabytes of dead payload.
+// The Android source patch calls setRenderLibPath() with ADEV's matching
+// Bionic library before renderer resolution, so keep the package entries as
+// lightweight fallbacks to that verified external path.
+for (const packageName of [
+  "@opentui/core-linux-arm64",
+  "@opentui/core-linux-arm64-musl",
+]) {
+  try {
+    const entry = Bun.resolveSync(packageName, OPENCODE_DIR)
+    fs.writeFileSync(
+      entry,
+      `const renderPath = process.env.OPENTUI_LIB_PATH
+if (!renderPath) throw new Error("ADEV Android requires OPENTUI_LIB_PATH")
+export default renderPath
+`,
+    )
+    console.log(`Redirected ${packageName} to OPENTUI_LIB_PATH`)
+  } catch (error) {
+    throw new Error(`Required ARM64 OpenTUI package is missing: ${packageName}`, { cause: error })
+  }
+}
+
 // This builder lives in ADEV rather than the upstream checkout. Resolve the
 // pinned plugin from the supplied OpenCode tree after changing into it.
 const { createSolidTransformPlugin } = await import(

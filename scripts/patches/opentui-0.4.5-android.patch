@@ -1,0 +1,62 @@
+diff --git a/packages/core/src/zig/build.zig b/packages/core/src/zig/build.zig
+index 0c82ba3..e0ed02c 100644
+--- a/packages/core/src/zig/build.zig
++++ b/packages/core/src/zig/build.zig
+@@ -190,8 +190,12 @@ fn addNativeAudioDependencies(
+     switch (target.result.os.tag) {
+         .macos => addMacOSSystemLibraries(b, artifact, macos_sdk_path.?),
+         .linux => {
+-            artifact.linkSystemLibrary("dl");
+-            artifact.linkSystemLibrary("pthread");
++            // Android/Bionic exposes dlopen and pthread APIs from libc and the
++            // NDK intentionally does not ship separate libdl/libpthread stubs.
++            if (target.result.abi != .android and target.result.abi != .androideabi) {
++                artifact.linkSystemLibrary("dl");
++                artifact.linkSystemLibrary("pthread");
++            }
+         },
+         else => {},
+     }
+@@ -494,6 +498,42 @@ fn buildTarget(
+     addNativeAudioDependencies(b, lib, target, macos_sdk_path);
+     addYogaDependencies(b, lib);
+ 
++    // ADEV Android: Zig knows the Android ABI but does not automatically add
++    // the NDK stub-library directory when cross-building OpenTUI. Native audio
++    // links dl/pthread and the shared library must carry a direct libc.so
++    // dependency so Bionic can resolve those symbols during dlopen().
++    if (target.result.os.tag == .linux and
++        (target.result.abi == .android or target.result.abi == .androideabi))
++    {
++        if (b.graph.env_map.get("ANDROID_NDK_HOME")) |ndk_home| {
++            const host = switch (builtin.os.tag) {
++                .windows => "windows-x86_64",
++                .macos => "darwin-x86_64",
++                else => "linux-x86_64",
++            };
++            const library_dir = try std.fmt.allocPrint(
++                b.allocator,
++                "{s}/toolchains/llvm/prebuilt/{s}/sysroot/usr/lib/aarch64-linux-android/29",
++                .{ ndk_home, host },
++            );
++            const sysroot = try std.fmt.allocPrint(
++                b.allocator,
++                "{s}/toolchains/llvm/prebuilt/{s}/sysroot",
++                .{ ndk_home, host },
++            );
++            const libc_config = try std.fmt.allocPrint(
++                b.allocator,
++                "include_dir={s}/usr/include\nsys_include_dir={s}/usr/include/aarch64-linux-android\ncrt_dir={s}\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\n",
++                .{ sysroot, sysroot, library_dir },
++            );
++            const generated = b.addWriteFiles();
++            lib.setLibCFile(generated.add("adev-android-libc.conf", libc_config));
++            lib.addLibraryPath(.{ .cwd_relative = library_dir });
++            const libc_path = try std.fmt.allocPrint(b.allocator, "{s}/libc.so", .{library_dir});
++            lib.addObjectFile(.{ .cwd_relative = libc_path });
++        }
++    }
++
+     const install_dir = b.addInstallArtifact(lib, .{
+         .dest_dir = .{
+             .override = .{

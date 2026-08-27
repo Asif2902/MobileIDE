@@ -1,36 +1,48 @@
 param(
     [string]$ArchivePath = "",
-    [string]$GraphRuntimePath = ""
+    [string]$GraphRuntimePath = "",
+    [string]$OpenTuiPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$Version = "1.17.9"
+$Version = "1.18.23"
 $PortTag = "v0.2.1"
 $PortCommit = "f63664eaa774b7fb8ff9e043ad735b05ecb7024b"
-$OpenCodeCommit = "5c23e88419c4743b9be42cea132f2fb1e6cb63ff"
-$ArchiveName = "opencode-$Version-android-aarch64.zip"
+$OpenCodeCommit = "ef2880f379129aa048be9e9353e30aa168d42c17"
+$OpenTuiVersion = "0.4.5"
+$OpenTuiCommit = "0c8c4f7cff2927e3df63a9757a45eff9a343611c"
+# The Android port archive is retained only as the pinned source for its
+# generic Bionic tag-fix preload. OpenCode and OpenTUI are rebuilt from their
+# exact upstream commits below.
+$ArchiveName = "opencode-1.17.9-android-aarch64.zip"
 $ArchiveUrl = "https://github.com/guysoft/opencode-termux/releases/download/$PortTag/$ArchiveName"
 $ArchiveSha256 = "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0"
-$ComponentHashes = @{
-    "opencode.bin" = "5609e288519cac6ad6dc0eddb4bd99fb77564e82d878e9a54915c565c75f0402"
-    "libopentui.so" = "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44"
-    "libtagfix.so" = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
-}
-$GraphRuntimeSha256 = "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7"
-$GraphRuntimeBytes = 152949062
+$TagfixSha256 = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
+$GraphRuntimeSha256 = "3ce052a0e3d66e96bba71818e1403969c18a532f62cc06dba070929b15f16156"
+$GraphRuntimeBytes = 173702905
+$OpenTuiSha256 = "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a"
+$OpenTuiBytes = 14386712
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $Destination = Join-Path $RepositoryRoot "android/app/src/main/jniLibs/arm64-v8a"
 $ManifestPath = Join-Path $RepositoryRoot "android/app/src/main/assets/runtime/lib/adev-opencode.json"
 $DefaultGraphRuntime = Join-Path $Destination "libbin_opencode_runtime.so"
+$DefaultOpenTui = Join-Path $Destination "liblib_opencode_opentui.so"
 $GraphRuntime = if ($GraphRuntimePath) {
     (Resolve-Path -LiteralPath $GraphRuntimePath).Path
 } elseif (Test-Path -LiteralPath $DefaultGraphRuntime -PathType Leaf) {
     $DefaultGraphRuntime
 } else {
     throw "The pinned ARM64 source-built graph payload is required. Supply -GraphRuntimePath."
+}
+$OpenTui = if ($OpenTuiPath) {
+    (Resolve-Path -LiteralPath $OpenTuiPath).Path
+} elseif (Test-Path -LiteralPath $DefaultOpenTui -PathType Leaf) {
+    $DefaultOpenTui
+} else {
+    throw "The pinned ARM64 source-built OpenTUI library is required. Supply -OpenTuiPath."
 }
 $WorkDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("adev-opencode-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $WorkDirectory | Out-Null
@@ -104,21 +116,18 @@ try {
 
     $Expanded = Join-Path $WorkDirectory "expanded"
     Expand-Archive -LiteralPath $Archive -DestinationPath $Expanded
-    foreach ($entry in $ComponentHashes.GetEnumerator()) {
-        $component = Join-Path $Expanded $entry.Key
-        if (-not (Test-Path -LiteralPath $component -PathType Leaf)) {
-            throw "OpenCode archive is missing $($entry.Key)."
-        }
-        $actual = Get-LowerSha256 $component
-        if ($actual -ne $entry.Value) {
-            throw "$($entry.Key) SHA-256 mismatch: expected $($entry.Value), got $actual"
-        }
+    $Tagfix = Join-Path $Expanded "libtagfix.so"
+    if (-not (Test-Path -LiteralPath $Tagfix -PathType Leaf)) {
+        throw "Android port archive is missing libtagfix.so."
+    }
+    $actualTagfixHash = Get-LowerSha256 $Tagfix
+    if ($actualTagfixHash -ne $TagfixSha256) {
+        throw "libtagfix.so SHA-256 mismatch: expected $TagfixSha256, got $actualTagfixHash"
     }
 
-    Assert-AndroidElf (Join-Path $Expanded "opencode.bin") $true
-    Assert-AndroidElf (Join-Path $Expanded "libopentui.so") $false
-    Assert-AndroidElf (Join-Path $Expanded "libtagfix.so") $false
+    Assert-AndroidElf $Tagfix $false
     Assert-AndroidElf $GraphRuntime $true
+    Assert-AndroidElf $OpenTui $false
     if ((Get-Item -LiteralPath $GraphRuntime).Length -ne $GraphRuntimeBytes) {
         throw "Source-built OpenCode graph payload size mismatch."
     }
@@ -126,15 +135,24 @@ try {
     if ($actualGraphHash -ne $GraphRuntimeSha256) {
         throw "Source-built OpenCode graph payload SHA-256 mismatch: expected $GraphRuntimeSha256, got $actualGraphHash"
     }
+    if ((Get-Item -LiteralPath $OpenTui).Length -ne $OpenTuiBytes) {
+        throw "Source-built OpenTUI payload size mismatch."
+    }
+    $actualOpenTuiHash = Get-LowerSha256 $OpenTui
+    if ($actualOpenTuiHash -ne $OpenTuiSha256) {
+        throw "Source-built OpenTUI SHA-256 mismatch: expected $OpenTuiSha256, got $actualOpenTuiHash"
+    }
 
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     $runtimeDestination = Join-Path $Destination "libbin_opencode_runtime.so"
     if ([IO.Path]::GetFullPath($GraphRuntime) -ne [IO.Path]::GetFullPath($runtimeDestination)) {
         Copy-Item -Force -LiteralPath $GraphRuntime -Destination $runtimeDestination
     }
-    Copy-Item -Force -LiteralPath (Join-Path $Expanded "libopentui.so") `
-        -Destination (Join-Path $Destination "liblib_opencode_opentui.so")
-    Copy-Item -Force -LiteralPath (Join-Path $Expanded "libtagfix.so") `
+    $openTuiDestination = Join-Path $Destination "liblib_opencode_opentui.so"
+    if ([IO.Path]::GetFullPath($OpenTui) -ne [IO.Path]::GetFullPath($openTuiDestination)) {
+        Copy-Item -Force -LiteralPath $OpenTui -Destination $openTuiDestination
+    }
+    Copy-Item -Force -LiteralPath $Tagfix `
         -Destination (Join-Path $Destination "liblib_opencode_tagfix.so")
 
     $manifest = [ordered]@{
@@ -155,19 +173,27 @@ try {
             androidPortCommit = $PortCommit
             archiveUrl = $ArchiveUrl
             archiveSha256 = $ArchiveSha256
+            archivePurpose = "pinned source for the generic Bionic libtagfix.so preload only"
             androidBunPrefixSha256 = "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde"
             graphBuildBunVersion = "1.3.2"
             graphBuildBunArchiveSha256 = "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6"
-            modelsSnapshotSha256 = "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1"
+            modelsSnapshotSha256 = "d6a5ad68b1772eecb1fdc135f8c73995a2b0dfad29162fb84a3fa1d8320c7141"
             graphBuildTarget = "bun-linux-arm64"
-            graphPatchFile = "scripts/patches/opencode-1.17.9-android.patch"
+            graphPatchFile = "scripts/patches/opencode-1.18.23-android.patch"
             graphRuntimeSha256 = $GraphRuntimeSha256
             graphRuntimeBytes = $GraphRuntimeBytes
+            openTuiRepository = "https://github.com/anomalyco/opentui"
+            openTuiVersion = $OpenTuiVersion
+            openTuiCommit = $OpenTuiCommit
+            openTuiPatchFile = "scripts/patches/opentui-0.4.5-android.patch"
+            openTuiSha256 = $OpenTuiSha256
+            openTuiBytes = $OpenTuiBytes
             androidGraphPatches = @(
                 "use the launcher-provided app-private XDG cache for OpenCode temporary files",
                 "skip background plugin dependency installation on Android",
                 "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
-                "retain the spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
+                "retain upstream spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
+                "replace bundled glibc/musl OpenTUI entries with the matching external Android/Bionic OpenTUI 0.4.5 renderer",
                 "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download"
                 "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
                 "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"
@@ -186,37 +212,38 @@ try {
             preloadOrder = "upstream tagfix, ADEV Android-version heap-tag and /tmp compatibility shim, inherited termux-exec"
         }
         capabilities = [ordered]@{
-            version = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
-            help = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
-            debugPaths = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
-            interactiveTui = "device-certified on ARM64 API 30, including forced plugin-loading spinner animation and graceful unknown-component fallback; API 29/36 remain"
-            agentRun = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
-            serve = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
-            web = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            version = "host and ABI verified for the pinned ARM64 payload; device validation pending"
+            help = "host and ABI verified for the pinned ARM64 payload; device validation pending"
+            debugPaths = "host and ABI verified for the pinned ARM64 payload; device validation pending"
+            interactiveTui = "host ABI and 342-symbol OpenTUI contract verified; device validation pending"
+            agentRun = "host and ABI verified for the pinned ARM64 payload; device validation pending"
+            serve = "host and ABI verified for the pinned ARM64 payload; device validation pending"
+            web = "host and ABI verified for the pinned ARM64 payload; device validation pending"
             policy = "all standard modes reach the Android/Bionic payload; no Linux/glibc binary is substituted"
         }
         components = @(
             [ordered]@{
                 packagedName = "libbin_opencode_runtime.so"
-                sourceName = "source-rebuilt OpenCode 1.17.9 ARM64 module graph plus pinned Android Bun prefix"
+                sourceName = "source-rebuilt OpenCode 1.18.23 ARM64 module graph plus pinned Android Bun prefix"
                 sha256 = $GraphRuntimeSha256
                 bytes = $GraphRuntimeBytes
                 license = "MIT plus embedded dependency notices"
             },
             [ordered]@{
                 packagedName = "liblib_opencode_opentui.so"
-                sourceName = "libopentui.so"
-                sha256 = $ComponentHashes["libopentui.so"]
+                sourceName = "source-rebuilt OpenTUI 0.4.5 Android/Bionic ARM64 libopentui.so"
+                sha256 = $OpenTuiSha256
+                bytes = $OpenTuiBytes
                 license = "MIT"
             },
             [ordered]@{
                 packagedName = "liblib_opencode_tagfix.so"
                 sourceName = "libtagfix.so"
-                sha256 = $ComponentHashes["libtagfix.so"]
+                sha256 = $TagfixSha256
                 license = "MIT"
             }
         )
-        deviceGate = "ARM64 API 30 certified: version/help/debug/run/serve/web, real Bash-tool environment, interactive TUI, and forced plugin-loading spinner (all 10 frames, no fatal marker). API 29/API 36 and x86_64 payload coverage remain."
+        deviceGate = "OpenCode 1.18.23 and OpenTUI 0.4.5 pass host provenance, ARM64 Bionic ABI, dependency, 16 KiB alignment, and 342-symbol contract checks. On-device mode validation is pending; API 29/API 36 and x86_64 payload coverage remain."
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ManifestPath) | Out-Null
     # UTF8 WITHOUT BOM: downstream JSON parsers (host tests) reject a BOM.

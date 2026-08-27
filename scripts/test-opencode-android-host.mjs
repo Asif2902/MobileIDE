@@ -28,11 +28,25 @@ const inflatedRuntime = fs.existsSync(packagedRuntime)
 if (!fs.existsSync(packagedRuntime)) {
   fs.writeFileSync(inflatedRuntime, zlib.gunzipSync(fs.readFileSync(runtimeArchive)));
 }
+const packagedOpenTui = path.join(
+  root,
+  'android/app/src/main/jniLibs/arm64-v8a/liblib_opencode_opentui.so',
+);
+const openTuiArchive = path.join(
+  root,
+  'android/app/src/main/prebuilt/arm64-v8a/liblib_opencode_opentui.so.gz',
+);
+const inflatedOpenTui = fs.existsSync(packagedOpenTui)
+  ? packagedOpenTui
+  : path.join(os.tmpdir(), 'adev-opentui-runtime-host-test.so');
+if (!fs.existsSync(packagedOpenTui)) {
+  fs.writeFileSync(inflatedOpenTui, zlib.gunzipSync(fs.readFileSync(openTuiArchive)));
+}
 
 const manifestPath = 'android/app/src/main/assets/runtime/lib/adev-opencode.json';
 const manifest = json(manifestPath);
 const lock = json('android/app/src/main/assets/runtime/runtime-lock.json');
-assert.equal(manifest.version, '1.17.9');
+assert.equal(manifest.version, '1.18.23');
 assert.equal(manifest.platform, 'android-bionic');
 assert.deepEqual(manifest.supportedAbis, ['arm64-v8a']);
 assert.match(manifest.unsupportedAbis.x86_64, /No verified Android\/Bionic/);
@@ -45,15 +59,24 @@ assert.match(manifest.runtime.heapPointerTaggingPolicy, /API 29\/30/);
 assert.match(manifest.runtime.preloadOrder, /upstream tagfix/);
 assert.equal(
   manifest.source.graphPatchFile,
-  'scripts/patches/opencode-1.17.9-android.patch',
+  'scripts/patches/opencode-1.18.23-android.patch',
 );
+assert.equal(manifest.source.openCodeCommit, 'ef2880f379129aa048be9e9353e30aa168d42c17');
+assert.equal(manifest.source.openTuiVersion, '0.4.5');
+assert.equal(manifest.source.openTuiCommit, '0c8c4f7cff2927e3df63a9757a45eff9a343611c');
+assert.equal(manifest.source.openTuiPatchFile, 'scripts/patches/opentui-0.4.5-android.patch');
 const graphPatch = text(manifest.source.graphPatchFile);
 assert.match(graphPatch, /path\.join\(path\.dirname\(process\.execPath\), "libbin_adev_env\.so"\)/);
 assert.match(graphPatch, /--adev-opencode-shell-v1/);
-assert.match(graphPatch, /registerSpinner\(\)/);
+assert.match(graphPatch, /setRenderLibPath/);
+const openTuiPatch = text(manifest.source.openTuiPatchFile);
+assert.match(openTuiPatch, /aarch64-linux-android/);
+assert.match(openTuiPatch, /adev-android-libc\.conf/);
 const graphBuilder = text('scripts/build-opencode-android-graph.ts');
 assert.match(graphBuilder, /target: "bun-linux-arm64"/);
 assert.match(graphBuilder, /Extracting module graph/);
+assert.match(graphBuilder, /@opentui\/core-linux-arm64-musl/);
+assert.match(graphBuilder, /ADEV Android requires OPENTUI_LIB_PATH/);
 assert.ok(
   graphBuilder.includes('Unknown component type: \\${tagName}; using text fallback'),
 );
@@ -67,11 +90,12 @@ for (const capability of [
   'serve',
   'web',
 ]) {
-  assert.match(manifest.capabilities[capability], /device-certified/i);
+  assert.match(manifest.capabilities[capability], /verified/i);
   assert.doesNotMatch(manifest.capabilities[capability], /unsupported/i);
 }
 assert.match(manifest.capabilities.policy, /Android\/Bionic payload/);
-assert.match(manifest.deviceGate, /forced plugin-loading spinner/);
+assert.match(manifest.deviceGate, /342-symbol contract/);
+assert.match(manifest.deviceGate, /validation is pending/i);
 assert.match(manifest.deviceGate, /API 29\/API 36 and x86_64/);
 const manifestLockHash = crypto
   .createHash('sha256')
@@ -81,7 +105,9 @@ const manifestLockHash = crypto
 const arm64 = path.join(root, 'android/app/src/main/jniLibs/arm64-v8a');
 const x86 = path.join(root, 'android/app/src/main/jniLibs/x86_64');
 for (const component of manifest.components) {
-  const file = path.join(arm64, component.packagedName);
+  const file = component.packagedName === 'liblib_opencode_opentui.so'
+    ? inflatedOpenTui
+    : path.join(arm64, component.packagedName);
   assert.ok(fs.existsSync(file), `${component.packagedName} is missing`);
   assert.equal(sha256(file), component.sha256);
 }
@@ -478,7 +504,11 @@ const compatElf = path.join(arm64, 'liblib_adev_opencode_compat.so');
 const elfFiles = [
   path.join(arm64, 'libbin_opencode.so'),
   compatElf,
-  ...manifest.components.map(component => path.join(arm64, component.packagedName)),
+  ...manifest.components.map(component =>
+    component.packagedName === 'liblib_opencode_opentui.so'
+      ? inflatedOpenTui
+      : path.join(arm64, component.packagedName),
+  ),
 ];
 for (const file of elfFiles) {
   const output = execFileSync(readelf, ['-hlWd', file], {
