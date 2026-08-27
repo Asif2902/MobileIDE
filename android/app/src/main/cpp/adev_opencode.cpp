@@ -178,6 +178,10 @@ bool runtime_environment_test_requested(int argc, char** argv) {
     return argc == 2 || std::strcmp(argv[2], "--network") == 0;
 }
 
+bool managed_upgrade_requested(int argc, char** argv) {
+    return argc >= 2 && std::strcmp(argv[1], "upgrade") == 0;
+}
+
 int launch_payload(int argc, char** argv) {
 #ifndef ADEV_OPENCODE_HOST_TEST
     // Restore the shared runtime environment contract first: HOME, PATH,
@@ -259,6 +263,15 @@ int launch_payload(int argc, char** argv) {
         {"ADEV_OPENCODE_SHELL", shell_broker},
         {"ADEV_OPENCODE_RG", ripgrep},
         {"ADEV_OPENCODE_XDG_OPEN", xdg_open},
+        {"ADEV_OPENCODE_VERSION", ADEV_OPENCODE_VERSION},
+        {"ADEV_OPENCODE_UPDATE_MODE", "adev-apk"},
+        /*
+         * A downloaded replacement binary cannot execute from Android app
+         * storage. Disable OpenCode's desktop updater/popup; the explicit
+         * `opencode upgrade` command is routed to ADEV's APK update broker
+         * below and discovers future compatible releases dynamically.
+         */
+        {"OPENCODE_DISABLE_AUTOUPDATE", "1"},
         {"OPENCODE_DISABLE_TUI_AUDIO", "1"},
         {"OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER", "true"},
         {"OPENTUI_LIB_PATH", opentui},
@@ -392,6 +405,7 @@ int launch_payload(int argc, char** argv) {
             "ripgrep=%s\n"
             "xdg_open=%s\n"
             "shell_broker=%s\n"
+            "update_mode=%s\n"
             "url_opener_port=%s\n"
             "url_opener_session=%s\n"
             "temp=%s\n"
@@ -400,6 +414,7 @@ int launch_payload(int argc, char** argv) {
             "workspace_home=%s\n",
             ADEV_OPENCODE_VERSION, runtime.c_str(), opentui.c_str(), tagfix.c_str(),
             compat.c_str(), ripgrep.c_str(), xdg_open.c_str(), shell_broker.c_str(),
+            "adev-apk",
             url_opener_port.empty() ? "missing" : url_opener_port.c_str(),
             url_opener_session.empty() ? "missing" : "present", private_tmp.c_str(),
             workspace_home.c_str(), config_home.c_str(), workspace_home.c_str());
@@ -442,6 +457,36 @@ int launch_payload(int argc, char** argv) {
         execv(node.c_str(), test_arguments.data());
 #endif
         std::fprintf(stderr, "opencode: failed to launch runtime environment suite: %s\n",
+                     std::strerror(errno));
+        return errno == EACCES ? 126 : 71;
+    }
+
+    if (managed_upgrade_requested(argc, argv)) {
+        const char* prefix_value = std::getenv("PREFIX");
+        const std::string prefix = absolute_path(prefix_value)
+            ? canonical_private_directory(prefix_value)
+            : std::string{};
+        const std::string node = join_path(native_dir, "libbin_node.so");
+        const std::string updater = join_path(prefix, "lib/adev-opencode-update.js");
+        if (prefix.empty() || ADEV_ACCESS(node.c_str(), ADEV_EXEC_ACCESS) != 0 ||
+            ADEV_ACCESS(updater.c_str(), 4) != 0) {
+            return unavailable("the ADEV-managed OpenCode update broker is missing.");
+        }
+        std::vector<char*> update_arguments = {
+            const_cast<char*>(node.c_str()),
+            const_cast<char*>(updater.c_str()),
+        };
+        for (int index = 2; index < argc; ++index) update_arguments.push_back(argv[index]);
+        update_arguments.push_back(nullptr);
+#ifdef _WIN32
+        const intptr_t result = _spawnv(_P_WAIT, node.c_str(), update_arguments.data());
+        if (result >= 0) return static_cast<int>(result);
+#elif defined(__ANDROID__) && defined(SYS_execve)
+        syscall(SYS_execve, node.c_str(), update_arguments.data(), environ);
+#else
+        execv(node.c_str(), update_arguments.data());
+#endif
+        std::fprintf(stderr, "opencode: failed to launch ADEV update broker: %s\n",
                      std::strerror(errno));
         return errno == EACCES ? 126 : 71;
     }

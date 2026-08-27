@@ -13,21 +13,30 @@ import { EditorSearchResult, EditorView, EditorViewHandle } from './EditorView';
 import { EditorTabs } from './EditorTabs';
 import { Icon } from '../icons';
 import {uiColors, uiFonts, uiRadii} from '../../theme';
+import {useShallow} from 'zustand/react/shallow';
 
 export const EditorPanel: React.FC = () => {
-  const {
-    openFiles,
-    activeFilePath,
-    diagnostics,
-    cursorLine,
-    cursorColumn,
-    saveAllFiles,
-    fontSize,
-    setFontSize,
-    toggleWordWrap,
-    wordWrap,
-    loadPreferences,
-  } = useEditorStore();
+  const activeFilePath = useEditorStore(state => state.activeFilePath);
+  const activeFile = useEditorStore(useShallow(state => {
+    const file = state.openFiles.find(item => item.path === state.activeFilePath);
+    return file
+      ? {path: file.path, name: file.name, language: file.language, isDirty: file.isDirty}
+      : null;
+  }));
+  const activeDiagnostics = useEditorStore(
+    state => (state.activeFilePath ? state.diagnostics[state.activeFilePath] : undefined),
+  );
+  const cursorLine = useEditorStore(state => state.cursorLine);
+  const cursorColumn = useEditorStore(state => state.cursorColumn);
+  const dirtyCount = useEditorStore(
+    state => state.openFiles.reduce((count, file) => count + (file.isDirty ? 1 : 0), 0),
+  );
+  const saveAllFiles = useEditorStore(state => state.saveAllFiles);
+  const fontSize = useEditorStore(state => state.fontSize);
+  const setFontSize = useEditorStore(state => state.setFontSize);
+  const toggleWordWrap = useEditorStore(state => state.toggleWordWrap);
+  const wordWrap = useEditorStore(state => state.wordWrap);
+  const loadPreferences = useEditorStore(state => state.loadPreferences);
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isCompact = width < 420 || isLandscape;
@@ -41,7 +50,20 @@ export const EditorPanel: React.FC = () => {
     total: 0,
   });
   const editorRef = useRef<EditorViewHandle>(null);
+  const initialContent = useRef<{path: string | null; content: string}>({
+    path: null,
+    content: '',
+  });
   const setActiveView = useUIStore(state => state.setActiveView);
+
+  if (initialContent.current.path !== activeFilePath) {
+    initialContent.current = {
+      path: activeFilePath,
+      content: activeFilePath
+        ? useEditorStore.getState().openFiles.find(file => file.path === activeFilePath)?.content || ''
+        : '',
+    };
+  }
 
   useEffect(() => {
     loadPreferences().catch(() => {});
@@ -53,11 +75,8 @@ export const EditorPanel: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchQuery, searchVisible, activeFilePath]);
 
-  const activeFile = openFiles.find(f => f.path === activeFilePath);
-  const diag = activeFile ? diagnostics[activeFile.path] : undefined;
-  const errors = diag?.errors ?? 0;
-  const warnings = diag?.warnings ?? 0;
-  const dirtyCount = openFiles.filter(f => f.isDirty).length;
+  const errors = activeDiagnostics?.errors ?? 0;
+  const warnings = activeDiagnostics?.warnings ?? 0;
 
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
@@ -229,7 +248,7 @@ export const EditorPanel: React.FC = () => {
           <EditorView
             ref={editorRef}
             filePath={activeFile.path}
-            content={activeFile.content}
+            content={initialContent.current.content}
             language={activeFile.language}
             onSearchResult={setSearchResult}
           />

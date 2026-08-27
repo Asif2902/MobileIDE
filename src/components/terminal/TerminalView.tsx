@@ -44,6 +44,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   const webViewRef = useRef<any>(null);
   const isReady = useRef(false);
   const pendingOutput = useRef<string[]>([]);
+  const bridgeOutput = useRef<string[]>([]);
+  const bridgeOutputBytes = useRef(0);
+  const outputFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRef = useRef(active);
   const { width: windowWidth } = useWindowDimensions();
 
   // Ctrl/Alt "armed" state mirrored from the WebView so the accessory bar can
@@ -88,6 +92,44 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
     );
   }, []);
 
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  const flushBridgeOutput = useCallback(() => {
+    if (outputFlushTimer.current !== null) {
+      clearTimeout(outputFlushTimer.current);
+      outputFlushTimer.current = null;
+    }
+    if (!isReady.current || !webViewRef.current || bridgeOutput.current.length === 0) return;
+    const data = bridgeOutput.current.join('');
+    bridgeOutput.current = [];
+    bridgeOutputBytes.current = 0;
+    postToWeb({type: 'output', data});
+  }, [postToWeb]);
+
+  const queueBridgeOutput = useCallback((data: string) => {
+    bridgeOutput.current.push(data);
+    bridgeOutputBytes.current += data.length;
+    // Collapse bursty build/server output into one WebView bridge call per
+    // frame. Hidden terminal tabs use a wider window to reduce background UI
+    // work while retaining every byte of scrollback.
+    if (bridgeOutputBytes.current >= 64 * 1024) {
+      flushBridgeOutput();
+      return;
+    }
+    if (outputFlushTimer.current === null) {
+      outputFlushTimer.current = setTimeout(
+        flushBridgeOutput,
+        activeRef.current ? 16 : 64,
+      );
+    }
+  }, [flushBridgeOutput]);
+
+  useEffect(() => () => {
+    if (outputFlushTimer.current !== null) clearTimeout(outputFlushTimer.current);
+  }, []);
+
   const closeSelectionModal = useCallback(() => {
     setIsSelectModalVisible(false);
     setSelectModalText('');
@@ -124,13 +166,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
       (event: TerminalOutputEvent) => {
         if (event.sessionId === sessionId) {
           if (isReady.current && webViewRef.current) {
-            webViewRef.current.injectJavaScript(`
-              handleMessage(${JSON.stringify(JSON.stringify({
-                type: 'output',
-                data: event.data
-              }))});
-              true;
-            `);
+            queueBridgeOutput(event.data);
           } else {
             pendingOutput.current.push(event.data);
           }
@@ -139,7 +175,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
     );
 
     return () => subscription.remove();
-  }, [sessionId]);
+  }, [queueBridgeOutput, sessionId]);
 
   // Show a clear notice when the shell/process exits so a dead terminal is not
   // mistaken for a frozen one (e.g. after a command crashes the session).
@@ -150,10 +186,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
         if (event.sessionId === sessionId) {
           const notice = `\r\n\x1b[33m[process exited with code ${event.exitCode}]\x1b[0m\r\n`;
           if (isReady.current && webViewRef.current) {
-            webViewRef.current.injectJavaScript(`
-              handleMessage(${JSON.stringify(JSON.stringify({ type: 'output', data: notice }))});
-              true;
-            `);
+            queueBridgeOutput(notice);
           } else {
             pendingOutput.current.push(notice);
           }
@@ -161,7 +194,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
       }
     );
     return () => subscription.remove();
-  }, [sessionId]);
+  }, [queueBridgeOutput, sessionId]);
 
   // When this terminal becomes the active tab, re-fit to the current viewport
   // and focus it so the keyboard targets the right session.

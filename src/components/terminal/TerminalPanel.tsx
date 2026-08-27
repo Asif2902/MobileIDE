@@ -23,9 +23,14 @@ const subTabs: SubTab[] = [
 interface TerminalPanelProps {
   /** When true, omit the Terminal/Problems/Output/Debug switcher — parent already has it (tablet BottomPanel). */
   embedded?: boolean;
+  /** False while the phone terminal screen is kept mounted behind another tab. */
+  visible?: boolean;
 }
 
-export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }) => {
+export const TerminalPanel: React.FC<TerminalPanelProps> = ({
+  embedded = false,
+  visible = true,
+}) => {
   const {
     sessions,
     activeSessionId,
@@ -84,7 +89,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }
                       style={[StyleSheet.absoluteFill, { opacity: active ? 1 : 0, zIndex: active ? 1 : 0 }]}
                       pointerEvents={active ? 'auto' : 'none'}
                     >
-                      <TerminalView sessionId={session.id} active={active} />
+                      <TerminalView sessionId={session.id} active={active && visible} />
                     </View>
                   );
                 })

@@ -1,7 +1,7 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-26
-Application: A Dev Studio 1.3.29 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Application: A Dev Studio 1.3.30 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
 Runtime: 1.17.6
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 

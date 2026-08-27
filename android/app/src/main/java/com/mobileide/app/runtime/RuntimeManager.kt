@@ -1092,6 +1092,7 @@ class RuntimeManager(private val context: Context) {
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val phase3Test = File(libDir, "adev-phase3-test.js")
             val environmentTest = File(libDir, "adev-runtime-env-test.js")
+            val openCodeUpdater = File(libDir, "adev-opencode-update.js")
 
             binDir.setWritable(true, false)
 
@@ -1109,6 +1110,13 @@ class RuntimeManager(private val context: Context) {
                 } catch (e: Exception) {
                     Log.w(TAG, "trampoline $name failed: ${e.message}")
                 }
+            }
+
+            if (node.exists() && openCodeUpdater.exists()) {
+                writeScript(
+                    "adev-opencode-update",
+                    "#!/system/bin/sh\nexec \"${node.absolutePath}\" \"${openCodeUpdater.absolutePath}\" \"\$@\"\n"
+                )
             }
 
             val workspaceGuard = File(binDir, ".adev-workspace-guard").absolutePath

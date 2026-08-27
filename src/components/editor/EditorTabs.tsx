@@ -8,7 +8,25 @@ interface EditorTabsProps {
 }
 
 export const EditorTabs: React.FC<EditorTabsProps> = ({ compact = false }) => {
-  const { openFiles, activeFilePath, setActiveFile, closeFile } = useEditorStore();
+  // Content changes are owned by Monaco and must not redraw the tab strip on
+  // every keystroke. The signature changes only when visible tab metadata does.
+  const tabSignature = useEditorStore(state =>
+    JSON.stringify(
+      state.openFiles.map(file => ({
+        path: file.path,
+        name: file.name,
+        isDirty: file.isDirty,
+      })),
+    ),
+  );
+  const activeFilePath = useEditorStore(state => state.activeFilePath);
+  const setActiveFile = useEditorStore(state => state.setActiveFile);
+  const closeFile = useEditorStore(state => state.closeFile);
+  const openFiles = JSON.parse(tabSignature) as Array<{
+    path: string;
+    name: string;
+    isDirty: boolean;
+  }>;
 
   if (openFiles.length === 0) {
     return null;

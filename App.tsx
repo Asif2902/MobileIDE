@@ -32,11 +32,10 @@ const App: React.FC = () => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        {showSplash ? (
-          <SplashScreen onFinish={() => setShowSplash(false)} />
-        ) : (
-          <IDEScreen />
-        )}
+        {/* Start runtime/workspace initialization behind the lightweight splash
+            instead of holding the real app idle for the animation duration. */}
+        <IDEScreen />
+        {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

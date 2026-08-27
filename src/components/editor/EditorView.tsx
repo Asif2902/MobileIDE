@@ -56,16 +56,17 @@ export const EditorView = forwardRef<EditorViewHandle, EditorViewProps>(function
   const contentRef = useRef(content);
   contentRef.current = content;
 
-  const {
-    updateContent,
-    setDiagnostics,
-    setCursor,
-    fontSize,
-    wordWrap,
-    theme,
-    saveFile,
-    revealRequest,
-  } = useEditorStore();
+  // Subscribe only to values that affect this WebView. Subscribing to the
+  // entire editor store caused a React/WebView render for every Monaco input
+  // event even though Monaco already owns the live document.
+  const updateContent = useEditorStore(state => state.updateContent);
+  const setDiagnostics = useEditorStore(state => state.setDiagnostics);
+  const setCursor = useEditorStore(state => state.setCursor);
+  const fontSize = useEditorStore(state => state.fontSize);
+  const wordWrap = useEditorStore(state => state.wordWrap);
+  const theme = useEditorStore(state => state.theme);
+  const saveFile = useEditorStore(state => state.saveFile);
+  const revealRequest = useEditorStore(state => state.revealRequest);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const readyTimer = useRef<any>(null);

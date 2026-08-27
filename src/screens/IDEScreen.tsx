@@ -44,6 +44,18 @@ export const IDEScreen: React.FC = () => {
   const isTablet = width >= TABLET_MIN_WIDTH && height >= TABLET_MIN_HEIGHT;
   const isLandscape = width > height;
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [mountedMobileViews, setMountedMobileViews] = useState<Set<string>>(
+    () => new Set(['files']),
+  );
+
+  useEffect(() => {
+    setMountedMobileViews(previous => {
+      if (previous.has(activeView)) return previous;
+      const next = new Set(previous);
+      next.add(activeView);
+      return next;
+    });
+  }, [activeView]);
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -109,22 +121,9 @@ export const IDEScreen: React.FC = () => {
   }
 
   // ---- Phone: full-screen views + bottom tabs ----
-  const renderMobileView = () => {
-    switch (activeView) {
-      case 'files':
-        return <FileExplorer />;
-      case 'editor':
-        return <EditorPanel />;
-      case 'terminal':
-        return <TerminalPanel />;
-      case 'settings':
-        return <SettingsPanel />;
-      default:
-        // A stale in-memory route from an older Fast Refresh build should
-        // recover to Files instead of leaving the phone content blank.
-        return <FileExplorer />;
-    }
-  };
+  const validActiveView = ['files', 'editor', 'terminal', 'settings'].includes(activeView)
+    ? activeView
+    : 'files';
 
   // Hide bottom nav while typing in the editor (portrait or landscape) so the
   // soft keyboard + Monaco get maximum vertical space.
@@ -149,7 +148,36 @@ export const IDEScreen: React.FC = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <View style={styles.mobileContent}>{renderMobileView()}</View>
+        <View style={styles.mobileContent}>
+          {mountedMobileViews.has('files') && (
+            <View
+              style={[styles.mobileView, validActiveView !== 'files' && styles.mobileViewHidden]}
+              pointerEvents={validActiveView === 'files' ? 'auto' : 'none'}>
+              <FileExplorer />
+            </View>
+          )}
+          {mountedMobileViews.has('editor') && (
+            <View
+              style={[styles.mobileView, validActiveView !== 'editor' && styles.mobileViewHidden]}
+              pointerEvents={validActiveView === 'editor' ? 'auto' : 'none'}>
+              <EditorPanel />
+            </View>
+          )}
+          {mountedMobileViews.has('terminal') && (
+            <View
+              style={[styles.mobileView, validActiveView !== 'terminal' && styles.mobileViewHidden]}
+              pointerEvents={validActiveView === 'terminal' ? 'auto' : 'none'}>
+              <TerminalPanel visible={validActiveView === 'terminal'} />
+            </View>
+          )}
+          {mountedMobileViews.has('settings') && (
+            <View
+              style={[styles.mobileView, validActiveView !== 'settings' && styles.mobileViewHidden]}
+              pointerEvents={validActiveView === 'settings' ? 'auto' : 'none'}>
+              <SettingsPanel />
+            </View>
+          )}
+        </View>
       </KeyboardAvoidingView>
       {!hideBottomTabs && <BottomTabBar />}
     </SafeAreaView>
@@ -177,6 +205,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: uiColors.canvas,
     minHeight: 0,
+    position: 'relative',
+  },
+  mobileView: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  mobileViewHidden: {
+    display: 'none',
   },
 });
 

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
@@ -12,6 +13,21 @@ const text = relative => read(relative).toString('utf8');
 const json = relative => JSON.parse(text(relative));
 const sha256 = file =>
   crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+
+const packagedRuntime = path.join(
+  root,
+  'android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so',
+);
+const runtimeArchive = path.join(
+  root,
+  'android/app/src/main/prebuilt/arm64-v8a/libbin_opencode_runtime.so.gz',
+);
+const inflatedRuntime = fs.existsSync(packagedRuntime)
+  ? packagedRuntime
+  : path.join(os.tmpdir(), 'adev-opencode-runtime-host-test.so');
+if (!fs.existsSync(packagedRuntime)) {
+  fs.writeFileSync(inflatedRuntime, zlib.gunzipSync(fs.readFileSync(runtimeArchive)));
+}
 
 const manifestPath = 'android/app/src/main/assets/runtime/lib/adev-opencode.json';
 const manifest = json(manifestPath);
@@ -101,6 +117,9 @@ assert.match(launcher, /liblib_opencode_tagfix\.so/);
 assert.match(launcher, /liblib_adev_opencode_compat\.so/);
 assert.match(launcher, /OPENTUI_LIB_PATH/);
 assert.match(launcher, /ADEV_OPENCODE_TMPDIR/);
+assert.match(launcher, /OPENCODE_DISABLE_AUTOUPDATE/);
+assert.match(launcher, /adev-opencode-update\.js/);
+assert.match(launcher, /managed_upgrade_requested/);
 assert.match(launcher, /BUN_TMPDIR/);
 assert.match(launcher, /\{"SHELL", "\/system\/bin\/sh"\}/);
 assert.match(launcher, /\{"ADEV_PYTHON_SHELL", "\/system\/bin\/sh"\}/);
@@ -485,15 +504,13 @@ for (const symbol of ['mkdir', 'mkdirat', 'open', 'openat', 'stat', 'realpath'])
 }
 const runtimeHeaders = execFileSync(
   readelf,
-  ['-hlWd', path.join(arm64, 'libbin_opencode_runtime.so')],
+  ['-hlWd', inflatedRuntime],
   {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
 );
 assert.match(runtimeHeaders, /Requesting program interpreter: \/system\/bin\/linker64/);
 assert.match(runtimeHeaders, /FLAGS_1\).*\bPIE\b/);
 assert.doesNotMatch(runtimeHeaders, /ld-linux|GLIBC_/);
-const runtimePayload = read(
-  'android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so',
-);
+const runtimePayload = fs.readFileSync(inflatedRuntime);
 assert.ok(runtimePayload.includes(Buffer.from('ADEV_OPENCODE_RG')));
 assert.ok(runtimePayload.includes(Buffer.from('libbin_adev_env.so')));
 assert.ok(runtimePayload.includes(Buffer.from('--adev-opencode-shell-v1')));
@@ -507,7 +524,7 @@ assert.ok(!runtimePayload.includes(Buffer.from('@opentui/core-linux-x64')));
 assert.ok(runtimePayload.includes(Buffer.from('using text fallback')));
 const runtimeSymbols = execFileSync(
   readelf,
-  ['-Ws', path.join(arm64, 'libbin_opencode_runtime.so')],
+  ['-Ws', inflatedRuntime],
   {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
 );
 assert.match(runtimeSymbols, /\bmkdir@LIBC\b/);

@@ -1,3 +1,13 @@
+# A Dev Studio 1.3.30
+
+This phone-test build improves perceived performance and replaces OpenCode's unsafe desktop self-update path with an ADEV-managed Android compatibility layer.
+
+- Runtime and workspace initialization now run behind a shorter, native-driver splash animation.
+- Phone screens are mounted lazily and retained after first use, avoiding repeated Monaco and terminal WebView startup when switching tabs.
+- Monaco no longer redraws React editor chrome on every keystroke, and terminal output is batched before crossing the WebView bridge.
+- OpenCode's desktop auto-updater is disabled on Android. `opencode upgrade` now checks GitHub dynamically for a newer compatible ADEV APK and opens its Android download through ADEV's secure URL broker.
+- The updater never downloads or executes a glibc/musl desktop OpenCode binary from writable Android storage.
+
 # A Dev Studio 1.3.29
 
 This phone-test beta completes the current OpenCode ARM64 baseline and refreshes ADEV Studio's mobile interface for clearer, faster day-to-day use.

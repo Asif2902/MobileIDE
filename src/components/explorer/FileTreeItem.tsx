@@ -24,8 +24,6 @@ const FileTreeRow: React.FC<FileTreeItemProps> = ({entry, depth}) => {
   const toggleFolder = useFileStore(state => state.toggleFolder);
   const deleteItem = useFileStore(state => state.deleteItem);
   const openFile = useEditorStore(state => state.openFile);
-  const openFiles = useEditorStore(state => state.openFiles);
-  const closeFile = useEditorStore(state => state.closeFile);
   const activeFilePath = useEditorStore(state => state.activeFilePath);
   const setActiveView = useUIStore(state => state.setActiveView);
   const isSelected = !entry.isDirectory && activeFilePath === entry.path;
@@ -56,16 +54,17 @@ const FileTreeRow: React.FC<FileTreeItemProps> = ({entry, depth}) => {
     try {
       await deleteItem(entry.path);
       const deletedPrefix = `${entry.path}/`;
-      openFiles
+      const editor = useEditorStore.getState();
+      editor.openFiles
         .filter(file => file.path === entry.path || file.path.startsWith(deletedPrefix))
-        .forEach(file => closeFile(file.path));
+        .forEach(file => editor.closeFile(file.path));
     } catch (error) {
       Alert.alert(
         `Could not delete ${entry.isDirectory ? 'folder' : 'file'}`,
         (error as Error)?.message || String(error),
       );
     }
-  }, [closeFile, deleteItem, entry, openFiles]);
+  }, [deleteItem, entry]);
 
   const confirmDelete = useCallback(() => {
     const kind = entry.isDirectory ? 'folder' : 'file';

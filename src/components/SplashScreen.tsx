@@ -22,7 +22,7 @@ const loadingImage = require('../assets/loading.jpg');
  */
 export const SplashScreen: React.FC<SplashScreenProps> = ({
   onFinish,
-  duration = 2400,
+  duration = 650,
 }) => {
   const { width } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
@@ -38,7 +38,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       Animated.parallel([
         Animated.timing(logoOpacity, {
           toValue: 1,
-          duration: 550,
+        duration: 220,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -52,8 +52,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       Animated.timing(progress, {
         toValue: 1,
         duration,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: false,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
       }),
     ]);
 
@@ -66,9 +66,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
     return () => animation.stop();
   }, [duration, logoOpacity, logoScale, progress, onFinish]);
 
-  const fillWidth = progress.interpolate({
+  const fillTranslateX = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, barWidth],
+    outputRange: [-barWidth, 0],
   });
 
   return (
@@ -88,7 +88,12 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       />
 
       <View style={[styles.track, { width: barWidth }]}>
-        <Animated.View style={[styles.fill, { width: fillWidth }]} />
+        <Animated.View
+          style={[
+            styles.fill,
+            {width: barWidth, transform: [{translateX: fillTranslateX}]},
+          ]}
+        />
       </View>
     </View>
   );
@@ -104,6 +109,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1000,
+    elevation: 20,
   },
   logo: {
     marginBottom: 44,
