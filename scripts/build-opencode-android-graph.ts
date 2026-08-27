@@ -68,7 +68,10 @@ if (solidRendererSource.includes(unknownComponentThrow)) {
 // files that cannot run on Android and add tens of megabytes of dead payload.
 // The Android source patch calls setRenderLibPath() with ADEV's matching
 // Bionic library before renderer resolution, so keep the package entries as
-// lightweight fallbacks to that verified external path.
+// lightweight fallbacks to that verified external path. Some Android/Bun TUI
+// entrypoints do not expose launcher-added variables to lazily evaluated
+// bundled modules, so derive the same sibling APK-native library from the
+// running executable when OPENTUI_LIB_PATH is absent.
 for (const packageName of [
   "@opentui/core-linux-arm64",
   "@opentui/core-linux-arm64-musl",
@@ -77,8 +80,13 @@ for (const packageName of [
     const entry = Bun.resolveSync(packageName, OPENCODE_DIR)
     fs.writeFileSync(
       entry,
-      `const renderPath = process.env.OPENTUI_LIB_PATH
-if (!renderPath) throw new Error("ADEV Android requires OPENTUI_LIB_PATH")
+      `const executable = process.execPath
+const separator = executable.lastIndexOf("/")
+const siblingRenderPath = separator > 0
+  ? executable.slice(0, separator + 1) + "liblib_opencode_opentui.so"
+  : undefined
+const renderPath = process.env.OPENTUI_LIB_PATH || siblingRenderPath
+if (!renderPath) throw new Error("ADEV Android cannot resolve the OpenTUI renderer")
 export default renderPath
 `,
     )
@@ -205,11 +213,18 @@ const workerRelativePath = path.relative(OPENCODE_DIR, parserWorkerResolved).rep
 const openTuiCoreDirectory = path.dirname(Bun.resolveSync("@opentui/core", OPENCODE_DIR))
 const parserWorkerLoaderPrefix =
   "var bundledTreeSitterWorkerPath = await resolveBundledFilePath(PARSER_WORKER_ASSET_KEY,"
+const pinnedParserWorkerLoader =
+  `var bundledTreeSitterWorkerPath = ${JSON.stringify(bunfsRoot + workerRelativePath)};`
 let parserWorkerLoaderPatched = false
 for (const file of fs.readdirSync(openTuiCoreDirectory)) {
   if (!/^chunk-bun-.+\.js$/.test(file)) continue
   const chunkPath = path.join(openTuiCoreDirectory, file)
   const chunkSource = fs.readFileSync(chunkPath, "utf8")
+  if (chunkSource.includes(pinnedParserWorkerLoader)) {
+    parserWorkerLoaderPatched = true
+    console.log(`OpenTUI parser worker bunfs path already pinned in ${file}`)
+    continue
+  }
   const line = chunkSource
     .split(/\r?\n/)
     .find((candidate) => candidate.startsWith(parserWorkerLoaderPrefix))
@@ -218,7 +233,7 @@ for (const file of fs.readdirSync(openTuiCoreDirectory)) {
     chunkPath,
     chunkSource.replace(
       line,
-      `var bundledTreeSitterWorkerPath = ${JSON.stringify(bunfsRoot + workerRelativePath)};`,
+      pinnedParserWorkerLoader,
     ),
   )
   parserWorkerLoaderPatched = true

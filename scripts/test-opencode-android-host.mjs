@@ -76,7 +76,9 @@ const graphBuilder = text('scripts/build-opencode-android-graph.ts');
 assert.match(graphBuilder, /target: "bun-linux-arm64"/);
 assert.match(graphBuilder, /Extracting module graph/);
 assert.match(graphBuilder, /@opentui\/core-linux-arm64-musl/);
-assert.match(graphBuilder, /ADEV Android requires OPENTUI_LIB_PATH/);
+assert.match(graphBuilder, /process\.env\.OPENTUI_LIB_PATH \|\| siblingRenderPath/);
+assert.match(graphBuilder, /executable\.lastIndexOf\("\/"\)/);
+assert.match(graphBuilder, /liblib_opencode_opentui\.so/);
 assert.match(graphBuilder, /parserWorkerLoaderPrefix/);
 assert.match(graphBuilder, /Pinned OpenTUI parser worker bunfs path/);
 assert.ok(

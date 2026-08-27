@@ -20,8 +20,8 @@ $ArchiveName = "opencode-1.17.9-android-aarch64.zip"
 $ArchiveUrl = "https://github.com/guysoft/opencode-termux/releases/download/$PortTag/$ArchiveName"
 $ArchiveSha256 = "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0"
 $TagfixSha256 = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
-$GraphRuntimeSha256 = "6d06d366d5627e9f2de7057893f8e04f38fcd82009882479a06d45a6a9d6cfca"
-$GraphRuntimeBytes = 173518689
+$GraphRuntimeSha256 = "e5079d3c6b974bb6693e033fd292e38dc5342e022c96e8f32b4127ba7d293862"
+$GraphRuntimeBytes = 173519275
 $OpenTuiSha256 = "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a"
 $OpenTuiBytes = 14386712
 
@@ -194,6 +194,7 @@ try {
                 "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
                 "retain upstream spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
                 "replace bundled glibc/musl OpenTUI entries with the matching external Android/Bionic OpenTUI 0.4.5 renderer",
+                "derive the verified sibling APK-native OpenTUI renderer from process.execPath when a lazy Bun TUI module cannot observe OPENTUI_LIB_PATH",
                 "pin OpenTUI's parser worker to its explicit bunfs entrypoint because grafted Android Bun file imports do not publish a default path",
                 "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download"
                 "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
