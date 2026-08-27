@@ -8,7 +8,9 @@ This beta upgrades the bundled Android-native OpenCode runtime itself from 1.17.
 - The source patches, builder transformation, payload hashes, AArch64 ABI, Android linker, PIE flags, dependency closure, and 16 KiB-or-greater ELF alignment are pinned and host-verified.
 - OpenCode's upstream spinner registration is retained; the older ADEV-only spinner injection is no longer needed.
 - Fixed the Android-only TUI startup crash `undefined is not an object (evaluating 'loadedPath.startsWith')`. The reproducible graph builder now pins OpenTUI's bundled parser worker to its explicit `bunfs` entry instead of relying on a file-import default that is absent after Android/Bionic graph grafting.
+- Fixed the real interactive-terminal renderer path. Lazy OpenTUI modules now fall back to the verified sibling APK-native renderer derived from `process.execPath`, so they do not depend on Bun exposing `OPENTUI_LIB_PATH` during late module evaluation.
 - Verified on the connected Infinix X689B (ARM64, API 30): the real OpenCode TUI survives startup without the asset-loader crash, and the existing OpenCode execution-environment contract still passes 22/22 checks.
+- Final visible-terminal verification typed `opencode` in ADEV itself and rendered the complete OpenCode 1.18.23 TUI, including its prompt, agent/model controls, workspace, and version.
 
 # A Dev Studio 1.3.30
 
