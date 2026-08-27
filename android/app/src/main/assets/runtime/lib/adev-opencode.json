@@ -25,8 +25,8 @@
     "modelsSnapshotSha256": "d6a5ad68b1772eecb1fdc135f8c73995a2b0dfad29162fb84a3fa1d8320c7141",
     "graphBuildTarget": "bun-linux-arm64",
     "graphPatchFile": "scripts/patches/opencode-1.18.23-android.patch",
-    "graphRuntimeSha256": "3ce052a0e3d66e96bba71818e1403969c18a532f62cc06dba070929b15f16156",
-    "graphRuntimeBytes": 173702905,
+    "graphRuntimeSha256": "6d06d366d5627e9f2de7057893f8e04f38fcd82009882479a06d45a6a9d6cfca",
+    "graphRuntimeBytes": 173518689,
     "openTuiRepository": "https://github.com/anomalyco/opentui",
     "openTuiVersion": "0.4.5",
     "openTuiCommit": "0c8c4f7cff2927e3df63a9757a45eff9a343611c",
@@ -39,6 +39,7 @@
       "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
       "retain upstream spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
       "replace bundled glibc/musl OpenTUI entries with the matching external Android/Bionic OpenTUI 0.4.5 renderer",
+      "pin OpenTUI's parser worker to its explicit bunfs entrypoint because grafted Android Bun file imports do not publish a default path",
       "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download",
       "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file",
       "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"
@@ -70,8 +71,8 @@
     {
       "packagedName": "libbin_opencode_runtime.so",
       "sourceName": "source-rebuilt OpenCode 1.18.23 ARM64 module graph plus pinned Android Bun prefix",
-      "sha256": "3ce052a0e3d66e96bba71818e1403969c18a532f62cc06dba070929b15f16156",
-      "bytes": 173702905,
+      "sha256": "6d06d366d5627e9f2de7057893f8e04f38fcd82009882479a06d45a6a9d6cfca",
+      "bytes": 173518689,
       "license": "MIT plus embedded dependency notices"
     },
     {

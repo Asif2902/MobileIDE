@@ -77,6 +77,8 @@ assert.match(graphBuilder, /target: "bun-linux-arm64"/);
 assert.match(graphBuilder, /Extracting module graph/);
 assert.match(graphBuilder, /@opentui\/core-linux-arm64-musl/);
 assert.match(graphBuilder, /ADEV Android requires OPENTUI_LIB_PATH/);
+assert.match(graphBuilder, /parserWorkerLoaderPrefix/);
+assert.match(graphBuilder, /Pinned OpenTUI parser worker bunfs path/);
 assert.ok(
   graphBuilder.includes('Unknown component type: \\${tagName}; using text fallback'),
 );

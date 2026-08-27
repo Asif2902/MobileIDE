@@ -5,7 +5,10 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mobileide.app.runtime.RuntimeManager
+import java.io.ByteArrayOutputStream
+import java.io.InterruptedIOException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
@@ -219,6 +222,67 @@ class CompatibilityInstrumentationTest {
     fun openCodeExecutionEnvironmentPassesNetworkRuntimeContract() {
         assumeTrue("Network matrix not requested", networkMatrixRequested())
         runOpenCodeEnvironmentMatrix(network = true)
+    }
+
+    @Test
+    fun openCodeTuiStartsWithoutBundledAssetLoaderCrash() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = RuntimeManager(context)
+        if (!manager.isRuntimeReady()) manager.initializeRuntime()
+        val workspace = File(manager.getWorkspacesDir(), ".adev-opencode-tui-smoke").apply {
+            mkdirs()
+            check(isDirectory)
+        }
+        val launcher = File(manager.getNativeLibDir(), "libbin_opencode.so")
+        val process = ProcessBuilder(launcher.absolutePath)
+            .directory(workspace)
+            .redirectErrorStream(true)
+            .apply {
+                environment().apply {
+                    clear()
+                    putAll(manager.getEnvironment(workspace.absolutePath))
+                }
+            }
+            .start()
+        val outputExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "adev-opencode-tui-smoke-output").apply { isDaemon = true }
+        }
+        val outputFuture = outputExecutor.submit<String> {
+            val captured = ByteArrayOutputStream()
+            val buffer = ByteArray(4096)
+            try {
+                process.inputStream.use { stream ->
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        captured.write(buffer, 0, count)
+                    }
+                }
+            } catch (_: InterruptedIOException) {
+                // Android interrupts a blocked pipe read when the still-running TUI
+                // is forcibly stopped after the startup observation window.
+            }
+            captured.toString(Charsets.UTF_8.name())
+        }
+        try {
+            val exitedDuringStartup = process.waitFor(4, TimeUnit.SECONDS)
+            if (!exitedDuringStartup) {
+                process.destroyForcibly()
+                process.waitFor(5, TimeUnit.SECONDS)
+            }
+            val output = outputFuture.get(10, TimeUnit.SECONDS)
+            Log.i("AdevCompatibility", output.takeLast(32 * 1024))
+            assertFalse(
+                "OpenCode exited during TUI startup:\n${output.takeLast(32 * 1024)}",
+                exitedDuringStartup
+            )
+            assertFalse(output.contains("normalizeLoadedFilePath"))
+            assertFalse(output.contains("loadedPath.startsWith"))
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+            outputExecutor.shutdownNow()
+            workspace.deleteRecursively()
+        }
     }
 
     /**

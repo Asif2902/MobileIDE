@@ -285,7 +285,7 @@ def sha256Hex = { java.io.File f ->
 
 def openCodeRuntimeArchive = file("src/main/prebuilt/arm64-v8a/libbin_opencode_runtime.so.gz")
 def openCodeRuntimeBinary = new File(jniLibsArm64Dir, "libbin_opencode_runtime.so")
-def openCodeRuntimeSha256 = "3ce052a0e3d66e96bba71818e1403969c18a532f62cc06dba070929b15f16156"
+def openCodeRuntimeSha256 = "6d06d366d5627e9f2de7057893f8e04f38fcd82009882479a06d45a6a9d6cfca"
 def openTuiArchive = file("src/main/prebuilt/arm64-v8a/liblib_opencode_opentui.so.gz")
 def openTuiBinary = new File(jniLibsArm64Dir, "liblib_opencode_opentui.so")
 def openTuiSha256 = "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a"

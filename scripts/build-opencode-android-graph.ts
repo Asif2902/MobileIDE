@@ -197,6 +197,37 @@ const workerPath = "./src/cli/tui/worker.ts"
 const bunfsRoot = "/$bunfs/root/"
 const workerRelativePath = path.relative(OPENCODE_DIR, parserWorkerResolved).replaceAll("\\", "/")
 
+// OpenTUI 0.4.5 resolves parser.worker through a top-level type=file dynamic
+// import. Bun's standalone compiler creates the worker entry correctly, but
+// after the module graph is grafted onto the Android/Bionic Bun prefix the
+// imported module's default path is undefined. Pin the loader to the same
+// explicit bunfs entrypoint that is already supplied to Bun.build below.
+const openTuiCoreDirectory = path.dirname(Bun.resolveSync("@opentui/core", OPENCODE_DIR))
+const parserWorkerLoaderPrefix =
+  "var bundledTreeSitterWorkerPath = await resolveBundledFilePath(PARSER_WORKER_ASSET_KEY,"
+let parserWorkerLoaderPatched = false
+for (const file of fs.readdirSync(openTuiCoreDirectory)) {
+  if (!/^chunk-bun-.+\.js$/.test(file)) continue
+  const chunkPath = path.join(openTuiCoreDirectory, file)
+  const chunkSource = fs.readFileSync(chunkPath, "utf8")
+  const line = chunkSource
+    .split(/\r?\n/)
+    .find((candidate) => candidate.startsWith(parserWorkerLoaderPrefix))
+  if (!line) continue
+  fs.writeFileSync(
+    chunkPath,
+    chunkSource.replace(
+      line,
+      `var bundledTreeSitterWorkerPath = ${JSON.stringify(bunfsRoot + workerRelativePath)};`,
+    ),
+  )
+  parserWorkerLoaderPatched = true
+  console.log(`Pinned OpenTUI parser worker bunfs path in ${file}`)
+}
+if (!parserWorkerLoaderPatched) {
+  throw new Error("OpenTUI parser worker loader signature was not found")
+}
+
 await $`rm -rf ${OUTPUT_DIR}`
 await $`mkdir -p ${OUTPUT_DIR}`
 
