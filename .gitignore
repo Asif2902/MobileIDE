@@ -90,6 +90,10 @@ yarn-error.log
 
 runtime/downloads/
 
+# Rebuilt from the versioned gzip payload by Gradle. Keeping the generated ELF
+# out of Git avoids Git LFS quota failures while preserving reproducible builds.
+/android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so
+
 # Agent working memory (do not commit)
 **/CONTEXT.md
 

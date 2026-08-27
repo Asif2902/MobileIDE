@@ -68,6 +68,7 @@ interface FileState {
   
   // Actions
   loadWorkspaces: () => Promise<void>;
+  createWorkspace: (name: string) => Promise<string>;
   /** Returns true only after the folder was listed and its real path resolved. */
   openWorkspace: (path: string) => Promise<boolean>;
   initWorkspace: () => Promise<void>;
@@ -115,14 +116,16 @@ export const useFileStore = create<FileState>((set, get) => ({
     try {
       const workspaces = await FileSystemNativeModule.getWorkspaces();
       set({ 
-        workspaces: workspaces.map(w => ({
+        workspaces: workspaces
+          .filter(w => !w.name.startsWith('.'))
+          .map(w => ({
           name: w.name,
           path: w.path,
           isDirectory: true,
           size: 0,
           modifiedTime: w.modifiedTime,
           isHidden: false,
-        }))
+          })),
       });
     } catch (error) {
       set({ error: (error as Error).message });
@@ -164,6 +167,33 @@ export const useFileStore = create<FileState>((set, get) => ({
         error: (error as Error).message || 'Workspace could not be opened',
       });
       return false;
+    }
+  },
+
+  createWorkspace: async (name: string) => {
+    const projectName = name.trim();
+    if (!projectName || projectName === '.' || projectName === '..') {
+      throw new Error('Enter a project name.');
+    }
+    if (projectName.length > 80 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectName)) {
+      throw new Error('Use up to 80 letters, numbers, dots, dashes, or underscores.');
+    }
+
+    try {
+      const virtualPaths = await MobileIDENativeModule.getVirtualPaths();
+      const workspacePath = `${virtualPaths.workspaces}/${projectName}`;
+      if (await FileSystemNativeModule.exists(workspacePath)) {
+        throw new Error(`A project named "${projectName}" already exists.`);
+      }
+      await FileSystemNativeModule.mkdir(workspacePath, true);
+      await get().loadWorkspaces();
+      if (!(await get().openWorkspace(workspacePath))) {
+        throw new Error(get().error || 'The new project could not be opened.');
+      }
+      return workspacePath;
+    } catch (error) {
+      set({error: (error as Error).message || 'Project creation failed'});
+      throw error;
     }
   },
 
@@ -412,10 +442,39 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   deleteItem: async (path: string) => {
     const parentPath = path.substring(0, path.lastIndexOf('/'));
+    const deletedPrefix = `${path}/`;
+
+    // Android directory reads can briefly return a stale snapshot after a
+    // recursive delete. Remove the target from the visible tree immediately,
+    // then reconcile with the filesystem below.
+    set(state => {
+      const fileTree = new Map(state.fileTree);
+      for (const [directory, entries] of fileTree.entries()) {
+        if (directory === path || directory.startsWith(deletedPrefix)) {
+          fileTree.delete(directory);
+          continue;
+        }
+        const nextEntries = entries.filter(
+          entry => entry.path !== path && !entry.path.startsWith(deletedPrefix),
+        );
+        if (nextEntries.length !== entries.length) {
+          fileTree.set(directory, nextEntries);
+        }
+      }
+      const expandedFolders = new Set(
+        [...state.expandedFolders].filter(
+          directory => directory !== path && !directory.startsWith(deletedPrefix),
+        ),
+      );
+      return {fileTree, expandedFolders};
+    });
+
     try {
       await FileSystemNativeModule.delete(path, true);
       await get().refreshDirectory(parentPath);
     } catch (error) {
+      // Restore the authoritative parent listing if the native delete failed.
+      await get().refreshDirectory(parentPath);
       set({ error: (error as Error).message });
       throw error;
     }

@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   Alert,
-  ActivityIndicator,
   TextInput,
 } from 'react-native';
-import { useEditorStore } from '../../stores';
+import { useEditorStore, useUIStore } from '../../stores';
 import { EditorSearchResult, EditorView, EditorViewHandle } from './EditorView';
 import { EditorTabs } from './EditorTabs';
 import { Icon } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 export const EditorPanel: React.FC = () => {
   const {
@@ -21,7 +21,6 @@ export const EditorPanel: React.FC = () => {
     diagnostics,
     cursorLine,
     cursorColumn,
-    saveFile,
     saveAllFiles,
     fontSize,
     setFontSize,
@@ -42,6 +41,7 @@ export const EditorPanel: React.FC = () => {
     total: 0,
   });
   const editorRef = useRef<EditorViewHandle>(null);
+  const setActiveView = useUIStore(state => state.setActiveView);
 
   useEffect(() => {
     loadPreferences().catch(() => {});
@@ -58,18 +58,6 @@ export const EditorPanel: React.FC = () => {
   const errors = diag?.errors ?? 0;
   const warnings = diag?.warnings ?? 0;
   const dirtyCount = openFiles.filter(f => f.isDirty).length;
-
-  const handleSave = useCallback(async () => {
-    if (!activeFilePath) return;
-    setSaving(true);
-    try {
-      await saveFile(activeFilePath);
-    } catch (e) {
-      Alert.alert('Save failed', (e as Error).message || 'Could not write file');
-    } finally {
-      setSaving(false);
-    }
-  }, [activeFilePath, saveFile]);
 
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
@@ -92,30 +80,9 @@ export const EditorPanel: React.FC = () => {
     <View style={styles.container}>
       <EditorTabs compact={isCompact} />
 
-      {/* Action toolbar — Save is always visible when a file is open */}
+      {/* The single-file save action lives in the top bar. */}
       {activeFile && (
         <View style={[styles.toolbar, isCompact && styles.toolbarCompact]}>
-          <TouchableOpacity
-            style={[styles.toolBtn, !activeFile.isDirty && styles.toolBtnDisabled]}
-            onPress={handleSave}
-            disabled={saving || !activeFile.isDirty}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Icon name="save" size={16} color={activeFile.isDirty ? '#ffffff' : '#777'} />
-                {!isCompact && (
-                  <Text
-                    style={[styles.toolBtnText, !activeFile.isDirty && styles.toolBtnTextDisabled]}
-                  >
-                    Save
-                  </Text>
-                )}
-              </>
-            )}
-          </TouchableOpacity>
-
           {dirtyCount > 1 && (
             <TouchableOpacity style={styles.toolBtn} onPress={handleSaveAll} disabled={saving}>
               <Text style={styles.toolBtnText}>Save all ({dirtyCount})</Text>
@@ -207,14 +174,14 @@ export const EditorPanel: React.FC = () => {
               onPress={() => editorRef.current?.find(searchQuery, 'previous')}
               accessibilityLabel="Previous match"
             >
-              <Text style={styles.searchActionText}>↑</Text>
+              <Icon name="arrow-up" size={17} color={uiColors.textSecondary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.searchAction}
               onPress={() => editorRef.current?.find(searchQuery, 'next')}
               accessibilityLabel="Next match"
             >
-              <Text style={styles.searchActionText}>↓</Text>
+              <Icon name="arrow-down" size={17} color={uiColors.textSecondary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.searchAction}
@@ -268,13 +235,22 @@ export const EditorPanel: React.FC = () => {
           />
         ) : (
           <View style={styles.welcomeScreen}>
+            <View style={styles.welcomeIcon}>
+              <Icon name="editor" size={28} color={uiColors.accentText} />
+            </View>
             <Text style={styles.welcomeTitle}>Editor</Text>
             <Text style={styles.welcomeSubtitle}>
-              Open a file from the Files tab to start editing
+              Open a file from your workspace to start editing.
             </Text>
-            <Text style={styles.welcomeHint}>
-              Tap the editor to show the keyboard · Save from the toolbar above
-            </Text>
+            <TouchableOpacity
+              style={styles.welcomeAction}
+              onPress={() => setActiveView('files')}
+              accessibilityRole="button"
+              accessibilityLabel="Browse workspace files">
+              <Icon name="files" size={17} color={uiColors.text} />
+              <Text style={styles.welcomeActionText}>Browse files</Text>
+            </TouchableOpacity>
+            <Text style={styles.welcomeHint}>Files open here in editor tabs</Text>
           </View>
         )}
       </View>
@@ -304,7 +280,7 @@ export const EditorPanel: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   editorContainer: {
     flex: 1,
@@ -313,9 +289,9 @@ const styles = StyleSheet.create({
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
+    borderBottomColor: uiColors.border,
     paddingHorizontal: 8,
     paddingVertical: 6,
     minHeight: 40,
@@ -328,24 +304,19 @@ const styles = StyleSheet.create({
   toolBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#8b5cf6',
+    backgroundColor: uiColors.accent,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: uiRadii.small,
     gap: 6,
     minWidth: 44,
     justifyContent: 'center',
   },
-  toolBtnDisabled: {
-    backgroundColor: '#333',
-  },
   toolBtnText: {
-    color: '#fff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 13,
     fontWeight: '600',
-  },
-  toolBtnTextDisabled: {
-    color: '#777',
   },
   toolSpacer: { flex: 1 },
   iconBtn: {
@@ -358,26 +329,27 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   iconBtnText: {
-    color: '#aaa',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     fontSize: 12,
     fontWeight: '600',
   },
   iconBtnActive: {
-    color: '#c4b5fd',
+    color: uiColors.accentText,
   },
   iconBtnSelected: {
-    backgroundColor: '#373044',
+    backgroundColor: uiColors.accentSoft,
   },
   dirtyBadge: {
-    color: '#fbbf24',
+    color: uiColors.warning,
     fontSize: 11,
     fontWeight: '600',
     marginLeft: 4,
   },
   searchPanel: {
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#333338',
+    borderBottomColor: uiColors.border,
     paddingHorizontal: 8,
     paddingBottom: 6,
     gap: 5,
@@ -392,17 +364,19 @@ const styles = StyleSheet.create({
     minWidth: 72,
     height: 36,
     borderWidth: 1,
-    borderColor: '#45454b',
+    borderColor: uiColors.borderStrong,
     borderRadius: 6,
-    backgroundColor: '#1e1e1e',
-    color: '#e4e4e7',
+    backgroundColor: uiColors.canvas,
+    color: uiColors.text,
+    fontFamily: uiFonts.regular,
     fontSize: 13,
     paddingHorizontal: 9,
     paddingVertical: 0,
   },
   matchCount: {
     width: 44,
-    color: '#a1a1aa',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.regular,
     fontSize: 11,
     textAlign: 'center',
   },
@@ -412,12 +386,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 6,
-    backgroundColor: '#333338',
-  },
-  searchActionText: {
-    color: '#d4d4d8',
-    fontSize: 17,
-    fontWeight: '600',
+    backgroundColor: uiColors.surfacePressed,
   },
   replaceAction: {
     height: 34,
@@ -426,19 +395,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 6,
-    backgroundColor: '#373044',
+    backgroundColor: uiColors.accentSoft,
   },
   replaceActionText: {
-    color: '#c4b5fd',
+    color: uiColors.accentText,
+    fontFamily: uiFonts.medium,
     fontSize: 11,
-    fontWeight: '700',
   },
   statusBar: {
     minHeight: 26,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#007acc',
+    backgroundColor: uiColors.surface,
+    borderTopWidth: 1,
+    borderTopColor: uiColors.border,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
@@ -457,22 +428,22 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   mutedText: {
-    color: '#ffffff',
+    color: uiColors.textSecondary,
     fontSize: 11,
     marginLeft: 8,
   },
   errorText: {
-    color: '#ffd0d0',
+    color: uiColors.danger,
     fontSize: 11,
     fontWeight: '600',
   },
   warnText: {
-    color: '#fff0c0',
+    color: uiColors.warning,
     fontSize: 11,
     fontWeight: '600',
   },
   langText: {
-    color: '#ffffff',
+    color: uiColors.textSecondary,
     fontSize: 11,
     marginLeft: 10,
     textTransform: 'uppercase',
@@ -481,25 +452,57 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
     padding: 24,
   },
   welcomeTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
+    fontFamily: uiFonts.medium,
+    fontSize: 22,
+    fontWeight: '600',
+    color: uiColors.text,
+    marginBottom: 7,
+  },
+  welcomeIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: uiColors.accentSoft,
+    borderWidth: 1,
+    borderColor: '#382d63',
+    marginBottom: 18,
   },
   welcomeSubtitle: {
-    fontSize: 15,
-    color: '#888888',
+    maxWidth: 300,
+    fontSize: 13,
+    lineHeight: 19,
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.regular,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 18,
+  },
+  welcomeAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: uiColors.accent,
+    borderRadius: uiRadii.medium,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  welcomeActionText: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 13,
+    fontWeight: '600',
   },
   welcomeHint: {
-    fontSize: 12,
-    color: '#555',
+    fontSize: 11,
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
     textAlign: 'center',
+    marginTop: 12,
   },
 });
 

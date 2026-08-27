@@ -2,6 +2,7 @@ import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { useUIStore, SidebarView } from '../../stores';
 import { Icon, IconName } from '../icons';
+import {uiColors, uiRadii} from '../../theme';
 
 interface ActivityBarItem {
   id: SidebarView;
@@ -12,7 +13,6 @@ interface ActivityBarItem {
 const activityBarItems: ActivityBarItem[] = [
   { id: 'explorer', icon: 'files', label: 'Explorer' },
   { id: 'search', icon: 'search', label: 'Search' },
-  { id: 'git', icon: 'git', label: 'Source Control' },
   { id: 'settings', icon: 'settings', label: 'Settings' },
 ];
 
@@ -29,7 +29,7 @@ export const ActivityBar: React.FC = () => {
             style={[styles.item, active && styles.activeItem]}
             onPress={() => setSidebarView(item.id)}
           >
-            <Icon name={item.icon} size={24} color={active ? '#ffffff' : '#858585'} />
+            <Icon name={item.icon} size={22} color={active ? uiColors.accentText : uiColors.textMuted} />
             {active && <View style={styles.activeIndicator} />}
           </TouchableOpacity>
         );
@@ -41,7 +41,7 @@ export const ActivityBar: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     width: 48,
-    backgroundColor: '#333333',
+    backgroundColor: uiColors.canvas,
     alignItems: 'center',
     paddingTop: 8,
   },
@@ -53,7 +53,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   activeItem: {
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.accentSoft,
+    borderRadius: uiRadii.medium,
   },
   activeIndicator: {
     position: 'absolute',
@@ -61,7 +62,7 @@ const styles = StyleSheet.create({
     top: 8,
     bottom: 8,
     width: 2,
-    backgroundColor: '#ffffff',
+    backgroundColor: uiColors.accent,
   },
 });
 

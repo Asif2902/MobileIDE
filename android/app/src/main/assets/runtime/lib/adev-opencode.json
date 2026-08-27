@@ -1,80 +1,83 @@
 {
-  "schemaVersion": 1,
-  "id": "opencode-android",
-  "version": "1.17.9",
-  "platform": "android-bionic",
-  "supportedAbis": [
-    "arm64-v8a"
-  ],
-  "unsupportedAbis": {
-    "x86_64": "No verified Android/Bionic x86_64 OpenCode runtime is available."
-  },
-  "delivery": "base-apk-native-library",
-  "source": {
-    "openCodeRepository": "https://github.com/anomalyco/opencode",
-    "openCodeCommit": "5c23e88419c4743b9be42cea132f2fb1e6cb63ff",
-    "androidPortRepository": "https://github.com/guysoft/opencode-termux",
-    "androidPortTag": "v0.2.1",
-    "androidPortCommit": "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
-    "archiveUrl": "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
-    "archiveSha256": "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
-    "androidBunPrefixSha256": "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde",
-    "graphBuildBunVersion": "1.3.2",
-    "graphBuildBunArchiveSha256": "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6",
-    "modelsSnapshotSha256": "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1",
-    "graphBuildTarget": "bun-linux-arm64",
-    "graphPatchFile": "scripts/patches/opencode-1.17.9-android.patch",
-    "androidGraphPatches": [
-      "use the launcher-provided app-private XDG cache for OpenCode temporary files",
-      "skip background plugin dependency installation on Android",
-      "embed the OpenCode TUI worker and use the external Android/Bionic OpenTUI library",
-      "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download",
-      "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file",
-      "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"
-    ],
-    "upstreamSignature": "not-published; exact SHA-256 and source commits are pinned"
-  },
-  "runtime": {
-    "interpreter": "/system/bin/linker64",
-    "pie": true,
-    "minimumLoadAlignment": 16384,
-    "requiresWritableExecutable": false,
-    "globalLinuxSpoof": false,
-    "fileWatcher": "disabled for the bundled host-only @parcel/watcher binding",
-    "tempPathPolicy": "source-built graph uses canonical app-private XDG cache temp; exact /tmp remap remains a scoped fallback",
-    "heapPointerTaggingPolicy": "API 29/30 child startup uses Bionic android_mallopt opcode 8; API 31+ falls back to public mallopt(-204, NONE)",
-    "preloadOrder": "upstream tagfix, ADEV Android-version heap-tag and /tmp compatibility shim, inherited termux-exec"
-  },
-  "capabilities": {
-    "version": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "help": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "debugPaths": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "interactiveTui": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "agentRun": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "serve": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "web": "enabled through the real pinned payload; device retest required after /tmp remap",
-    "policy": "all standard modes reach the Android/Bionic payload; no Linux/glibc binary is substituted"
-  },
-  "components": [
-    {
-      "packagedName": "libbin_opencode_runtime.so",
-      "sourceName": "source-rebuilt OpenCode 1.17.9 module graph plus pinned Android Bun prefix",
-      "sha256": "db2f90e9b044543c5983e2d0c3e3e20cf3a59c1f9206342ff3519a95e2a7b2c3",
-      "bytes": 206540686,
-      "license": "MIT plus embedded dependency notices"
-    },
-    {
-      "packagedName": "liblib_opencode_opentui.so",
-      "sourceName": "libopentui.so",
-      "sha256": "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44",
-      "license": "MIT"
-    },
-    {
-      "packagedName": "liblib_opencode_tagfix.so",
-      "sourceName": "libtagfix.so",
-      "sha256": "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1",
-      "license": "MIT"
-    }
-  ],
-  "deviceGate": "Pending ARM64 retest after the process-scoped /tmp remap, in order: version, help, debug paths, run help, run hello, serve, web, and TUI. API 29 and API 36 remain required."
+    "schemaVersion":  1,
+    "id":  "opencode-android",
+    "version":  "1.17.9",
+    "platform":  "android-bionic",
+    "supportedAbis":  [
+                          "arm64-v8a"
+                      ],
+    "unsupportedAbis":  {
+                            "x86_64":  "No verified Android/Bionic x86_64 OpenCode runtime is available."
+                        },
+    "delivery":  "base-apk-native-library",
+    "source":  {
+                   "openCodeRepository":  "https://github.com/anomalyco/opencode",
+                   "openCodeCommit":  "5c23e88419c4743b9be42cea132f2fb1e6cb63ff",
+                   "androidPortRepository":  "https://github.com/guysoft/opencode-termux",
+                   "androidPortTag":  "v0.2.1",
+                   "androidPortCommit":  "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
+                   "archiveUrl":  "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
+                   "archiveSha256":  "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
+                   "androidBunPrefixSha256":  "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde",
+                   "graphBuildBunVersion":  "1.3.2",
+                   "graphBuildBunArchiveSha256":  "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6",
+                   "modelsSnapshotSha256":  "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1",
+                   "graphBuildTarget":  "bun-linux-arm64",
+                   "graphPatchFile":  "scripts/patches/opencode-1.17.9-android.patch",
+                   "graphRuntimeSha256":  "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7",
+                   "graphRuntimeBytes":  152949062,
+                   "androidGraphPatches":  [
+                                               "use the launcher-provided app-private XDG cache for OpenCode temporary files",
+                                               "skip background plugin dependency installation on Android",
+                                               "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
+                                               "retain the spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
+                                               "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download",
+                                               "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file",
+                                               "route the core Bash tool through ADEV\u0027s APK-native environment-restoring shell broker instead of Bun\u0027s sanitized /bin/sh child"
+                                           ],
+                   "upstreamSignature":  "not-published; exact SHA-256 and source commits are pinned"
+               },
+    "runtime":  {
+                    "interpreter":  "/system/bin/linker64",
+                    "pie":  true,
+                    "minimumLoadAlignment":  16384,
+                    "requiresWritableExecutable":  false,
+                    "globalLinuxSpoof":  false,
+                    "fileWatcher":  "disabled for the bundled host-only @parcel/watcher binding",
+                    "tempPathPolicy":  "source-built graph uses canonical app-private XDG cache temp; exact /tmp remap remains a scoped fallback",
+                    "heapPointerTaggingPolicy":  "API 29/30 child startup uses Bionic android_mallopt opcode 8; API 31+ falls back to public mallopt(-204, NONE)",
+                    "preloadOrder":  "upstream tagfix, ADEV Android-version heap-tag and /tmp compatibility shim, inherited termux-exec"
+                },
+    "capabilities":  {
+                         "version":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "help":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "debugPaths":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "interactiveTui":  "device-certified on ARM64 API 30, including forced plugin-loading spinner animation and graceful unknown-component fallback; API 29/36 remain",
+                         "agentRun":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "serve":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "web":  "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain",
+                         "policy":  "all standard modes reach the Android/Bionic payload; no Linux/glibc binary is substituted"
+                     },
+    "components":  [
+                       {
+                           "packagedName":  "libbin_opencode_runtime.so",
+                           "sourceName":  "source-rebuilt OpenCode 1.17.9 ARM64 module graph plus pinned Android Bun prefix",
+                           "sha256":  "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7",
+                           "bytes":  152949062,
+                           "license":  "MIT plus embedded dependency notices"
+                       },
+                       {
+                           "packagedName":  "liblib_opencode_opentui.so",
+                           "sourceName":  "libopentui.so",
+                           "sha256":  "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44",
+                           "license":  "MIT"
+                       },
+                       {
+                           "packagedName":  "liblib_opencode_tagfix.so",
+                           "sourceName":  "libtagfix.so",
+                           "sha256":  "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1",
+                           "license":  "MIT"
+                       }
+                   ],
+    "deviceGate":  "ARM64 API 30 certified: version/help/debug/run/serve/web, real Bash-tool environment, interactive TUI, and forced plugin-loading spinner (all 10 frames, no fatal marker). API 29/API 36 and x86_64 payload coverage remain."
 }

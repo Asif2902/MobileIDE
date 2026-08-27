@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useUIStore } from '../../stores';
 import { FileExplorer } from '../explorer';
+import {uiColors, uiFonts} from '../../theme';
 
 export const Sidebar: React.FC = () => {
   const { activeSidebarView, isSidebarVisible, sidebarWidth } = useUIStore();
@@ -21,13 +22,6 @@ export const Sidebar: React.FC = () => {
             <Text style={styles.placeholderSubtext}>Search across files (coming soon)</Text>
           </View>
         );
-      case 'git':
-        return (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Source Control</Text>
-            <Text style={styles.placeholderSubtext}>Git integration (coming soon)</Text>
-          </View>
-        );
       case 'settings':
         return (
           <View style={styles.placeholder}>
@@ -36,7 +30,7 @@ export const Sidebar: React.FC = () => {
           </View>
         );
       default:
-        return null;
+        return <FileExplorer />;
     }
   };
 
@@ -49,9 +43,9 @@ export const Sidebar: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.canvas,
     borderRightWidth: 1,
-    borderRightColor: '#1e1e1e',
+    borderRightColor: uiColors.border,
   },
   placeholder: {
     flex: 1,
@@ -61,12 +55,13 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     fontSize: 16,
-    color: '#cccccc',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     marginBottom: 8,
   },
   placeholderSubtext: {
     fontSize: 12,
-    color: '#666666',
+    color: uiColors.textMuted,
   },
 });
 

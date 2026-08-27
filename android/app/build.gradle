@@ -283,6 +283,47 @@ def sha256Hex = { java.io.File f ->
     return md.digest().collect { String.format("%02x", it & 0xFF) }.join("")
 }
 
+def openCodeRuntimeArchive = file("src/main/prebuilt/arm64-v8a/libbin_opencode_runtime.so.gz")
+def openCodeRuntimeBinary = new File(jniLibsArm64Dir, "libbin_opencode_runtime.so")
+def openCodeRuntimeSha256 = "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7"
+
+task restoreOpenCodeRuntime {
+    description = "Restore the pinned ARM64 OpenCode runtime from its Git-friendly gzip payload"
+    inputs.file(openCodeRuntimeArchive)
+    outputs.file(openCodeRuntimeBinary)
+    outputs.upToDateWhen {
+        openCodeRuntimeBinary.isFile() && sha256Hex(openCodeRuntimeBinary) == openCodeRuntimeSha256
+    }
+    doLast {
+        if (!openCodeRuntimeArchive.isFile()) {
+            throw new GradleException("Missing pinned OpenCode runtime archive: ${openCodeRuntimeArchive}")
+        }
+        openCodeRuntimeBinary.parentFile.mkdirs()
+        def temporaryBinary = new File(openCodeRuntimeBinary.parentFile, "${openCodeRuntimeBinary.name}.tmp")
+        try {
+            openCodeRuntimeArchive.withInputStream { archiveInput ->
+                new java.util.zip.GZIPInputStream(archiveInput).withCloseable { gzipInput ->
+                    temporaryBinary.withOutputStream { output -> gzipInput.transferTo(output) }
+                }
+            }
+            def restoredHash = sha256Hex(temporaryBinary)
+            if (restoredHash != openCodeRuntimeSha256) {
+                throw new GradleException(
+                    "OpenCode runtime SHA-256 mismatch: expected ${openCodeRuntimeSha256}, got ${restoredHash}"
+                )
+            }
+            java.nio.file.Files.move(
+                temporaryBinary.toPath(),
+                openCodeRuntimeBinary.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+            logger.lifecycle("[runtime] restored pinned OpenCode ARM64 payload from gzip")
+        } finally {
+            temporaryBinary.delete()
+        }
+    }
+}
+
 def mangleLibName = { String relPath ->
     "lib" + relPath.replaceAll("[^a-zA-Z0-9]+", "_") + ".so"
 }
@@ -337,7 +378,7 @@ task sanitizeRuntimeNpmAssets {
 
 task prepareRuntimeNativeLibs {
     description = "Relocate ELF runtime binaries from assets into jniLibs as lib*.so"
-    dependsOn sanitizeRuntimeNpmAssets, "pruneRuntimeNativeLibs"
+    dependsOn sanitizeRuntimeNpmAssets, "pruneRuntimeNativeLibs", restoreOpenCodeRuntime
     doLast {
         if (!runtimeAssetsDir.exists()) {
             logger.lifecycle("[runtime] no runtime assets dir; skipping relocation")

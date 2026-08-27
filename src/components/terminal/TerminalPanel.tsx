@@ -5,6 +5,7 @@ import { TerminalView } from './TerminalView';
 import { TerminalTabs } from './TerminalTabs';
 import { Icon, IconName } from '../icons';
 import { ProblemsView, OutputView, DebugView } from '../layout/BottomPanelViews';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 interface SubTab {
   id: BottomPanelView;
@@ -152,7 +153,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }
               <Icon
                 name={tab.icon}
                 size={13}
-                color={activeBottomPanelView === tab.id ? '#ffffff' : '#969696'}
+                color={activeBottomPanelView === tab.id ? uiColors.accentText : uiColors.textMuted}
               />
               <Text
                 style={[
@@ -177,34 +178,37 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ embedded = false }
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   subTabBar: {
     flexDirection: 'row',
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
-    height: 34,
+    borderBottomColor: uiColors.border,
+    height: 42,
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
   },
   subTab: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    height: '100%',
+    height: 32,
+    marginHorizontal: 1,
+    borderRadius: uiRadii.small,
   },
   subTabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#007acc',
+    backgroundColor: uiColors.accentSoft,
   },
   subTabText: {
-    fontSize: 12,
-    color: '#969696',
+    fontFamily: uiFonts.regular,
+    fontSize: 11,
+    color: uiColors.textMuted,
     marginLeft: 5,
   },
   subTabTextActive: {
-    color: '#ffffff',
+    color: uiColors.accentText,
+    fontFamily: uiFonts.medium,
   },
   content: {
     flex: 1,
@@ -219,21 +223,22 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   loadingText: {
-    color: '#888888',
+    color: uiColors.textMuted,
     fontSize: 13,
     marginTop: 8,
   },
   errorTitle: {
-    color: '#f0f0f0',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 15,
     fontWeight: '600',
     marginTop: 10,
   },
   errorText: {
-    color: '#aaaaaa',
+    color: uiColors.textSecondary,
     fontSize: 13,
     lineHeight: 18,
     marginHorizontal: 24,
@@ -241,14 +246,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#007acc',
-    borderRadius: 5,
+    backgroundColor: uiColors.accent,
+    borderRadius: uiRadii.medium,
     marginTop: 14,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
   retryButtonText: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 13,
     fontWeight: '600',
   },

@@ -76,7 +76,7 @@ describe('Android terminal Linux command policy', () => {
 
   it('materializes non-system applets for direct child-process PATH lookup', () => {
     const trampolineBlock = runtime.match(
-      /if \(busyboxRuntime\.exists\(\) && busyboxDispatcher\.exists\(\)\) \{([\s\S]*?)\n\s*\}/,
+      /if \(busyboxRuntime\.exists\(\) && busyboxDispatcher\.exists\(\)\) \{([\s\S]*?)\n            \}/,
     )?.[1];
     expect(trampolineBlock).toBeDefined();
     [

@@ -1,3 +1,72 @@
+diff --git a/packages/core/src/filesystem/fff.bun.ts b/packages/core/src/filesystem/fff.bun.ts
+index 9843419ed..34285ccac 100644
+--- a/packages/core/src/filesystem/fff.bun.ts
++++ b/packages/core/src/filesystem/fff.bun.ts
+@@ -1,5 +1,4 @@
+ import {
+-  FileFinder,
+   type DirItem,
+   type DirSearchResult,
+   type FileItem,
+@@ -30,7 +29,6 @@ export interface Search {
+ export interface DirSearch {
+   items: DirItem[]
+   scores: DirSearchResult["scores"]
+-  totalMatched: number
+   totalDirs: number
+ }
+ 
+@@ -52,7 +50,6 @@ export interface Grep {
+   items: GrepResult["items"]
+   totalMatched: number
+   totalFilesSearched: number
+-  totalFiles: number
+   filteredFileCount: number
+   nextCursor: Cursor
+   regexFallbackError?: string
+@@ -111,12 +108,40 @@ export interface Picker {
+   getHistoricalQuery(offset: number): Result<string | null>
+ }
+ 
++// ADEV Android: @ff-labs/fff-bun resolves its glibc/musl binding through
++// Bun's standalone-import.meta helpers, which are undefined for modules in
++// the TUI worker graph — evaluating the package eagerly crashed every TUI
++// boot before any flag could disable it. Load it lazily instead; when the
++// binding cannot load (Android/Bionic), callers degrade to the ripgrep path.
++type FffModule = typeof import("@ff-labs/fff-bun")
++
++let loaded: FffModule | undefined
++let loadFailed = false
++
++function loadModule(): FffModule | null {
++  if (loaded) return loaded
++  if (loadFailed) return null
++  try {
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    loaded = require("@ff-labs/fff-bun") as FffModule
++    return loaded
++  } catch {
++    loadFailed = true
++    return null
++  }
++}
++
+ export function available() {
+-  return FileFinder.isAvailable()
++  const mod = loadModule()
++  return mod ? mod.FileFinder.isAvailable() : false
+ }
+ 
+ export function create(opts: Init): Result<Picker> {
+-  const made = FileFinder.create(opts)
++  const mod = loadModule()
++  if (!mod) {
++    return { ok: false, error: "fff-bun is unavailable on this platform" }
++  }
++  const made = mod.FileFinder.create(opts)
+   if (!made.ok) return made
+   const pick = made.value
+   return {
 diff --git a/packages/core/src/global.ts b/packages/core/src/global.ts
 index 2a0ac95d1..0178ad4ff 100644
 --- a/packages/core/src/global.ts
@@ -39,8 +108,8 @@ index 99fa8a2fd..2ef41387c 100644
              const system = yield* Effect.sync(() => which(process.platform === "win32" ? "rg.exe" : "rg"))
              if (system && (yield* fs.isFile(system).pipe(Effect.orDie))) return system
  
-﻿diff --git a/packages/core/src/tool/bash.ts b/packages/core/src/tool/bash.ts
-index bd6f175..c3b3c7c 100644
+diff --git a/packages/core/src/tool/bash.ts b/packages/core/src/tool/bash.ts
+index bd6f175ad..c3b3c7cfe 100644
 --- a/packages/core/src/tool/bash.ts
 +++ b/packages/core/src/tool/bash.ts
 @@ -156,9 +156,13 @@ export const layer = Layer.effectDiscard(
@@ -59,6 +128,27 @@ index bd6f175..c3b3c7c 100644
                  stdin: "ignore",
                  detached: process.platform !== "win32",
                  forceKillAfter: Duration.seconds(3),
+diff --git a/packages/opencode/src/cli/cmd/tui.ts b/packages/opencode/src/cli/cmd/tui.ts
+index 68941e976..af96b0ba7 100644
+--- a/packages/opencode/src/cli/cmd/tui.ts
++++ b/packages/opencode/src/cli/cmd/tui.ts
+@@ -209,7 +209,15 @@ export const TuiThreadCommand = cmd({
+               fork: args.fork,
+             },
+           }),
+-        )
++        ).catch((error) => {
++          // ADEV Android: surface the real failure instead of the bare
++          // "Unexpected error" wrapper so boot faults are diagnosable.
++          console.error(
++            "ADEV_TUI_BOOT_FAIL",
++            error instanceof Error ? (error.stack ?? error.message) : String(error),
++          )
++          throw error
++        })
+       } finally {
+         await stop()
+       }
 diff --git a/packages/opencode/src/cli/cmd/web.ts b/packages/opencode/src/cli/cmd/web.ts
 index 69a981aad..55cf9f348 100644
 --- a/packages/opencode/src/cli/cmd/web.ts
@@ -107,6 +197,28 @@ index 69a981aad..55cf9f348 100644
      }
  
      yield* Effect.never
+diff --git a/packages/opencode/src/cli/tui/layer.ts b/packages/opencode/src/cli/tui/layer.ts
+index cc88498cb..11c185a6c 100644
+--- a/packages/opencode/src/cli/tui/layer.ts
++++ b/packages/opencode/src/cli/tui/layer.ts
+@@ -1,7 +1,17 @@
+ import { run as runTui, type TuiInput } from "@opencode-ai/tui"
++import { setRenderLibPath } from "@opentui/core"
+ import { Global } from "@opencode-ai/core/global"
+ import { Effect } from "effect"
+ 
+ export function run(input: TuiInput) {
++  // This graph is built only for ADEV Android. Bun embeds the Linux
++  // glibc/musl OpenTUI builds in the compiled module graph, which Bionic can
++  // never dlopen, so select the APK-native Bionic libopentui.so before the
++  // renderer resolves its FFI library. ADEV's native launcher exports
++  // OPENTUI_LIB_PATH for exactly this file.
++  const androidRenderLib = process.env.OPENTUI_LIB_PATH
++  if (androidRenderLib && require("fs").existsSync(androidRenderLib)) {
++    setRenderLibPath(androidRenderLib)
++  }
+   return runTui(input).pipe(Effect.provide(Global.defaultLayer))
+ }
 diff --git a/packages/opencode/src/config/config.ts b/packages/opencode/src/config/config.ts
 index 7f568f492..32dfc917b 100644
 --- a/packages/opencode/src/config/config.ts
@@ -162,8 +274,20 @@ index 7f568f492..32dfc917b 100644
  
            result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
            result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.load(dir)))
+diff --git a/packages/opencode/src/index.ts b/packages/opencode/src/index.ts
+index 13540a73a..c4e2d349b 100644
+--- a/packages/opencode/src/index.ts
++++ b/packages/opencode/src/index.ts
+@@ -130,6 +130,7 @@ try {
+   if (formatted) UI.error(formatted)
+   if (formatted === undefined) {
+     UI.error("Unexpected error" + EOL)
++    process.stderr.write((e instanceof Error ? (e.stack ?? e.message) : String(e)) + EOL)
+     process.stderr.write(errorMessage(e) + EOL)
+   }
+   process.exitCode = 1
 diff --git a/packages/opencode/src/tool/shell.ts b/packages/opencode/src/tool/shell.ts
-index 620378d..275d708 100644
+index 620378dc1..275d708c8 100644
 --- a/packages/opencode/src/tool/shell.ts
 +++ b/packages/opencode/src/tool/shell.ts
 @@ -489,7 +489,23 @@ export const ShellTool = Tool.define(
@@ -191,4 +315,31 @@ index 620378d..275d708 100644
  
            yield* Effect.forkScoped(
              Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
-
+diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
+index aa002080b..4597f1502 100644
+--- a/packages/tui/src/component/prompt/index.tsx
++++ b/packages/tui/src/component/prompt/index.tsx
+@@ -10,7 +10,8 @@ import {
+ } from "@opentui/core"
+ import type { CommandContext } from "@opentui/keymap"
+ import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
+-import "opentui-spinner/solid"
++import { registerSpinner } from "opentui-spinner/solid"
++registerSpinner()
+ import path from "path"
+ import { fileURLToPath } from "url"
+ import { useLocal } from "../../context/local"
+diff --git a/packages/tui/src/component/spinner.tsx b/packages/tui/src/component/spinner.tsx
+index 700780314..ea49fd134 100644
+--- a/packages/tui/src/component/spinner.tsx
++++ b/packages/tui/src/component/spinner.tsx
+@@ -3,7 +3,8 @@ import { useTheme } from "../context/theme"
+ import { useKV } from "../context/kv"
+ import type { JSX } from "@opentui/solid"
+ import type { RGBA } from "@opentui/core"
+-import "opentui-spinner/solid"
++import { registerSpinner } from "opentui-spinner/solid"
++registerSpinner()
+ 
+ export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+ 

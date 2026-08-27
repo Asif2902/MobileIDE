@@ -8,6 +8,8 @@ jest.mock('../src/native', () => ({
   FileSystemNativeModule: {
     listDir: jest.fn(async () => []),
     writeFile: jest.fn(async () => true),
+    mkdir: jest.fn(async () => true),
+    delete: jest.fn(async () => true),
     exists: jest.fn(async () => false),
     readFile: jest.fn(async () => ''),
     getWorkspaces: jest.fn(async () => []),
@@ -208,5 +210,89 @@ describe('File workspace open contract', () => {
     );
     expect(mockedFileSystem.listDir).toHaveBeenCalledWith('/root/workspaces/current');
     expect(result?.name).toBe('config (1).json');
+  });
+
+  it('deletes files and folders recursively and refreshes their parent', async () => {
+    mockedFileSystem.listDir.mockResolvedValueOnce([]);
+
+    await useFileStore.getState().deleteItem('/root/workspaces/current/src');
+
+    expect(mockedFileSystem.delete).toHaveBeenCalledWith(
+      '/root/workspaces/current/src',
+      true,
+    );
+    expect(mockedFileSystem.listDir).toHaveBeenCalledWith(
+      '/root/workspaces/current',
+    );
+  });
+
+  it('removes a deleted subtree from Explorer state before native refresh completes', async () => {
+    let finishDelete: (() => void) | undefined;
+    mockedFileSystem.delete.mockImplementationOnce(
+      () => new Promise<boolean>(resolve => {
+        finishDelete = () => resolve(true);
+      }),
+    );
+    mockedFileSystem.listDir.mockResolvedValueOnce([]);
+    useFileStore.setState({
+      fileTree: new Map([
+        ['/root/workspaces/current', [{
+          name: 'src',
+          path: '/root/workspaces/current/src',
+          isDirectory: true,
+          size: 0,
+          modifiedTime: 1,
+          isHidden: false,
+        }]],
+        ['/root/workspaces/current/src', [{
+          name: 'index.js',
+          path: '/root/workspaces/current/src/index.js',
+          isDirectory: false,
+          size: 8,
+          modifiedTime: 1,
+          isHidden: false,
+        }]],
+      ]),
+      expandedFolders: new Set(['/root/workspaces/current/src']),
+    });
+
+    const deletion = useFileStore.getState().deleteItem('/root/workspaces/current/src');
+
+    expect(useFileStore.getState().fileTree.get('/root/workspaces/current')).toEqual([]);
+    expect(useFileStore.getState().fileTree.has('/root/workspaces/current/src')).toBe(false);
+    expect(useFileStore.getState().expandedFolders.has('/root/workspaces/current/src')).toBe(false);
+
+    finishDelete?.();
+    await deletion;
+  });
+
+  it('creates and opens a private project without Git or Terminal setup', async () => {
+    mockedFileSystem.exists.mockResolvedValueOnce(false);
+    mockedFileSystem.getWorkspaces.mockResolvedValueOnce([]);
+    mockedFileSystem.listDir.mockResolvedValueOnce([]);
+    mockedMobileIDE.resolvePath.mockResolvedValueOnce('/real/root/workspaces/fresh-app');
+
+    const created = await useFileStore.getState().createWorkspace('fresh-app');
+
+    expect(mockedFileSystem.mkdir).toHaveBeenCalledWith(
+      '/root/workspaces/fresh-app',
+      true,
+    );
+    expect(created).toBe('/root/workspaces/fresh-app');
+    expect(useFileStore.getState().currentWorkspace).toBe('/root/workspaces/fresh-app');
+  });
+
+  it('does not expose hidden runtime directories as projects', async () => {
+    mockedFileSystem.getWorkspaces.mockResolvedValueOnce([
+      {name: '.cache', path: '/root/workspaces/.cache', modifiedTime: 1},
+      {name: '.npm', path: '/root/workspaces/.npm', modifiedTime: 1},
+      {name: 'demo-web', path: '/root/workspaces/demo-web', modifiedTime: 1},
+    ]);
+
+    await useFileStore.getState().loadWorkspaces();
+
+    expect(useFileStore.getState().workspaces.map(workspace => workspace.name)).toEqual([
+      'demo-web',
+    ]);
   });
 });

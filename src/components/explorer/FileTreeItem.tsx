@@ -4,6 +4,7 @@ import {FileEntry} from '../../native';
 import {useFileStore, useEditorStore, useUIStore} from '../../stores';
 import {Icon} from '../icons';
 import {getFileVisual} from './treeModel';
+import {uiColors, uiFonts} from '../../theme';
 
 interface FileTreeItemProps {
   entry: FileEntry;
@@ -21,7 +22,10 @@ const BINARY_EXTENSIONS = new Set([
 const FileTreeRow: React.FC<FileTreeItemProps> = ({entry, depth}) => {
   const isExpanded = useFileStore(state => state.expandedFolders.has(entry.path));
   const toggleFolder = useFileStore(state => state.toggleFolder);
+  const deleteItem = useFileStore(state => state.deleteItem);
   const openFile = useEditorStore(state => state.openFile);
+  const openFiles = useEditorStore(state => state.openFiles);
+  const closeFile = useEditorStore(state => state.closeFile);
   const activeFilePath = useEditorStore(state => state.activeFilePath);
   const setActiveView = useUIStore(state => state.setActiveView);
   const isSelected = !entry.isDirectory && activeFilePath === entry.path;
@@ -48,46 +52,94 @@ const FileTreeRow: React.FC<FileTreeItemProps> = ({entry, depth}) => {
     );
   }, [entry, openFile, setActiveView, toggleFolder]);
 
+  const performDelete = useCallback(async () => {
+    try {
+      await deleteItem(entry.path);
+      const deletedPrefix = `${entry.path}/`;
+      openFiles
+        .filter(file => file.path === entry.path || file.path.startsWith(deletedPrefix))
+        .forEach(file => closeFile(file.path));
+    } catch (error) {
+      Alert.alert(
+        `Could not delete ${entry.isDirectory ? 'folder' : 'file'}`,
+        (error as Error)?.message || String(error),
+      );
+    }
+  }, [closeFile, deleteItem, entry, openFiles]);
+
+  const confirmDelete = useCallback(() => {
+    const kind = entry.isDirectory ? 'folder' : 'file';
+    const warning = entry.isDirectory
+      ? `Delete “${entry.name}” and everything inside it? This cannot be undone.`
+      : `Delete “${entry.name}”? This cannot be undone.`;
+    Alert.alert(`Delete ${kind}?`, warning, [
+      {text: 'Cancel', style: 'cancel'},
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          performDelete().catch(() => undefined);
+        },
+      },
+    ]);
+  }, [entry, performDelete]);
+
   return (
-    <TouchableOpacity
-      accessibilityRole="button"
-      accessibilityLabel={`${entry.isDirectory ? 'Folder' : 'File'} ${entry.name}`}
-      accessibilityState={{expanded: entry.isDirectory ? isExpanded : undefined, selected: isSelected}}
-      activeOpacity={0.65}
+    <View
       style={[
         styles.item,
-        {paddingLeft: 10 + Math.min(depth, 12) * 14},
         isSelected && styles.itemSelected,
-      ]}
-      onPress={handlePress}>
-      <View style={styles.chevronSlot}>
-        {entry.isDirectory && (
+      ]}>
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${entry.isDirectory ? 'Folder' : 'File'} ${entry.name}`}
+        accessibilityState={{expanded: entry.isDirectory ? isExpanded : undefined, selected: isSelected}}
+        activeOpacity={0.65}
+        style={[styles.itemContent, {paddingLeft: 10 + Math.min(depth, 12) * 14}]}
+        onPress={handlePress}
+        onLongPress={confirmDelete}>
+        <View style={styles.chevronSlot}>
+          {entry.isDirectory && (
+            <Icon
+              name={isExpanded ? 'chevron-down' : 'chevron-right'}
+              size={14}
+              color={uiColors.textMuted}
+              strokeWidth={2.3}
+            />
+          )}
+        </View>
+        <View style={styles.iconSlot}>
           <Icon
-            name={isExpanded ? 'chevron-down' : 'chevron-right'}
-            size={14}
-            color="#8e8e93"
-            strokeWidth={2.3}
+            name={entry.isDirectory ? (isExpanded ? 'folder-open' : 'folder') : 'file'}
+            size={18}
+            color={entry.isDirectory ? uiColors.accentText : visual.color}
+            strokeWidth={1.8}
           />
-        )}
-      </View>
-      <View style={styles.iconSlot}>
+          {!entry.isDirectory && !!visual.label && (
+            <Text style={[styles.typeBadge, {color: visual.color}]}>{visual.label}</Text>
+          )}
+        </View>
+        <Text
+          style={[styles.name, entry.isHidden && styles.hiddenName, isSelected && styles.selectedName]}
+          numberOfLines={1}
+          ellipsizeMode="middle">
+          {entry.name}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.deleteButton}
+        onPress={confirmDelete}
+        hitSlop={{top: 4, bottom: 4, left: 4, right: 4}}
+        accessibilityRole="button"
+        accessibilityLabel={`Delete ${entry.isDirectory ? 'folder' : 'file'} ${entry.name}`}>
         <Icon
-          name={entry.isDirectory ? (isExpanded ? 'folder-open' : 'folder') : 'file'}
-          size={18}
-          color={entry.isDirectory ? '#c4a7ff' : visual.color}
+          name="trash"
+          size={16}
+          color={uiColors.textMuted}
           strokeWidth={1.8}
         />
-        {!entry.isDirectory && !!visual.label && (
-          <Text style={[styles.typeBadge, {color: visual.color}]}>{visual.label}</Text>
-        )}
-      </View>
-      <Text
-        style={[styles.name, entry.isHidden && styles.hiddenName, isSelected && styles.selectedName]}
-        numberOfLines={1}
-        ellipsizeMode="middle">
-        {entry.name}
-      </Text>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   );
 };
 
@@ -95,16 +147,27 @@ export const FileTreeItem = memo(FileTreeRow);
 
 const styles = StyleSheet.create({
   item: {
-    minHeight: 36,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingRight: 12,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
+  itemContent: {
+    minHeight: 40,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteButton: {
+    width: 42,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   itemSelected: {
-    backgroundColor: '#352b4d',
-    borderLeftColor: '#a78bfa',
+    backgroundColor: uiColors.accentSoft,
+    borderLeftColor: uiColors.accent,
   },
   chevronSlot: {
     width: 18,
@@ -123,18 +186,20 @@ const styles = StyleSheet.create({
     fontSize: 6,
     lineHeight: 7,
     fontWeight: '800',
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
   },
   name: {
-    color: '#d4d4d4',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.regular,
     flex: 1,
     fontSize: 13,
   },
   hiddenName: {
-    color: '#a8a8ad',
+    color: uiColors.textMuted,
   },
   selectedName: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontWeight: '600',
   },
 });

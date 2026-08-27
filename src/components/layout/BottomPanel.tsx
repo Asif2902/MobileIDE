@@ -4,6 +4,7 @@ import { useUIStore, BottomPanelView } from '../../stores';
 import { TerminalPanel } from '../terminal';
 import { Icon, IconName } from '../icons';
 import { ProblemsView, OutputView, DebugView } from './BottomPanelViews';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 interface PanelTab {
   id: BottomPanelView;
@@ -64,7 +65,7 @@ export const BottomPanel: React.FC = () => {
               <Icon
                 name={tab.icon}
                 size={13}
-                color={activeBottomPanelView === tab.id ? '#ffffff' : '#969696'}
+                color={activeBottomPanelView === tab.id ? uiColors.accentText : uiColors.textMuted}
               />
               <Text
                 style={[
@@ -78,7 +79,7 @@ export const BottomPanel: React.FC = () => {
           ))}
         </View>
         <TouchableOpacity style={styles.closeButton} onPress={toggleBottomPanel}>
-          <Icon name="close" size={16} color="#969696" />
+          <Icon name="close" size={16} color={uiColors.textMuted} />
         </TouchableOpacity>
       </View>
       
@@ -92,17 +93,17 @@ export const BottomPanel: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
     borderTopWidth: 1,
-    borderTopColor: '#333333',
+    borderTopColor: uiColors.border,
   },
   tabBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
+    borderBottomColor: uiColors.border,
     height: 35,
     paddingHorizontal: 8,
   },
@@ -116,23 +117,25 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#007acc',
+    backgroundColor: uiColors.accentSoft,
+    borderRadius: uiRadii.small,
   },
   tabText: {
     fontSize: 12,
-    color: '#969696',
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
     marginLeft: 6,
   },
   activeTabText: {
-    color: '#ffffff',
+    color: uiColors.accentText,
+    fontFamily: uiFonts.medium,
   },
   closeButton: {
     padding: 4,
   },
   closeButtonText: {
     fontSize: 16,
-    color: '#969696',
+    color: uiColors.textMuted,
   },
   content: {
     flex: 1,
@@ -144,7 +147,7 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     fontSize: 14,
-    color: '#666666',
+    color: uiColors.textMuted,
   },
 });
 

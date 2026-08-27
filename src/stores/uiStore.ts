@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 
-export type SidebarView = 'explorer' | 'search' | 'git' | 'settings';
+export type SidebarView = 'explorer' | 'search' | 'settings';
 export type BottomPanelView = 'terminal' | 'problems' | 'output' | 'debug';
 // Top-level views used by the mobile (phone) bottom tab layout.
-export type MobileView = 'files' | 'editor' | 'terminal' | 'git' | 'settings';
+export type MobileView = 'files' | 'editor' | 'terminal' | 'settings';
 
 interface UIState {
   // Mobile top-level view (phone layout)

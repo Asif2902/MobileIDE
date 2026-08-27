@@ -28,6 +28,41 @@ if (!fs.existsSync(ANDROID_BUN)) {
 
 process.chdir(OPENCODE_DIR)
 
+// OpenTUI's Solid reconciler currently treats every unregistered intrinsic as
+// fatal. That made a tree-shaken optional registration (`spinner`) crash the
+// whole Android TUI. Keep the explicit spinner registration in the pinned
+// source patch, and also make the compiled renderer degrade unknown,
+// non-critical intrinsics to a text/span container. Children and ordinary text
+// remain visible while the missing component is reported on stderr.
+const solidRendererPath = Bun.resolveSync("@opentui/solid", OPENCODE_DIR)
+const solidRendererSource = fs.readFileSync(solidRendererPath, "utf8")
+const unknownComponentThrow = `    if (!elements[tagName]) {
+      throw new Error(\`[Reconciler] Unknown component type: \${tagName}\`);
+    }
+    const element = new elements[tagName](solidRenderer, { id });`
+const unknownComponentFallback = `    let component = elements[tagName];
+    if (!component) {
+      component = elements.span ?? elements.text;
+      if (!component) {
+        throw new Error(\`[Reconciler] Unknown component type: \${tagName}; no text fallback is registered\`);
+      }
+      console.warn(\`[Reconciler] Unknown component type: \${tagName}; using text fallback\`);
+    }
+    const element = new component(solidRenderer, { id });`
+if (solidRendererSource.includes(unknownComponentThrow)) {
+  fs.writeFileSync(
+    solidRendererPath,
+    solidRendererSource.replace(unknownComponentThrow, unknownComponentFallback),
+  )
+  console.log(`Patched OpenTUI unknown-component fallback: ${solidRendererPath}`)
+} else if (solidRendererSource.includes("using text fallback")) {
+  console.log(`OpenTUI unknown-component fallback already patched: ${solidRendererPath}`)
+} else {
+  throw new Error(
+    `OpenTUI reconciler shape changed; refusing to build without the unknown-component fallback: ${solidRendererPath}`,
+  )
+}
+
 // This builder lives in ADEV rather than the upstream checkout. Resolve the
 // pinned plugin from the supplied OpenCode tree after changing into it.
 const { createSolidTransformPlugin } = await import(
@@ -323,6 +358,66 @@ if (undiciPatchCount === 0) {
   console.log(`  Patched ${undiciPatchCount} occurrence(s)`)
 }
 
+// ---- Patch 2: Neutralize @ff-labs/fff-bun getCurrentDir ----
+// In Bun 1.3.2 standalone graphs, modules reachable only through the extra
+// TUI worker entrypoint evaluate with an undefined `import.meta.url`, and
+// fff-bun's top-level native-binding resolution calls
+// `import.meta.url.includes("$bunfs")` — crashing every TUI boot with
+// "path101.includes is not a function". The resolved directory is only used
+// to locate a glibc/musl binding ADEV never loads (native rendering goes
+// through OPENTUI_LIB_PATH), so replacing the function body with
+// `return <dirname>(process.execPath)` is behavior-neutral here and keeps
+// the byte count identical (padded with trailing spaces).
+const FFF_MARKER = Buffer.from('includes("$bunfs")')
+const FFF_FUNC = 'function getCurrentDir()'
+let fffPatchCount = 0
+{
+  // Decode once and match whole functions: bundled sources keep upstream
+  // pretty-printing, so each function ends at the first UNINDENTED newline-brace.
+  const haystack = mgBuf.slice(0, modOff).toString("latin1")
+  const re = /function getCurrentDir\(\)\s*\{[\s\S]*?\n\}/g
+  let m
+  while ((m = re.exec(haystack)) !== null) {
+    const start = m.index, text = m[0]
+    const dirnameAlias = text.match(/dirname\d+/)?.[0]
+    const base = `${FFF_FUNC}{return ${dirnameAlias ?? "dirname"}(process.execPath)}`
+    if (base.length > text.length) {
+      throw new Error(`fff-bun patch: replacement exceeds original span (${base.length} > ${text.length})`)
+    }
+    const replacement = Buffer.from(base + " ".repeat(text.length - base.length))
+    replacement.copy(mgBuf, start)
+    fffPatchCount++
+    console.log(`  fff-bun getCurrentDir at graph offset ${start}: neutered (${text.length} bytes, dirname=${dirnameAlias})`)
+    re.lastIndex = start + text.length
+  }
+}
+if (fffPatchCount === 0) {
+  console.error("WARNING: fff-bun getCurrentDir not found - skipping Patch 2")
+} else {
+  console.log(`  Patched ${fffPatchCount} fff-bun occurrence(s)`)
+  const residue = (() => {
+    let pos = 0
+    for (;;) {
+      const at = mgBuf.indexOf(FFF_MARKER, pos)
+      if (at < 0) return -1
+      // Optional chaining (`?.includes`) tolerates undefined meta — skip it.
+      let back = at - 1
+      while (back >= 0 && (mgBuf[back] === 0x20 || mgBuf[back] === 0x09)) back--
+      const guarded = back >= 0 && mgBuf[back] === 0x3f // '?'
+      if (!guarded) return at
+      pos = at + FFF_MARKER.length
+    }
+  })()
+  if (residue >= 0) {
+    console.log(
+      "  RESIDUE CONTEXT: " +
+        mgBuf
+          .slice(Math.max(0, residue - 260), residue + 260)
+          .toString("latin1")
+          .replace(/[^\x20-\x7e]/g, "."),
+    )
+  }
+}
 // Since all patches are same-size in-place edits, the module graph is unchanged
 // in structure. We just pass through the entire mgBuf (with our in-place edits)
 // as the final module graph.

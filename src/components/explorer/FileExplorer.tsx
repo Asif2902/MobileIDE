@@ -11,6 +11,7 @@ import {
 import { FileTreeItem } from './FileTreeItem';
 import {Icon} from '../icons';
 import {flattenVisibleTree} from './treeModel';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 const formatBytes = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -32,6 +33,7 @@ export const FileExplorer: React.FC = () => {
     openFolderFromDevice,
     importFileFromDevice,
     externalRoots,
+    createWorkspace,
     createFile,
     createFolder,
     importProject,
@@ -45,7 +47,11 @@ export const FileExplorer: React.FC = () => {
   const openEditorFile = useEditorStore(state => state.openFile);
   const setActiveView = useUIStore(state => state.setActiveView);
   const hasAutoOpened = useRef(false);
-  const [inputModal, setInputModal] = useState<{ visible: boolean; type: 'file' | 'folder'; value: string }>({ visible: false, type: 'file', value: '' });
+  const [inputModal, setInputModal] = useState<{
+    visible: boolean;
+    type: 'file' | 'folder' | 'project';
+    value: string;
+  }>({ visible: false, type: 'file', value: '' });
   const [projectPickerVisible, setProjectPickerVisible] = useState(false);
   const [folderPickerVisible, setFolderPickerVisible] = useState(false);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
@@ -123,17 +129,34 @@ export const FileExplorer: React.FC = () => {
     }
   }, [currentWorkspace, importFileFromDevice, workspaceName]);
 
-  const handleInputConfirm = useCallback(() => {
+  const handleInputConfirm = useCallback(async () => {
     const name = inputModal.value.trim();
-    if (name && currentWorkspace) {
-      if (inputModal.type === 'file') {
-        createFile(currentWorkspace, name).catch(e => Alert.alert('Error', e.message));
+    if (!name) return;
+    try {
+      if (inputModal.type === 'project') {
+        await createWorkspace(name);
+      } else if (currentWorkspace) {
+        if (inputModal.type === 'file') {
+          await createFile(currentWorkspace, name);
+        } else {
+          await createFolder(currentWorkspace, name);
+        }
       } else {
-        createFolder(currentWorkspace, name).catch(e => Alert.alert('Error', e.message));
+        throw new Error('Open a workspace first.');
       }
+      setInputModal({ visible: false, type: 'file', value: '' });
+    } catch (createError) {
+      Alert.alert(
+        inputModal.type === 'project' ? 'Could not create project' : 'Could not create item',
+        (createError as Error)?.message || String(createError),
+      );
     }
-    setInputModal({ visible: false, type: 'file', value: '' });
-  }, [inputModal, currentWorkspace, createFile, createFolder]);
+  }, [inputModal, currentWorkspace, createFile, createFolder, createWorkspace]);
+
+  const handleNewProject = useCallback(() => {
+    setProjectPickerVisible(false);
+    setInputModal({visible: true, type: 'project', value: 'my-app'});
+  }, []);
 
   const handleOpenFolder = useCallback(async () => {
     const roots = await openFolderFromDevice();
@@ -350,14 +373,14 @@ export const FileExplorer: React.FC = () => {
     <View style={styles.container}>
       {/* Compact actions stay usable on narrow portrait screens. */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>EXPLORER</Text>
+        <Text style={styles.headerTitle}>WORKSPACE</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity accessibilityLabel="Private projects" style={styles.textButton} onPress={handleShowProjects}>
-            <Icon name="files" size={15} color="#d8d4e8" />
+            <Icon name="files" size={15} color={uiColors.textSecondary} />
             <Text style={styles.textButtonLabel}>Projects</Text>
           </TouchableOpacity>
           <TouchableOpacity accessibilityLabel="Open device folder" style={styles.textButton} onPress={handleOpenFolder}>
-            <Icon name="folder-open" size={15} color="#d8d4e8" />
+            <Icon name="folder-open" size={15} color={uiColors.textSecondary} />
             <Text style={styles.textButtonLabel}>Open</Text>
           </TouchableOpacity>
         </View>
@@ -384,24 +407,20 @@ export const FileExplorer: React.FC = () => {
         </View>
       </View>
 
-      <ScrollView
-        horizontal
-        style={styles.workspaceActionScroller}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.workspaceActions}>
+      <View style={styles.workspaceActions}>
         <TouchableOpacity style={styles.actionButton} onPress={handleImportFile}>
-          <Icon name="file" size={15} color="#c4a7ff" />
-          <Text style={styles.actionButtonText}>Import file</Text>
+          <Icon name="file" size={15} color={uiColors.accentText} />
+          <Text style={styles.actionButtonText} numberOfLines={1}>Import file</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={handleNewFile}>
-          <Icon name="plus" size={14} color="#c4a7ff" />
-          <Text style={styles.actionButtonText}>New file</Text>
+          <Icon name="plus" size={14} color={uiColors.accentText} />
+          <Text style={styles.actionButtonText} numberOfLines={1}>New file</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={handleNewFolder}>
-          <Icon name="folder" size={15} color="#c4a7ff" />
-          <Text style={styles.actionButtonText}>New folder</Text>
+          <Icon name="folder" size={15} color={uiColors.accentText} />
+          <Text style={styles.actionButtonText} numberOfLines={1}>New folder</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
       
       {/* Error display */}
       {error && (
@@ -456,7 +475,7 @@ export const FileExplorer: React.FC = () => {
       {/* File tree */}
       {!isReady ? (
         <View style={[styles.treeContainer, styles.emptyState]}>
-          <ActivityIndicator color="#a78bfa" />
+          <ActivityIndicator color={uiColors.accent} />
           <Text style={styles.emptyText}>Initializing workspace…</Text>
         </View>
       ) : currentWorkspace && visibleEntries.length > 0 ? (
@@ -492,40 +511,83 @@ export const FileExplorer: React.FC = () => {
       <Modal
         visible={projectPickerVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setProjectPickerVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Private Projects</Text>
-            <Text style={styles.pickerHint}>
-              Git clones appear here and open directly in Files and Terminal.
-            </Text>
-            <ScrollView style={styles.pickerList}>
+        <View style={styles.projectModalOverlay}>
+          <TouchableOpacity
+            style={styles.projectModalDismissArea}
+            activeOpacity={1}
+            onPress={() => setProjectPickerVisible(false)}
+            accessibilityLabel="Close project picker"
+          />
+          <View style={styles.projectSheet}>
+            <View style={styles.projectSheetHandle} />
+            <View style={styles.projectSheetHeader}>
+              <View style={styles.projectSheetIcon}>
+                <Icon name="folder-open" size={19} color={uiColors.accentText} />
+              </View>
+              <View style={styles.projectSheetCopy}>
+                <Text style={styles.projectSheetTitle}>Your projects</Text>
+                <Text style={styles.projectSheetSubtitle}>
+                  Private workspaces support Node, Git, Vite, and native builds.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.projectCloseButton}
+                onPress={() => setProjectPickerVisible(false)}
+                accessibilityLabel="Close project picker">
+                <Icon name="close" size={17} color={uiColors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={styles.projectList}
+              contentContainerStyle={styles.projectListContent}
+              keyboardShouldPersistTaps="handled">
               {workspaces.length > 0 ? workspaces.map((workspace) => {
                 const selected = workspace.path === currentWorkspace;
                 return (
                   <TouchableOpacity
                     key={workspace.path}
-                    style={[styles.workspaceItem, selected && styles.workspaceItemSelected]}
+                    style={[styles.projectRow, selected && styles.projectRowSelected]}
                     onPress={() => handleSwitchProject(workspace.path)}
                   >
-                    <Text style={styles.workspaceItemText}>
-                      {selected ? '●  ' : '○  '}{workspace.name}
-                    </Text>
-                    <Text style={styles.pickerPath}>{workspace.path}</Text>
+                    <View style={styles.projectRowIcon}>
+                      <Icon
+                        name="folder"
+                        size={18}
+                        color={selected ? uiColors.accentText : uiColors.textSecondary}
+                      />
+                    </View>
+                    <View style={styles.projectRowCopy}>
+                      <Text style={styles.projectRowName}>{workspace.name}</Text>
+                      <Text style={styles.projectRowPath} numberOfLines={1} ellipsizeMode="middle">
+                        {workspace.path}
+                      </Text>
+                    </View>
+                    {selected && (
+                      <View style={styles.currentProjectBadge}>
+                        <Text style={styles.currentProjectBadgeText}>Open</Text>
+                      </View>
+                    )}
+                    <Icon name="chevron-right" size={16} color={uiColors.textMuted} />
                   </TouchableOpacity>
                 );
               }) : (
-                <Text style={styles.pickerHint}>No private projects found.</Text>
+                <View style={styles.projectEmptyState}>
+                  <Icon name="folder" size={28} color={uiColors.textMuted} />
+                  <Text style={styles.projectEmptyTitle}>No projects yet</Text>
+                  <Text style={styles.projectEmptyCopy}>Create one here or clone a repository in Terminal.</Text>
+                </View>
               )}
             </ScrollView>
-            <View style={styles.modalButtons}>
+            <View style={styles.projectSheetActions}>
               <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setProjectPickerVisible(false)}
-              >
-                <Text style={styles.modalButtonText}>Close</Text>
+                style={styles.projectCreateButton}
+                onPress={handleNewProject}
+                accessibilityLabel="Create new private project">
+                <Icon name="plus" size={17} color={uiColors.text} />
+                <Text style={styles.projectCreateButtonText}>New project</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -542,13 +604,26 @@ export const FileExplorer: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>
-              {inputModal.type === 'file' ? 'New File' : 'New Folder'}
+              {inputModal.type === 'file'
+                ? 'New file'
+                : inputModal.type === 'folder'
+                  ? 'New folder'
+                  : 'New project'}
             </Text>
+            {inputModal.type === 'project' && (
+              <Text style={styles.modalDescription}>
+                Creates a private ADEV workspace ready for Terminal, Node, Git, and builds.
+              </Text>
+            )}
             <TextInput
               style={styles.modalInput}
               value={inputModal.value}
               onChangeText={(text) => setInputModal(prev => ({ ...prev, value: text }))}
-              placeholder={inputModal.type === 'file' ? 'filename.js' : 'folder-name'}
+              placeholder={inputModal.type === 'file'
+                ? 'filename.js'
+                : inputModal.type === 'folder'
+                  ? 'folder-name'
+                  : 'my-app'}
               placeholderTextColor="#666666"
               autoFocus
               selectTextOnFocus
@@ -563,9 +638,11 @@ export const FileExplorer: React.FC = () => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={handleInputConfirm}
+                onPress={() => { handleInputConfirm().catch(() => undefined); }}
               >
-                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>Create</Text>
+                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
+                  {inputModal.type === 'project' ? 'Create project' : 'Create'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -783,22 +860,24 @@ export const FileExplorer: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.canvas,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
+    borderBottomColor: uiColors.border,
   },
   headerTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#bbbbbb',
-    letterSpacing: 0.5,
+    fontFamily: uiFonts.medium,
+    fontSize: 10,
+    fontWeight: '600',
+    color: uiColors.textMuted,
+    letterSpacing: 1.2,
   },
   headerActions: {
     flexDirection: 'row',
@@ -808,23 +887,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#3f3f46',
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 6,
+    backgroundColor: uiColors.surfaceRaised,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: uiRadii.medium,
+    borderWidth: 1,
+    borderColor: uiColors.border,
   },
   textButtonLabel: {
     fontSize: 12,
-    color: '#ffffff',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     fontWeight: '600',
   },
   workspaceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#2d2d2d',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginHorizontal: 10,
+    marginTop: 10,
+    backgroundColor: uiColors.surface,
+    borderWidth: 1,
+    borderColor: uiColors.border,
+    borderRadius: uiRadii.large,
   },
   workspaceHeaderInfo: {
     flex: 1,
@@ -836,56 +923,60 @@ const styles = StyleSheet.create({
   workspaceName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
   },
   workspacePath: {
     marginTop: 2,
     fontSize: 10,
-    color: '#999999',
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
   },
   dotfilesVisible: {
     marginTop: 3,
     fontSize: 10,
-    color: '#73c991',
+    color: uiColors.success,
+    fontFamily: uiFonts.regular,
   },
   workspaceActions: {
+    flexDirection: 'row',
     minHeight: 42,
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#333333',
-  },
-  workspaceActionScroller: {
-    flexGrow: 0,
-    flexShrink: 0,
-    height: 44,
+    borderBottomColor: uiColors.border,
   },
   actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     minHeight: 30,
-    paddingHorizontal: 9,
-    borderRadius: 6,
-    backgroundColor: '#333238',
+    paddingHorizontal: 6,
+    borderRadius: uiRadii.small,
+    backgroundColor: uiColors.surfaceRaised,
     borderWidth: 1,
-    borderColor: '#45434c',
+    borderColor: uiColors.border,
   },
   actionButtonText: {
-    color: '#dedbe8',
+    flexShrink: 1,
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     fontSize: 11,
     fontWeight: '600',
   },
   envButton: {
-    backgroundColor: '#3f3f46',
-    borderRadius: 5,
+    backgroundColor: uiColors.surfaceRaised,
+    borderRadius: uiRadii.small,
     paddingHorizontal: 9,
     paddingVertical: 7,
   },
   envButtonText: {
-    color: '#ffffff',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -973,20 +1064,24 @@ const styles = StyleSheet.create({
   },
   treeContainer: {
     flex: 1,
+    backgroundColor: uiColors.canvas,
   },
   emptyState: {
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 34,
     alignItems: 'center',
     gap: 6,
   },
   emptyText: {
     fontSize: 15,
-    color: '#aaaaaa',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     marginBottom: 6,
   },
   emptySubtext: {
     fontSize: 12,
-    color: '#666666',
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
     marginBottom: 16,
     textAlign: 'center',
   },
@@ -1003,6 +1098,7 @@ const styles = StyleSheet.create({
   workspaceItemText: {
     fontSize: 14,
     color: '#ffffff',
+    fontFamily: uiFonts.medium,
     fontWeight: '500',
   },
   workspaceItemSelected: {
@@ -1081,33 +1177,200 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     marginLeft: 9,
   },
+  projectModalOverlay: {
+    flex: 1,
+    backgroundColor: uiColors.overlay,
+    justifyContent: 'flex-end',
+  },
+  projectModalDismissArea: {
+    flex: 1,
+  },
+  projectSheet: {
+    maxHeight: '72%',
+    backgroundColor: uiColors.surface,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: uiColors.borderStrong,
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+  },
+  projectSheetHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: uiColors.borderStrong,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  projectSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  projectSheetIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: uiColors.accentSoft,
+  },
+  projectSheetCopy: {
+    flex: 1,
+  },
+  projectSheetTitle: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 17,
+  },
+  projectSheetSubtitle: {
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  projectCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: uiRadii.medium,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: uiColors.surfaceRaised,
+  },
+  projectList: {
+    flexGrow: 0,
+  },
+  projectListContent: {
+    gap: 7,
+    paddingBottom: 4,
+  },
+  projectRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: uiRadii.medium,
+    backgroundColor: uiColors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: uiColors.border,
+  },
+  projectRowSelected: {
+    borderColor: uiColors.accent,
+    backgroundColor: uiColors.accentSoft,
+  },
+  projectRowIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: uiRadii.small,
+    backgroundColor: uiColors.surfacePressed,
+  },
+  projectRowCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  projectRowName: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 13,
+  },
+  projectRowPath: {
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
+    fontSize: 9,
+    marginTop: 3,
+  },
+  currentProjectBadge: {
+    borderRadius: uiRadii.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    backgroundColor: uiColors.accent,
+  },
+  currentProjectBadgeText: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 9,
+  },
+  projectEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 26,
+  },
+  projectEmptyTitle: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 14,
+    marginTop: 8,
+  },
+  projectEmptyCopy: {
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
+    fontSize: 11,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  projectSheetActions: {
+    paddingTop: 12,
+  },
+  projectCreateButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: uiRadii.medium,
+    backgroundColor: uiColors.accent,
+  },
+  projectCreateButtonText: {
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
+    fontSize: 13,
+  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: uiColors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 18,
   },
   modalContainer: {
     width: '100%',
-    backgroundColor: '#2d2d2d',
-    borderRadius: 8,
-    padding: 20,
+    maxWidth: 480,
+    backgroundColor: uiColors.surfaceRaised,
+    borderRadius: uiRadii.large,
+    borderWidth: 1,
+    borderColor: uiColors.borderStrong,
+    padding: 16,
   },
   modalTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
+    fontFamily: uiFonts.medium,
+    color: uiColors.text,
+    marginBottom: 10,
+  },
+  modalDescription: {
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
     marginBottom: 12,
   },
   modalInput: {
-    backgroundColor: '#1e1e1e',
-    color: '#ffffff',
+    backgroundColor: uiColors.canvas,
+    color: uiColors.text,
+    fontFamily: uiFonts.regular,
     fontSize: 14,
     padding: 12,
-    borderRadius: 4,
+    borderRadius: uiRadii.small,
     borderWidth: 1,
-    borderColor: '#3f3f46',
+    borderColor: uiColors.borderStrong,
     marginBottom: 16,
   },
   optionLabel: {
@@ -1187,23 +1450,24 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: 8,
   },
   modalButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 4,
-    marginLeft: 8,
+    borderRadius: uiRadii.small,
+    backgroundColor: uiColors.surfacePressed,
   },
   modalButtonPrimary: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: uiColors.accent,
   },
   modalButtonText: {
     fontSize: 14,
-    color: '#cccccc',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
   },
   modalButtonTextPrimary: {
-    color: '#ffffff',
-    fontWeight: '600',
+    color: uiColors.text,
   },
 });
 

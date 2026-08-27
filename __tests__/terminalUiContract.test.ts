@@ -104,4 +104,19 @@ describe('terminal Android UI contract', () => {
     );
     expect(context.patch).toEqual({ erase: 1, insert: '' });
   });
+
+  it('renders terminal directions as vectors rather than font glyphs', () => {
+    const accessory = readProjectFile(
+      'src/components/terminal/TerminalAccessoryBar.tsx',
+    );
+    const icons = readProjectFile('src/components/icons/index.tsx');
+
+    for (const glyph of ['←', '↑', '↓', '→']) {
+      expect(accessory).not.toContain(`label: '${glyph}'`);
+    }
+    for (const direction of ['left', 'up', 'down', 'right']) {
+      expect(accessory).toContain(`icon: 'arrow-${direction}'`);
+      expect(icons).toContain(`case 'arrow-${direction}'`);
+    }
+  });
 });

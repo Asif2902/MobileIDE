@@ -23,7 +23,12 @@ export type IconName =
   | 'refresh'
   | 'keyboard'
   | 'copy'
-  | 'save';
+  | 'save'
+  | 'arrow-left'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'arrow-right'
+  | 'trash';
 
 export interface IconProps {
   name: IconName;
@@ -165,6 +170,34 @@ function renderPaths(
       return <Polyline {...stroke} points="9 6 15 12 9 18" />;
     case 'chevron-down':
       return <Polyline {...stroke} points="6 9 12 15 18 9" />;
+    case 'arrow-left':
+      return (
+        <>
+          <Line {...stroke} x1="20" y1="12" x2="4" y2="12" />
+          <Polyline {...stroke} points="10 18 4 12 10 6" />
+        </>
+      );
+    case 'arrow-up':
+      return (
+        <>
+          <Line {...stroke} x1="12" y1="20" x2="12" y2="4" />
+          <Polyline {...stroke} points="6 10 12 4 18 10" />
+        </>
+      );
+    case 'arrow-down':
+      return (
+        <>
+          <Line {...stroke} x1="12" y1="4" x2="12" y2="20" />
+          <Polyline {...stroke} points="6 14 12 20 18 14" />
+        </>
+      );
+    case 'arrow-right':
+      return (
+        <>
+          <Line {...stroke} x1="4" y1="12" x2="20" y2="12" />
+          <Polyline {...stroke} points="14 6 20 12 14 18" />
+        </>
+      );
     case 'play':
       return <Path {...stroke} fill={color} d="M6 4l14 8-14 8z" />;
     case 'problems':
@@ -226,6 +259,15 @@ function renderPaths(
           <Path {...stroke} d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
           <Polyline {...stroke} points="17 21 17 13 7 13 7 21" />
           <Polyline {...stroke} points="7 3 7 8 15 8" />
+        </>
+      );
+    case 'trash':
+      return (
+        <>
+          <Polyline {...stroke} points="3 6 5 6 21 6" />
+          <Path {...stroke} d="M8 6V4h8v2M19 6l-1 14H6L5 6" />
+          <Line {...stroke} x1="10" y1="10" x2="10" y2="16" />
+          <Line {...stroke} x1="14" y1="10" x2="14" y2="16" />
         </>
       );
     default:

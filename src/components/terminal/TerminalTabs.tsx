@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { useTerminalStore, useFileStore } from '../../stores';
 import { Icon } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 export const TerminalTabs: React.FC = () => {
   const { sessions, activeSessionId, setActiveSession, createSession, closeSession } = useTerminalStore();
@@ -55,7 +56,7 @@ export const TerminalTabs: React.FC = () => {
               accessibilityRole="button"
               accessibilityLabel={`Close terminal ${index + 1}`}
             >
-              <Icon name="close" size={13} color="#969696" />
+              <Icon name="close" size={13} color={uiColors.textMuted} />
             </TouchableOpacity>
           </TouchableOpacity>
         ))}
@@ -68,7 +69,7 @@ export const TerminalTabs: React.FC = () => {
         accessibilityLabel="Toggle terminal extra keys above the keyboard"
         accessibilityState={{ selected: isKeyboardBarVisible }}
       >
-        <Icon name="keyboard" size={18} color={isKeyboardBarVisible ? '#ffffff' : '#6e6e6e'} />
+        <Icon name="keyboard" size={18} color={isKeyboardBarVisible ? uiColors.accentText : uiColors.textMuted} />
       </TouchableOpacity>
 
       <TouchableOpacity 
@@ -77,7 +78,7 @@ export const TerminalTabs: React.FC = () => {
         accessibilityRole="button"
         accessibilityLabel="New terminal"
       >
-        <Icon name="plus" size={18} color="#ffffff" />
+        <Icon name="plus" size={18} color={uiColors.text} />
       </TouchableOpacity>
     </View>
   );
@@ -87,10 +88,10 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
-    height: 33,
+    borderBottomColor: uiColors.border,
+    height: 40,
   },
   scrollView: {
     flex: 1,
@@ -107,38 +108,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     marginRight: 2,
-    backgroundColor: '#2d2d2d',
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    backgroundColor: uiColors.surfaceRaised,
+    borderRadius: uiRadii.small,
   },
   activeTab: {
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   tabText: {
     flexShrink: 1,
-    color: '#969696',
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
     fontSize: 12,
     marginRight: 6,
   },
   activeTabText: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
   },
   closeButton: {
     padding: 2,
   },
   closeButtonText: {
-    color: '#969696',
+    color: uiColors.textMuted,
     fontSize: 14,
     lineHeight: 14,
   },
   addButton: {
     width: 42,
-    height: 33,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   addButtonText: {
-    color: '#ffffff',
+    color: uiColors.text,
     fontSize: 18,
     lineHeight: 20,
   },

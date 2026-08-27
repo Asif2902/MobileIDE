@@ -1,7 +1,7 @@
 # Android Compatibility Audit and Fix Plan
 
-Audit date: 2026-08-24
-Application: A Dev Studio 1.3.27 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Audit date: 2026-08-26
+Application: A Dev Studio 1.3.29 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
 Runtime: 1.17.6
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
@@ -31,7 +31,7 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 |---|---|---|---|
 | Terminal startup-loop and prompt correction | **API 30 OBSERVED — FINAL CANDIDATE RETEST** | `9c8cf13` | The invalid SELinux-context bytes that made `ProcessBuilder` reject terminal startup are stripped, and the prompt was observed on API 30. The 1.3.8 keyboard/accessory/IME/copy and PTY cleanup changes pass host tests; final-candidate device stress and API 29/36 checks remain. |
 | Runtime asset completeness and Make shell bridge | **FIXED — FINAL ARM64 DEVICE RETEST** | `cf4afc7` + `d2d8adc` | The copied API 30 logs proved Python progressed past the missing `zipfile._path` module and then exposed GNU Make's compiled `/data/data/com.termux/files/usr/bin/sh`. Runtime 1.16.3 retains every source asset and routes direct, npm, recursive, and node-gyp Make through an APK-native launcher that forces `/system/bin/sh`. The original npm install/rebuild/compile/load still needs final-candidate device execution. |
-| OpenCode Android command | **DIAGNOSTICS VERIFIED — FUNCTIONAL MODES UNSUPPORTED** | `d2d8adc` | API 30 testing verified command discovery and diagnostics, but available Android Bun/OpenTUI payloads abort in TUI, agent, run, serve, and web modes. Version 1.3.8 blocks those modes with actionable exit 69 instead of crashing or substituting a glibc binary. API 29/36 boundary retests and x86_64 payload support remain. |
+| OpenCode Android command | **ARM64 API 30 VERIFIED — TUI/SPINNER/BASH TOOL PASS** | `65c7e93` + pending TUI payload | The pinned source-built OpenCode 1.17.9 graph runs version/help/debug/run/serve/web and the real Bash tool with the complete ADEV environment. The interactive TUI renders through the packaged Bionic OpenTUI library; a forced six-second plugin-loading state rendered all ten spinner frames without a reconciler or boot crash. API 29/36 and x86_64 payload coverage remain. |
 | BusyBox, Nano, terminal UX, Git workspace, and dependency security correction | **HOST/APK VERIFIED — DEVICE GATE** | `d2d8adc` | BusyBox 1.38.0-1 is a pinned ELF64 AArch64/Bionic payload behind an APK-native argv-zero dispatcher; `w` exposes the Android uptime boundary. Nano 9.2, terminfo, syntax data, editor defaults, `cproj`, Git clone/workspace UI, terminal layout/input fixes, clean-install security patching, and constrained audit gates are integrated. Both APKs compile; command/UI/network execution awaits a connected phone. |
 | Shell environment and ARM64 sysroot correction | **FIXED — 1.3.11 DEVICE RETEST** | `0ffebd2` | The 1.3.8 phone logs proved node-gyp reached Clang, then exposed two platform defects: Kotlin emitted a literal `${'$'}{NODE_OPTIONS:-}` into `.adev-agent-env`, and Clang could not search the packaged target-specific `asm/types.h`. Runtime 1.16.4 emits valid POSIX expansion, adds the ARM64 UAPI include directory plus `CPATH`, gates header completeness, and adds permanent host regressions. Final Vite execution remains pending; native compilation is now observed through object generation. |
 | Unix LLD personality and OpenCode short-version correction | **FIXED — 1.3.11 DEVICE RETEST** | `8054295` | The 1.3.9 phone run compiled `bufferutil.o` and then proved relocated generic `lld` could not select the Unix driver. Runtime 1.16.5 routes Clang, `$LD`, PATH, shell, and Java execution through a dual-ABI APK-native bridge that supplies `argv[0] = ld.lld`. Runtime 1.16.6 supersedes the former OpenCode short-option forwarding with fully native diagnostics. Final addon link/load and diagnostic retest remain pending because ADB has no device. |
@@ -46,11 +46,9 @@ or fresh/upgrade matrices. Those remain explicit release gates.
 | Localhost dual-stack preview | **VERIFIED — 1.3.24** | `818706e` | Node `listen(0.0.0.0)` rewritten to `::` `ipv6Only:false` via `adev-listen-compat`; `HOSTNAME=127.0.0.1`; `network_security_config` allows cleartext loopback for phone-test/release. Probe binds on `0.0.0.0`/`127.0.0.1`/`::` all serve 200 on `localhost`, `127.0.0.1`, `::1`; Vite HMR verified in Chrome. Host `test-runtime-env-host` passes. |
 | OpenCode subprocess contract | **ARM64 API 30 VERIFIED — 22/22 OFFLINE / 23/23 NETWORK** | `aaf2dcb` + `9bae918` | The final raw-child gap was an ELF ABI mismatch: packaged Node imports `execve@LIBC`/`execvp@LIBC`, while the preload resolver exported unversioned symbols, so Android bound Node directly to Bionic and writable shebang/npm paths failed with EACCES. The resolver now exports `execve@@LIBC`/`execvp@@LIBC` for both ABIs and retains one bounded, loop-detecting recursive shebang implementation. The exact suite runs after the OpenCode launcher assembles `tagfix:opencode-compat:exec-compat:termux` and passes standard Node/Python/Bash shebangs, script-to-script argument preservation, ELOOP/ENOEXEC errors, direct `npm --version`/`root -g`/`prefix -g`, `npx --version`, Python shell, NODE_OPTIONS, and TLS. ARM64 API 30 instrumentation passes 22/22 offline and 23/23 with verified Python+Node HTTPS; x86_64/API matrix execution remains a release gate. |
 
-| OpenCode shell broker | **VERIFIED � 1.3.26** | `f9a358f` + `db2f90e` | `bash` (`core`) and `shell` (`opencode`, id `bash`) now always route through `libbin_adev_env.so --adev-opencode-shell-v1`; the broker restores the signed `adev-env.conf` contract (PATH/LD_PRELOAD/PREFIX/...) inside the APK-native executable before `execv("/system/bin/sh", ["-c", command])`, so `debug agent build --tool bash` with sanitized `PATH=/product/bin...` now yields the full ADEV `PATH`/`LD_PRELOAD`/`PREFIX` and `adev-runtime-env-test` 22/22 / 23/23. `opencode-device-runtime-probe.sh` passes on Infinix; `include/*.h` retarget now covers base `/data/data/com.termux/files`. |
+| OpenCode shell broker | **VERIFIED — 1.3.26** | f9a358f + db2f90e | The core bash tool and OpenCode shell tool route through the APK-native ADEV environment broker; it restores the signed contract before system sh, and the real OpenCode Bash-tool environment passes 22/22 offline and 23/23 network on the Infinix API-30 device. |
 
-| Terminal port tooling (npm spinner, netstat/ss/lsof, agent guide) | **ARM64 API 30 VERIFIED � 1.3.27** | 	his release | The env contract no longer forces NPM_CONFIG_PROGRESS=false, so npm's spinner animates on real PTYs while piped agent runs stay quiet. Android 10+ SELinux hides /proc/net from apps forever; 
-etstat/ss/lsof are now ADEV shims in in/adev-shims/ rendering the TaskRegistry snapshot ($PREFIX/tmp/adev-ports.json) of app-owned listening servers with PID/task columns and lsof -i :PORT / -t filtering. TaskRegistry mirrors verified ports on every change; new TaskRegistryPortsTest proves event ? probe ? publish ? snapshot ? unpublish without /proc/net. Agent-facing $PREFIX/share/adev/SKILL.md ships the environment contract, platform truths, and self-checks. Device: shims resolve ahead of toybox, tables exit 0, suite stays 22/22 offline / 23/23 network (Infinix X689B). |
-
+| Terminal port tooling (npm spinner, netstat/ss/lsof, agent guide) | **ARM64 API 30 VERIFIED — 1.3.27** | 89f1b54 | npm progress animates on real PTYs while piped runs stay quiet. Android-safe netstat/ss/lsof shims read the runtime port snapshot instead of SELinux-blocked procfs; TaskRegistryPortsTest and the physical-device CLI checks pass. The bundled ADEV skill documents the environment and platform boundaries. |
 
 ## Executive result
 
@@ -423,7 +421,7 @@ Status meanings:
 | pnpm | ⚠️ Integrated; device retest | pnpm 11.18.0 and its worker/node-gyp payload are bundled with SHA-256 verification. Version 1.3.6 retains its previously AAPT-omitted `.bin` commands and `.package-map.json`; the final APK contains the complete source payload. Android execution remains in the Phase 3 device gate. |
 | Yarn | ⚠️ Integrated; device gate | Yarn 4.18.0 is bundled with SHA-256 verification. Exact declarations and direct commands install/run lifecycle/build/test fixtures offline without mutating project metadata; Android execution remains in the Phase 3 device gate. |
 | Bun | ✅ Explicit capability boundary | Bun's supported platform list has no Android target. `bun` exits with an actionable Android/Bionic unsupported result and directs developers to Node/npm/pnpm/Yarn; no glibc Linux binary is installed or spoofed. |
-| OpenCode CLI | ⚠️ Real runtime integrated; 1.3.12 ARM64 device gate | The first common payload failure was literal `mkdir("/tmp")`, not a proven per-mode Bun/OpenTUI crash. Runtime 1.16.7 restores the exact upstream tagfix/OpenTUI/library launch contract and preloads a separate ADEV shim that maps only `/tmp` paths into canonical app-private temp while rejecting traversal. Bare TUI, version/help/paths, agent-run, serve, and web now reach the real pinned ARM64 payload; host tests prove argument/environment forwarding, mapping, exit propagation, hashes, and 16 KiB alignment. No connected device is available, so none of those real modes is yet certified. x86_64 remains an honest missing-payload boundary; no glibc binary is substituted. |
+| OpenCode CLI | ✅ ARM64/API-30 baseline verified; API/ABI matrix gate | The pinned source-built OpenCode 1.17.9 ARM64 graph uses app-private temp, the ADEV shell broker, sibling APK-native ripgrep/OpenTUI libraries, retained spinner registration, and a non-fatal text fallback for unknown non-critical intrinsic components. Device evidence covers real Bash-tool execution (22/22 offline, 23/23 network), normal TUI rendering, and a forced plugin-loading state with all ten spinner frames and no fatal marker. API 29/36 and x86_64 payload coverage remain; no glibc binary is substituted. |
 | Optional tool packs | ⚠️ Explicit feature boundary | An Ed25519-signed catalog and verified installer/status/uninstaller cover CMake/Ninja, Rust/Cargo, NASM, Autotools/Libtool, Java, development libraries, and Git LFS. Signature tampering, dependencies, missing payloads, lifecycle, and diagnostics are tested. Production ABI feature payloads are not yet present, so the resolver returns an actionable unavailable capability instead of installing into noexec app data. |
 | File watching: Node | ⚠️ Integrated; device gate | Global polling is removed. Private workspaces leave Chokidar/Watchpack on native watching; shared `/storage`, `/sdcard`, and `/mnt/media_rw` paths receive polling variables from the working-directory capability policy. Interactive `cd` refreshes the policy. Nested HMR remains an on-device gate. |
 | File watching: editor | ⚠️ Integrated; device gate | Private workspaces use recursive per-directory `FileObserver` registration with UUID IDs, new-directory registration, symlink containment, and inotify-overflow rebuilds. Shared/FUSE workspaces use a recursive one-second snapshot watcher. Device overflow and OEM storage behavior remain. |
@@ -1367,6 +1365,35 @@ OpenCode compatibility basis:
   `runtime/workspaces`. `ADEV_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, and XDG stay
   on `runtime/home`.
 - Phone-test APK published for user confirmation of the picker listing.
+
+### OpenCode TUI spinner and reconciler fallback evidence — 2026-08-26
+
+- Reproduced the real Android TUI crash as `[Reconciler] Unknown component type:
+  spinner`: the side-effect-only `opentui-spinner/solid` import was removed by
+  the standalone graph build, so the custom intrinsic never registered.
+- The pinned OpenCode source patch now calls `registerSpinner()` explicitly in
+  both spinner entry paths. The graph builder also patches OpenTUI's reconciler
+  fail-closed: an unregistered non-critical intrinsic uses the registered
+  span/text container, preserves its children, and logs a warning instead of
+  terminating the entire TUI.
+- Final ARM64 graph: 152,949,062 bytes, SHA-256
+  `253544E410DE29DDF17A05EF0D104D625AF23AFF2D82ED46A569DF5C7688ECC7`.
+  Both OpenCode and TUI TypeScript checks pass; the source patch reverse-apply
+  check passes against exact upstream commit `5c23e884`.
+- Physical device: Infinix X689B, ARM64, Android 11/API 30. A normal PTY run
+  rendered 8,306 bytes and remained alive with no renderer/boot fatal marker.
+  A deterministic six-second slow TUI plugin forced the loading overlay: the
+  transcript contained `Loading plugins...`/`Finishing startup...`, all ten
+  spinner frames (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), 21,450 rendered bytes, and no
+  `Unknown component`, `ADEV_TUI_BOOT_FAIL`, render-library, or fff-bun crash.
+- The same installed payload then reran OpenCode's real Bash tool through
+  `debug agent build --tool bash`: Node/Python/npm/npx resolved normally and
+  the environment contract remained 22/22 offline and 23/23 with network.
+- The installed phone-test APK is 361,951,003 bytes, SHA-256
+  `1CEFE10FB861631C6A95CB0D11BA919F4B9D6F54E075F5C34E532FFF847B0242`.
+  API 29/API 36 and an x86_64 OpenCode payload remain explicit matrix gates.
+  The signed runtime lock still requires the external owner key before release;
+  no bootstrap/replacement signing key was generated.
 
 ## Definition of done for Android-native npm installs
 

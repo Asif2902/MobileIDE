@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useUIStore, useTerminalStore, MobileView } from '../../stores';
 import { Icon, IconName } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 interface TabItem {
   id: MobileView;
@@ -13,12 +14,11 @@ const tabs: TabItem[] = [
   { id: 'files', label: 'Files', icon: 'files' },
   { id: 'editor', label: 'Editor', icon: 'editor' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'git', label: 'Git', icon: 'git' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
-const ACTIVE = '#8b5cf6';
-const INACTIVE = '#8a8a92';
+const ACTIVE = uiColors.accentText;
+const INACTIVE = uiColors.textMuted;
 
 /**
  * Phone bottom navigation. Each tab swaps the full-screen primary view.
@@ -36,11 +36,11 @@ export const BottomTabBar: React.FC = () => {
         return (
           <TouchableOpacity
             key={tab.id}
-            style={styles.tab}
+            style={[styles.tab, focused && styles.tabFocused]}
             onPress={() => setActiveView(tab.id)}
             activeOpacity={0.7}
           >
-            <View>
+            <View style={styles.iconWrap}>
               <Icon name={tab.icon} size={22} color={color} />
               {tab.id === 'terminal' && activeTerminals > 0 && (
                 <View style={styles.badge}>
@@ -59,21 +59,36 @@ export const BottomTabBar: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#181818',
+    justifyContent: 'space-around',
+    backgroundColor: uiColors.canvas,
     borderTopWidth: 1,
-    borderTopColor: '#2a2a2a',
-    paddingTop: 6,
-    paddingBottom: 6,
+    borderTopColor: uiColors.border,
+    paddingHorizontal: 12,
+    paddingTop: 7,
+    paddingBottom: 8,
+    minHeight: 64,
   },
   tab: {
     flex: 1,
+    maxWidth: 96,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 2,
+    alignSelf: 'center',
+    paddingVertical: 5,
+    marginHorizontal: 2,
+    borderRadius: uiRadii.large,
+  },
+  tabFocused: {
+    backgroundColor: uiColors.accentSoft,
+  },
+  iconWrap: {
+    minHeight: 23,
+    justifyContent: 'center',
   },
   label: {
-    fontSize: 10,
-    marginTop: 3,
+    fontFamily: uiFonts.medium,
+    fontSize: 11,
+    marginTop: 2,
   },
   badge: {
     position: 'absolute',
@@ -82,13 +97,14 @@ const styles = StyleSheet.create({
     minWidth: 15,
     height: 15,
     borderRadius: 8,
-    backgroundColor: '#8b5cf6',
+    backgroundColor: uiColors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
   },
   badgeText: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 9,
     fontWeight: '700',
   },

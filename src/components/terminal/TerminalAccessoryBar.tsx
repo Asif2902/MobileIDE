@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { Icon } from '../icons';
+import { Icon, IconName } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 export interface TerminalAccessoryBarProps {
   /** Send a fully-formed byte sequence (arrows, F-keys, symbols, …) to the PTY. */
@@ -32,6 +33,7 @@ export interface TerminalAccessoryBarProps {
 interface KeyDef {
   label: string;
   seq: string;
+  icon?: IconName;
 }
 
 // Essential keys that Android soft keyboards lack. Sequences are the raw bytes
@@ -43,10 +45,10 @@ const PRIMARY_KEYS: KeyDef[] = [
   { label: '-', seq: '-' },
   { label: 'HOME', seq: '\x1b[H' },
   { label: 'END', seq: '\x1b[F' },
-  { label: '↑', seq: '\x1b[A' },
-  { label: '↓', seq: '\x1b[B' },
-  { label: '←', seq: '\x1b[D' },
-  { label: '→', seq: '\x1b[C' },
+  { label: 'Up', seq: '\x1b[A', icon: 'arrow-up' },
+  { label: 'Down', seq: '\x1b[B', icon: 'arrow-down' },
+  { label: 'Left', seq: '\x1b[D', icon: 'arrow-left' },
+  { label: 'Right', seq: '\x1b[C', icon: 'arrow-right' },
   { label: 'PGUP', seq: '\x1b[5~' },
   { label: 'PGDN', seq: '\x1b[6~' },
   { label: 'DEL', seq: '\x1b[3~' },
@@ -90,8 +92,9 @@ const KeyButton: React.FC<{
   onPress: () => void;
   active?: boolean;
   wide?: boolean;
+  icon?: IconName;
   accessibilityLabel?: string;
-}> = ({ label, onPress, active, wide, accessibilityLabel }) => (
+}> = ({ label, onPress, active, wide, icon, accessibilityLabel }) => (
   <TouchableOpacity
     style={[styles.key, wide && styles.keyWide, active && styles.keyActive]}
     onPress={onPress}
@@ -99,9 +102,18 @@ const KeyButton: React.FC<{
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel || `${label} terminal key`}
   >
-    <Text style={[styles.keyText, active && styles.keyTextActive]} numberOfLines={1}>
-      {label}
-    </Text>
+    {icon ? (
+      <Icon
+        name={icon}
+        size={17}
+        strokeWidth={2.2}
+        color={active ? uiColors.text : uiColors.textSecondary}
+      />
+    ) : (
+      <Text style={[styles.keyText, active && styles.keyTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    )}
   </TouchableOpacity>
 );
 
@@ -145,7 +157,7 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
         <KeyButton label="CTRL" onPress={onCtrl} active={ctrlArmed} wide />
         <KeyButton label="ALT" onPress={onAlt} active={altArmed} wide />
         {PRIMARY_KEYS.map(k => (
-          <KeyButton key={k.label} label={k.label} onPress={() => onKey(k.seq)} />
+          <KeyButton key={k.label} label={k.label} icon={k.icon} onPress={() => onKey(k.seq)} />
         ))}
         <KeyButton label="Fn" onPress={() => setShowFn(v => !v)} active={showFn} wide />
         {onSelectText && <KeyButton label="SELECT" onPress={onSelectText} wide />}
@@ -179,7 +191,7 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
           accessibilityRole="button"
           accessibilityLabel="Copy terminal selection"
         >
-          <Icon name="copy" size={15} color="#d4d4d4" />
+          <Icon name="copy" size={15} color={uiColors.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.key, styles.keyWide]}
@@ -197,10 +209,10 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
-    paddingVertical: 2,
+    borderTopColor: uiColors.border,
+    paddingVertical: 5,
   },
   row: {
     alignItems: 'center',
@@ -208,11 +220,13 @@ const styles = StyleSheet.create({
   },
   key: {
     minWidth: 32,
-    height: 32,
-    paddingHorizontal: 7,
+    height: 34,
+    paddingHorizontal: 8,
     marginHorizontal: 2,
-    borderRadius: 5,
-    backgroundColor: '#37373d',
+    borderRadius: uiRadii.small,
+    backgroundColor: uiColors.surfacePressed,
+    borderWidth: 1,
+    borderColor: uiColors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -220,16 +234,17 @@ const styles = StyleSheet.create({
     minWidth: 48,
   },
   keyActive: {
-    backgroundColor: '#0e639c',
+    backgroundColor: uiColors.accent,
+    borderColor: uiColors.accent,
   },
   keyText: {
-    color: '#d4d4d4',
-    fontSize: 13,
+    color: uiColors.textSecondary,
+    fontSize: 12,
     fontWeight: '600',
-    fontFamily: 'monospace',
+    fontFamily: uiFonts.mono,
   },
   keyTextActive: {
-    color: '#ffffff',
+    color: uiColors.text,
   },
   fontSizeBadge: {
     minWidth: 24,
@@ -238,9 +253,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fontSizeText: {
-    color: '#8f8f99',
+    color: uiColors.textMuted,
     fontSize: 11,
-    fontFamily: 'monospace',
+    fontFamily: uiFonts.mono,
   },
 });
 

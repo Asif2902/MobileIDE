@@ -1,3 +1,24 @@
+# A Dev Studio 1.3.29
+
+This phone-test beta completes the current OpenCode ARM64 baseline and refreshes ADEV Studio's mobile interface for clearer, faster day-to-day use.
+
+## New in 1.3.29
+
+- **OpenCode TUI stabilization.** The source-built OpenCode 1.17.9 graph explicitly registers the spinner component and falls back to a visible text container for unknown non-critical OpenTUI components instead of terminating the whole interface. The real Bash-tool runtime contract remains 22/22 offline and 23/23 with network on the tested ARM64/API-30 phone.
+- **Cleaner ADEV interface.** A consistent dark visual system, the real ADEV logo, an app-owned Inter font, simplified four-tab navigation, and redesigned Editor, Explorer, Terminal, Output, Problems, Debug, and Settings surfaces replace the inconsistent legacy chrome.
+- **Project creation without Git.** The Projects control now opens a compact bottom sheet, filters internal dot-directories, and can create/open a private ADEV workspace directly.
+- **Explorer operations.** Files and folders have confirmed delete actions; deletion updates the visible tree immediately and then reconciles with storage. New/import actions fill the available width and empty states are clearer.
+- **Reliable icons and editor actions.** Terminal cursor keys and editor search directions use vectors rather than device-font glyphs. The duplicate editor save button is removed, leaving one contextual save action in the header.
+- **Terminal usability.** Improved spacing, readable sizing and colors, deliberate hold-to-copy behavior, and updated accessory controls are included.
+
+## Verified
+
+- Physical Infinix X689B, Android 11/API 30, ARM64: install/upgrade, launch, project sheet, project creation dialog, single-save editor toolbar, vector editor/terminal arrows, and Explorer controls.
+- Host checks: TypeScript, ESLint (zero errors), focused UI/store regressions (21/21), and Android `assemblePhoneTest`.
+- Remaining release boundary: API 29/API 36 and x86_64 OpenCode payload coverage are not yet certified.
+
+## Previous beta: 1.3.28
+
 # A Dev Studio 1.3.28
 
 This phone-test beta adds the generic CLI platform bridges that GitHub CLI and future tools (Codex, Grok, OpenCode) need: opening links through Android, secure credential storage, and exec-safe Git for foreign processes.

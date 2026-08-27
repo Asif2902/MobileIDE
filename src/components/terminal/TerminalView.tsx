@@ -8,7 +8,6 @@ import {
   TextInput,
   useWindowDimensions,
   LayoutChangeEvent,
-  Platform,
   Keyboard,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -24,6 +23,7 @@ import {
 } from '../../native';
 import { TerminalAccessoryBar } from './TerminalAccessoryBar';
 import { Icon } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 const WebViewAny = WebView as any;
 
@@ -33,9 +33,9 @@ interface TerminalViewProps {
 }
 
 function fontForWidth(width: number): number {
-  if (width < 360) return 9;
-  if (width < 480) return 10;
-  if (width < 700) return 12;
+  if (width < 360) return 11;
+  if (width < 480) return 12;
+  if (width < 700) return 13;
   if (width < 1000) return 13;
   return 14;
 }
@@ -97,7 +97,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
 
   const changeFontSize = useCallback((delta: number) => {
     setFontSize(prev => {
-      const next = Math.max(9, Math.min(22, prev + delta));
+      const next = Math.max(10, Math.min(22, prev + delta));
       postToWeb({ type: 'fontSize', size: next });
       return next;
     });
@@ -455,15 +455,15 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   webview: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
     paddingHorizontal: 16,
   },
   modalHeader: {
@@ -472,11 +472,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#333333',
+    borderBottomColor: uiColors.border,
     flexShrink: 0,
   },
   modalTitle: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
@@ -485,7 +486,7 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   modalHint: {
-    color: '#8a8a92',
+    color: uiColors.textMuted,
     fontSize: 12,
     marginTop: 8,
     marginBottom: 6,
@@ -498,26 +499,26 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   jumpBtn: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: uiColors.surfaceRaised,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: uiRadii.medium,
   },
   jumpBtnText: {
-    color: '#c4b5fd',
+    color: uiColors.accentText,
     fontSize: 13,
     fontWeight: '600',
   },
   selectableInput: {
     flex: 1,
     minHeight: 160,
-    backgroundColor: '#141414',
-    borderRadius: 8,
-    borderColor: '#2a2a2a',
+    backgroundColor: uiColors.surface,
+    borderRadius: uiRadii.medium,
+    borderColor: uiColors.border,
     borderWidth: 1,
     padding: 12,
-    color: '#d4d4d4',
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.mono,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -533,38 +534,39 @@ const styles = StyleSheet.create({
   secondaryActionButton: {
     flex: 1,
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: uiRadii.medium,
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
+    backgroundColor: uiColors.surfaceRaised,
   },
   secondaryActionText: {
-    color: '#c4b5fd',
+    color: uiColors.accentText,
     fontSize: 13,
     fontWeight: '600',
   },
   disabledActionText: {
-    color: '#60606a',
+    color: uiColors.textMuted,
   },
   copyAllButton: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: uiColors.accent,
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: uiRadii.medium,
     alignItems: 'center',
   },
   copyAllButtonText: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 14,
     fontWeight: '600',
   },
   modalCancelButton: {
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: uiRadii.medium,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: uiColors.border,
   },
   modalCancelText: {
-    color: '#a1a1aa',
+    color: uiColors.textSecondary,
     fontSize: 14,
   },
 });

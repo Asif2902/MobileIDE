@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   StatusBar as RNStatusBar,
   useWindowDimensions,
@@ -21,8 +20,8 @@ import {
 import { EditorPanel } from '../components/editor';
 import { TerminalPanel } from '../components/terminal';
 import { FileExplorer } from '../components/explorer';
-import { GitPanel } from '../components/git';
-import { Icon, IconName } from '../components/icons';
+import {SettingsPanel} from '../components/settings';
+import {uiColors} from '../theme';
 import {
   useRuntimeStore,
   useUIStore,
@@ -36,18 +35,6 @@ import {
 // mobile layout so we don't double-stack terminal headers.
 const TABLET_MIN_WIDTH = 900;
 const TABLET_MIN_HEIGHT = 600;
-
-const PlaceholderView: React.FC<{ icon: IconName; title: string; subtitle: string }> = ({
-  icon,
-  title,
-  subtitle,
-}) => (
-  <View style={styles.placeholder}>
-    <Icon name={icon} size={44} color="#3f3f46" />
-    <Text style={styles.placeholderTitle}>{title}</Text>
-    <Text style={styles.placeholderSubtitle}>{subtitle}</Text>
-  </View>
-);
 
 export const IDEScreen: React.FC = () => {
   const { isReady, checkRuntime, initializeRuntime } = useRuntimeStore();
@@ -101,7 +88,7 @@ export const IDEScreen: React.FC = () => {
   if (isTablet) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <RNStatusBar barStyle="light-content" backgroundColor="#1e1e1e" />
+        <RNStatusBar barStyle="light-content" backgroundColor={uiColors.canvas} />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -130,18 +117,12 @@ export const IDEScreen: React.FC = () => {
         return <EditorPanel />;
       case 'terminal':
         return <TerminalPanel />;
-      case 'git':
-        return <GitPanel />;
       case 'settings':
-        return (
-          <PlaceholderView
-            icon="settings"
-            title="Settings"
-            subtitle="IDE preferences are coming soon"
-          />
-        );
+        return <SettingsPanel />;
       default:
-        return null;
+        // A stale in-memory route from an older Fast Refresh build should
+        // recover to Files instead of leaving the phone content blank.
+        return <FileExplorer />;
     }
   };
 
@@ -155,7 +136,7 @@ export const IDEScreen: React.FC = () => {
       style={styles.container}
       edges={hideBottomTabs ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
     >
-      <RNStatusBar barStyle="light-content" backgroundColor="#181818" />
+      <RNStatusBar barStyle="light-content" backgroundColor={uiColors.canvas} />
       {/* Compact top bar in landscape to free vertical space */}
       {!(isLandscape && keyboardVisible && activeView === 'editor') && <MobileTopBar />}
       <KeyboardAvoidingView
@@ -178,7 +159,7 @@ export const IDEScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   flex: {
     flex: 1,
@@ -194,25 +175,8 @@ const styles = StyleSheet.create({
   },
   mobileContent: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
     minHeight: 0,
-  },
-  placeholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  placeholderTitle: {
-    fontSize: 18,
-    color: '#e4e4e7',
-    fontWeight: '600',
-    marginTop: 16,
-  },
-  placeholderSubtitle: {
-    fontSize: 13,
-    color: '#71717a',
-    marginTop: 6,
   },
 });
 

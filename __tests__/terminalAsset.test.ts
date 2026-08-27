@@ -19,7 +19,7 @@ describe('Android terminal interaction contract', () => {
   );
 
   it('persists user font zoom instead of replacing it during every fit', () => {
-    expect(source).toContain("const FONT_SIZE_KEY = 'adev-terminal-font-size'");
+    expect(source).toContain("const FONT_SIZE_KEY = 'adev-terminal-font-size-v2'");
     expect(source).toContain('window.localStorage.setItem(FONT_SIZE_KEY');
     expect(source).toContain('hasSavedFontSize ? term.options.fontSize : pickFontSize()');
   });
@@ -73,9 +73,22 @@ describe('Android terminal interaction contract', () => {
     expect(context.observed).toBe(false);
   });
 
-  it('offers a movement-cancelled Android long-press selection path', () => {
-    expect(source).toContain('longPressTimer = setTimeout');
-    expect(source).toContain('Math.abs(touch.clientY - longPressY) > 12');
-    expect(source).toContain("type: 'openSelectionModal'");
+  it('requires a live selection plus a full hold before any copy affordance', () => {
+    const holdStart = source.indexOf('--- Hold-to-copy');
+    const holdEnd = source.indexOf('</script>', holdStart);
+    expect(holdStart).toBeGreaterThanOrEqual(0);
+    const block = source.slice(holdStart, holdEnd);
+
+    expect(block).toContain('HOLD_COPY_DELAY_MS = 600');
+    expect(block).toContain('dx * dx + dy * dy > HOLD_COPY_MOVE_CANCEL_PX_SQ');
+    expect(block).toContain('if (!selected) return;');
+    expect(block).toContain('flashSelectionThen(showHoldCopyBar)');
+    expect(block).toContain('term.onSelectionChange');
+    // Haptics and accidental popups are gone from the hold path entirely.
+    expect(block).not.toContain('navigator.vibrate');
+    expect(block).not.toContain("'openSelectionModal'");
+    // The select/copy sheet stays reachable through deliberate toolbar paths.
+    expect(source).toContain("case 'copy': handleCopyCommand(); break;");
+    expect(source).toContain("case 'openSelectModal':");
   });
 });

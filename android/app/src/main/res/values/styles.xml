@@ -4,6 +4,11 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!-- Keep IDE chrome legible when an OEM/device theme replaces the
+             default Android face with a decorative font. Code and terminal
+             surfaces explicitly request monospace where appropriate. -->
+        <item name="android:fontFamily">Roboto</item>
+        <item name="fontFamily">Roboto</item>
     </style>
 
 </resources>

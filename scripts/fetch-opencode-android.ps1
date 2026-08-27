@@ -18,8 +18,8 @@ $ComponentHashes = @{
     "libopentui.so" = "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44"
     "libtagfix.so" = "7899ec6bfce01f0393611e5c9a9a00a83aff218eea55362881ebf0bee3aaacc1"
 }
-$GraphRuntimeSha256 = "db2f90e9b044543c5983e2d0c3e3e20cf3a59c1f9206342ff3519a95e2a7b2c3"
-$GraphRuntimeBytes = 206540686
+$GraphRuntimeSha256 = "253544e410de29ddf17a05ef0d104d625af23aff2d82ed46a569df5c7688ecc7"
+$GraphRuntimeBytes = 152949062
 
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $Destination = Join-Path $RepositoryRoot "android/app/src/main/jniLibs/arm64-v8a"
@@ -166,8 +166,9 @@ try {
             androidGraphPatches = @(
                 "use the launcher-provided app-private XDG cache for OpenCode temporary files",
                 "skip background plugin dependency installation on Android",
-                "compile the module graph for ARM64 and route OpenTUI through OPENTUI_LIB_PATH",
-                "resolve the sibling APK-native ripgrep before environment, PATH, cache, or desktop downloads"
+                "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
+                "retain the spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
+                "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download"
                 "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file"
                 "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"
             )
@@ -180,17 +181,18 @@ try {
             requiresWritableExecutable = $false
             globalLinuxSpoof = $false
             fileWatcher = "disabled for the bundled host-only @parcel/watcher binding"
-            tempPathPolicy = "process-scoped /tmp remap to canonical app-private ADEV_OPENCODE_TMPDIR"
-            preloadOrder = "upstream tagfix, ADEV /tmp compatibility shim, inherited termux-exec"
+            tempPathPolicy = "source-built graph uses canonical app-private XDG cache temp; exact /tmp remap remains a scoped fallback"
+            heapPointerTaggingPolicy = "API 29/30 child startup uses Bionic android_mallopt opcode 8; API 31+ falls back to public mallopt(-204, NONE)"
+            preloadOrder = "upstream tagfix, ADEV Android-version heap-tag and /tmp compatibility shim, inherited termux-exec"
         }
         capabilities = [ordered]@{
-            version = "enabled through the real pinned payload; device retest required after /tmp remap"
-            help = "enabled through the real pinned payload; device retest required after /tmp remap"
-            debugPaths = "enabled through the real pinned payload; device retest required after /tmp remap"
-            interactiveTui = "enabled through the real pinned payload; device retest required after /tmp remap"
-            agentRun = "enabled through the real pinned payload; device retest required after /tmp remap"
-            serve = "enabled through the real pinned payload; device retest required after /tmp remap"
-            web = "enabled through the real pinned payload; device retest required after /tmp remap"
+            version = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            help = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            debugPaths = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            interactiveTui = "device-certified on ARM64 API 30, including forced plugin-loading spinner animation and graceful unknown-component fallback; API 29/36 remain"
+            agentRun = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            serve = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
+            web = "device-certified through the pinned payload on ARM64 API 30; API 29/36 remain"
             policy = "all standard modes reach the Android/Bionic payload; no Linux/glibc binary is substituted"
         }
         components = @(
@@ -214,11 +216,12 @@ try {
                 license = "MIT"
             }
         )
-        deviceGate = "Pending ARM64 retest after the process-scoped /tmp remap, in order: version, help, debug paths, run help, run hello, serve, web, and TUI. API 29 and API 36 remain required."
+        deviceGate = "ARM64 API 30 certified: version/help/debug/run/serve/web, real Bash-tool environment, interactive TUI, and forced plugin-loading spinner (all 10 frames, no fatal marker). API 29/API 36 and x86_64 payload coverage remain."
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ManifestPath) | Out-Null
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 -NoNewline $ManifestPath
-    Add-Content -Encoding UTF8 -LiteralPath $ManifestPath -Value ""
+    # UTF8 WITHOUT BOM: downstream JSON parsers (host tests) reject a BOM.
+    $manifestJson = $manifest | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText($ManifestPath, $manifestJson + "`n", (New-Object System.Text.UTF8Encoding($false)))
 
     Write-Host "OpenCode $Version Android/Bionic payload verified and staged in $Destination"
 } finally {

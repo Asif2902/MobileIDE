@@ -12,6 +12,7 @@ import { useEditorStore } from '../../stores';
 import { useProcessStore } from '../../stores/processStore';
 import { MobileIDENativeModule } from '../../native';
 import { Icon } from '../icons';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 export const ProblemsView: React.FC = () => {
   const { diagnostics, revealLocation } = useEditorStore();
@@ -260,7 +261,7 @@ export const DebugView: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   emptyContainer: {
     flex: 1,
@@ -269,12 +270,13 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyTitle: {
-    color: '#888888',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.medium,
     fontSize: 13,
     marginTop: 10,
   },
   emptyHint: {
-    color: '#555',
+    color: uiColors.textMuted,
     fontSize: 11,
     marginTop: 6,
     textAlign: 'center',
@@ -285,18 +287,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#252526',
+    borderBottomColor: uiColors.border,
   },
   problemTextContainer: {
     marginLeft: 8,
     flex: 1,
   },
   problemMessage: {
-    color: '#cccccc',
+    color: uiColors.textSecondary,
     fontSize: 12,
   },
   problemLocation: {
-    color: '#777777',
+    color: uiColors.textMuted,
     fontSize: 11,
     marginTop: 2,
   },
@@ -307,10 +309,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#2a2a2a',
+    borderBottomColor: uiColors.border,
   },
   toolbarTitle: {
-    color: '#e4e4e7',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -321,11 +324,11 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: '#2a2a2a',
-    borderRadius: 4,
+    backgroundColor: uiColors.surfaceRaised,
+    borderRadius: uiRadii.small,
   },
   toolBtnText: {
-    color: '#c4b5fd',
+    color: uiColors.accentText,
     fontSize: 11,
   },
   section: {
@@ -339,7 +342,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sectionTitle: {
-    color: '#a1a1aa',
+    color: uiColors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 4,
@@ -352,23 +355,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   outputEmptyTitle: {
-    color: '#d4d4d8',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 14,
     fontWeight: '600',
     marginTop: 10,
   },
   outputEmptyHint: {
-    color: '#71717a',
+    color: uiColors.textMuted,
     fontSize: 11,
     lineHeight: 16,
     marginTop: 5,
     textAlign: 'center',
   },
   serverCard: {
-    backgroundColor: '#232326',
+    backgroundColor: uiColors.surface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#3f3f46',
-    borderRadius: 8,
+    borderColor: uiColors.border,
+    borderRadius: uiRadii.medium,
     padding: 10,
     marginBottom: 8,
   },
@@ -384,21 +388,21 @@ const styles = StyleSheet.create({
     marginRight: 7,
   },
   procCmd: {
-    color: '#e4e4e7',
+    color: uiColors.text,
     fontSize: 12,
-    fontFamily: 'monospace',
+    fontFamily: uiFonts.mono,
     flex: 1,
   },
   taskType: {
-    color: '#a78bfa',
+    color: uiColors.accentText,
     fontSize: 9,
     fontWeight: '700',
     marginLeft: 8,
   },
   taskMeta: {
-    color: '#8b8b94',
+    color: uiColors.textMuted,
     fontSize: 11,
-    fontFamily: 'monospace',
+    fontFamily: uiFonts.mono,
     lineHeight: 16,
     marginTop: 4,
   },
@@ -410,24 +414,25 @@ const styles = StyleSheet.create({
     marginTop: 9,
   },
   openBtn: {
-    backgroundColor: '#8b5cf6',
+    backgroundColor: uiColors.accent,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 4,
   },
   openBtnText: {
-    color: '#fff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
     fontSize: 11,
     fontWeight: '600',
   },
   secondaryBtn: {
-    backgroundColor: '#3f3f46',
+    backgroundColor: uiColors.surfacePressed,
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 4,
   },
   secondaryBtnText: {
-    color: '#e4e4e7',
+    color: uiColors.textSecondary,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -445,15 +450,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   snapshotNotice: {
-    color: '#a1a1aa',
+    color: uiColors.textSecondary,
     fontSize: 11,
     lineHeight: 16,
     marginBottom: 10,
   },
   snapshotCard: {
-    backgroundColor: '#232326',
+    backgroundColor: uiColors.surface,
     borderLeftWidth: 2,
-    borderLeftColor: '#8b5cf6',
+    borderLeftColor: uiColors.accent,
     padding: 10,
     marginBottom: 8,
     borderRadius: 4,
@@ -464,9 +469,9 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   logText: {
-    color: '#a1a1aa',
+    color: uiColors.textSecondary,
     fontSize: 11,
-    fontFamily: 'monospace',
+    fontFamily: uiFonts.mono,
     lineHeight: 16,
   },
   logErr: {
@@ -476,7 +481,7 @@ const styles = StyleSheet.create({
     color: '#fde68a',
   },
   muted: {
-    color: '#666',
+    color: uiColors.textMuted,
     fontSize: 11,
     marginBottom: 4,
   },

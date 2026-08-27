@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { useEditorStore } from '../../stores';
+import {uiColors, uiFonts, uiRadii} from '../../theme';
 
 interface EditorTabsProps {
   compact?: boolean;
@@ -58,9 +59,9 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({ compact = false }) => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#252526',
+    backgroundColor: uiColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e1e1e',
+    borderBottomColor: uiColors.border,
     height: 36,
   },
   containerCompact: {
@@ -79,9 +80,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginRight: 2,
-    backgroundColor: '#2d2d2d',
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    backgroundColor: uiColors.surfaceRaised,
+    borderRadius: uiRadii.small,
     maxWidth: 160,
   },
   tabCompact: {
@@ -89,21 +89,23 @@ const styles = StyleSheet.create({
     maxWidth: 120,
   },
   activeTab: {
-    backgroundColor: '#1e1e1e',
+    backgroundColor: uiColors.canvas,
   },
   tabText: {
-    color: '#969696',
+    color: uiColors.textMuted,
+    fontFamily: uiFonts.regular,
     fontSize: 12,
     marginRight: 6,
   },
   activeTabText: {
-    color: '#ffffff',
+    color: uiColors.text,
+    fontFamily: uiFonts.medium,
   },
   closeButton: {
     padding: 2,
   },
   closeButtonText: {
-    color: '#969696',
+    color: uiColors.textMuted,
     fontSize: 14,
     lineHeight: 14,
   },

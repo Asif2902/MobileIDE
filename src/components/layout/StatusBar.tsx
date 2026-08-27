@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useEditorStore, useUIStore, useTerminalStore } from '../../stores';
 import { Icon } from '../icons';
+import {uiColors, uiFonts} from '../../theme';
 
 export const StatusBar: React.FC = () => {
   const { activeFilePath, openFiles } = useEditorStore();
@@ -16,10 +17,10 @@ export const StatusBar: React.FC = () => {
       {/* Left side */}
       <View style={styles.left}>
         <TouchableOpacity style={styles.item} onPress={toggleSidebar}>
-          <Icon name="menu" size={14} color="#ffffff" />
+          <Icon name="menu" size={14} color={uiColors.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.item} onPress={toggleBottomPanel}>
-          <Icon name="terminal" size={14} color="#ffffff" />
+          <Icon name="terminal" size={14} color={uiColors.textSecondary} />
           <Text style={styles.itemText}>{activeTerminals}</Text>
         </TouchableOpacity>
       </View>
@@ -49,7 +50,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#007acc',
+    backgroundColor: uiColors.surface,
+    borderTopWidth: 1,
+    borderTopColor: uiColors.border,
     height: 24,
     paddingHorizontal: 8,
   },
@@ -69,7 +72,8 @@ const styles = StyleSheet.create({
   },
   itemText: {
     fontSize: 11,
-    color: '#ffffff',
+    color: uiColors.textSecondary,
+    fontFamily: uiFonts.regular,
     marginLeft: 4,
   },
 });

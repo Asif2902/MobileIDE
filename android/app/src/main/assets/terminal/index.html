@@ -12,7 +12,7 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #1e1e1e;
+      background: #0b0d12;
       /* React Native's SafeAreaView already applies the device insets. Applying
          viewport safe-area values again inside this WebView pushed row 1 well
          below the top of the terminal on cutout devices. */
@@ -21,7 +21,7 @@
     #terminal {
       width: 100%;
       height: 100%;
-      padding: 2px 6px 0;
+      padding: 6px 9px 0;
       overflow: hidden;
     }
     .xterm { height: 100% !important; width: 100% !important; padding: 0 !important; }
@@ -33,6 +33,29 @@
       touch-action: pan-x pan-y;
     }
     .xterm-screen { will-change: transform; }
+    /* Copy affordance shown only after a deliberate hold on a live selection.
+       Lives outside #terminal so its taps never reach the terminal's own
+       touch listeners. */
+    #hold-copy-bar {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%);
+      display: none;
+      padding: 10px 26px;
+      border-radius: 999px;
+      border: none;
+      background: #8b6cff;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+      z-index: 50;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: manipulation;
+    }
   </style>
 </head>
 <body>
@@ -44,17 +67,17 @@
     // Phone vs tablet: smaller font on narrow widths so more columns fit.
     function pickFontSize() {
       const w = Math.min(window.innerWidth || 360, (window.visualViewport && window.visualViewport.width) || 9999);
-      if (w < 360) return 9;
-      if (w < 480) return 10;
-      if (w < 700) return 12;
+      if (w < 360) return 11;
+      if (w < 480) return 12;
+      if (w < 700) return 13;
       if (w < 1000) return 13;
       return 14;
     }
 
-    const FONT_SIZE_KEY = 'adev-terminal-font-size';
+    const FONT_SIZE_KEY = 'adev-terminal-font-size-v2';
     let hasSavedFontSize = false;
     function clampFontSize(value) {
-      return Math.max(9, Math.min(22, Number(value) || pickFontSize()));
+      return Math.max(10, Math.min(22, Number(value) || pickFontSize()));
     }
     function loadFontSize() {
       try {
@@ -83,12 +106,12 @@
       // Draw slightly beyond edges so last column isn't cut by WebView chrome
       windowsMode: false,
       theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-        cursor: '#d4d4d4',
-        cursorAccent: '#1e1e1e',
-        selectionBackground: '#264f78',
-        black: '#1e1e1e',
+        background: '#0b0d12',
+        foreground: '#dfe4ec',
+        cursor: '#c8bbff',
+        cursorAccent: '#0b0d12',
+        selectionBackground: '#3b3262',
+        black: '#0b0d12',
         red: '#f44747',
         green: '#6a9955',
         yellow: '#d7ba7d',
@@ -591,35 +614,98 @@
     }));
 
     const terminalElement = document.getElementById('terminal');
+
+    // --- Hold-to-copy ----------------------------------------------------------
+    // Copying must be deliberate: the Copy chip only appears after a full
+    // hold ON TOP OF an existing xterm selection. A long-press without a
+    // selection stays a plain scroll/pan hold — no vibration, no copy UI.
+    const HOLD_COPY_DELAY_MS = 600;
+    const HOLD_COPY_MOVE_CANCEL_PX_SQ = 100; // >10px of travel cancels the pending hold
+    const HOLD_COPY_FLASH_MS = 180;
+    const HOLD_COPY_SELECTION_BASE = '#264f78'; // selectionBackground in the theme above
     let longPressTimer = null;
     let longPressX = 0;
     let longPressY = 0;
+    let holdCopyFlashTimer = null;
+
+    const holdCopyBar = document.createElement('button');
+    holdCopyBar.id = 'hold-copy-bar';
+    holdCopyBar.textContent = 'Copy';
+    document.body.appendChild(holdCopyBar);
+
     function cancelLongPress() {
       if (longPressTimer !== null) clearTimeout(longPressTimer);
       longPressTimer = null;
     }
+
+    function hideHoldCopyBar() {
+      holdCopyBar.style.display = 'none';
+    }
+
+    function showHoldCopyBar() {
+      // The selection can vanish while the flash runs; re-check before showing.
+      try { if (!term.getSelection()) return; } catch (e) {}
+      holdCopyBar.style.display = 'block';
+    }
+
+    // Haptic-free feedback: briefly brighten the selection highlight so the
+    // hold is acknowledged without any UI appearing first.
+    function flashSelectionThen(showFn) {
+      if (holdCopyFlashTimer !== null) clearTimeout(holdCopyFlashTimer);
+      try {
+        term.options.theme = Object.assign({}, term.options.theme, {
+          selectionBackground: '#4ec9b0'
+        });
+      } catch (e) {}
+      holdCopyFlashTimer = setTimeout(function () {
+        holdCopyFlashTimer = null;
+        try {
+          term.options.theme = Object.assign({}, term.options.theme, {
+            selectionBackground: HOLD_COPY_SELECTION_BASE
+          });
+        } catch (e) {}
+        showFn();
+      }, HOLD_COPY_FLASH_MS);
+    }
+
+    holdCopyBar.addEventListener('click', function () {
+      hideHoldCopyBar();
+      let selected = '';
+      try { selected = term.getSelection(); } catch (e) {}
+      if (selected) copyToNative(selected);
+    });
+
+    // Auto-dismiss whenever the selection goes away — explicit clear messages,
+    // copyToNative's clearSelection and the clear/CSI paths all land here.
+    term.onSelectionChange(function (selection) {
+      if (!selection) hideHoldCopyBar();
+    });
+
     terminalElement.addEventListener('touchstart', (event) => {
       term.focus();
       scheduleFit();
+      hideHoldCopyBar(); // any new tap dismisses the chip
+      cancelLongPress();
       const touch = event.touches && event.touches[0];
-      if (!touch || event.touches.length !== 1) return;
+      if (!touch || !event.touches || event.touches.length !== 1) return;
       longPressX = touch.clientX;
       longPressY = touch.clientY;
-      cancelLongPress();
       longPressTimer = setTimeout(function () {
         longPressTimer = null;
-        if (navigator.vibrate) navigator.vibrate(20);
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'openSelectionModal', bufferText: getBufferText()
-        }));
-      }, 550);
+        let selected = '';
+        try { selected = term.getSelection(); } catch (e) {}
+        // No live selection: plain long-press, identical to resting a finger.
+        // Never vibrate and never open copy UI from here.
+        if (!selected) return;
+        flashSelectionThen(showHoldCopyBar);
+      }, HOLD_COPY_DELAY_MS);
     }, { passive: true });
     terminalElement.addEventListener('touchmove', (event) => {
       const touch = event.touches && event.touches[0];
       if (!touch) return cancelLongPress();
-      if (Math.abs(touch.clientX - longPressX) > 12 || Math.abs(touch.clientY - longPressY) > 12) {
-        cancelLongPress();
-      }
+      const dx = touch.clientX - longPressX;
+      const dy = touch.clientY - longPressY;
+      if (dx * dx + dy * dy > HOLD_COPY_MOVE_CANCEL_PX_SQ) cancelLongPress();
     }, { passive: true });
     terminalElement.addEventListener('touchend', cancelLongPress, { passive: true });
     terminalElement.addEventListener('touchcancel', cancelLongPress, { passive: true });

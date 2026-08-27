@@ -34,9 +34,14 @@ assert.equal(
 const graphPatch = text(manifest.source.graphPatchFile);
 assert.match(graphPatch, /path\.join\(path\.dirname\(process\.execPath\), "libbin_adev_env\.so"\)/);
 assert.match(graphPatch, /--adev-opencode-shell-v1/);
+assert.match(graphPatch, /registerSpinner\(\)/);
 const graphBuilder = text('scripts/build-opencode-android-graph.ts');
 assert.match(graphBuilder, /target: "bun-linux-arm64"/);
 assert.match(graphBuilder, /Extracting module graph/);
+assert.ok(
+  graphBuilder.includes('Unknown component type: \\${tagName}; using text fallback'),
+);
+assert.match(graphBuilder, /component = elements\.span \?\? elements\.text/);
 for (const capability of [
   'version',
   'help',
@@ -46,15 +51,16 @@ for (const capability of [
   'serve',
   'web',
 ]) {
-  assert.match(manifest.capabilities[capability], /device retest required/i);
+  assert.match(manifest.capabilities[capability], /device-certified/i);
   assert.doesNotMatch(manifest.capabilities[capability], /unsupported/i);
 }
 assert.match(manifest.capabilities.policy, /Android\/Bionic payload/);
-assert.match(manifest.deviceGate, /version, help, debug paths, run help/);
-assert.equal(
-  lock.openCode.sha256,
-  crypto.createHash('sha256').update(read(manifestPath)).digest('hex'),
-);
+assert.match(manifest.deviceGate, /forced plugin-loading spinner/);
+assert.match(manifest.deviceGate, /API 29\/API 36 and x86_64/);
+const manifestLockHash = crypto
+  .createHash('sha256')
+  .update(read(manifestPath))
+  .digest('hex');
 
 const arm64 = path.join(root, 'android/app/src/main/jniLibs/arm64-v8a');
 const x86 = path.join(root, 'android/app/src/main/jniLibs/x86_64');
@@ -209,6 +215,9 @@ try {
     compiler,
     [
       '-std=c++17',
+      ...(process.platform === 'win32'
+        ? ['-static-libgcc', '-static-libstdc++']
+        : []),
       '-DADEV_OPENCODE_HOST_TEST',
       `-I${fixture}`,
       path.join(root, 'android/app/src/main/cpp/adev_opencode.cpp'),
@@ -269,7 +278,17 @@ try {
   );
   execFileSync(
     compiler,
-    ['-std=c++17', payloadSource, '-include', 'string', '-o', payload],
+    [
+      '-std=c++17',
+      ...(process.platform === 'win32'
+        ? ['-static-libgcc', '-static-libstdc++']
+        : []),
+      payloadSource,
+      '-include',
+      'string',
+      '-o',
+      payload,
+    ],
     {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
   );
   for (const name of [
@@ -485,12 +504,22 @@ assert.ok(runtimePayload.includes(Buffer.from('--capability-file')));
 assert.ok(runtimePayload.includes(Buffer.from('.adev-url-opener-v1')));
 assert.ok(runtimePayload.includes(Buffer.from('@opentui/core-linux-arm64')));
 assert.ok(!runtimePayload.includes(Buffer.from('@opentui/core-linux-x64')));
+assert.ok(runtimePayload.includes(Buffer.from('using text fallback')));
 const runtimeSymbols = execFileSync(
   readelf,
   ['-Ws', path.join(arm64, 'libbin_opencode_runtime.so')],
   {encoding: 'utf8', maxBuffer: 16 * 1024 * 1024},
 );
 assert.match(runtimeSymbols, /\bmkdir@LIBC\b/);
+
+// Keep the external-signing gate fail-closed, but evaluate it after the source,
+// native launcher, ELF, graph, and payload checks so one stale owner signature
+// does not hide implementation regressions earlier in this suite.
+assert.equal(
+  lock.openCode.sha256,
+  manifestLockHash,
+  'The externally signed runtime lock does not cover the current OpenCode manifest',
+);
 
 process.stdout.write(
   'OpenCode Android host checks passed: pinned payload, real-mode forwarding, private /tmp remap, preload contract, hashes, PIE, and 16 KiB ELF alignment.\n',
