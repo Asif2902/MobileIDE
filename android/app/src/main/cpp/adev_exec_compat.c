@@ -29,6 +29,8 @@
 #define ADEV_MAX_ARGV 65536
 
 typedef int (*adev_execve_fn)(const char *, char *const[], char *const[]);
+typedef ssize_t (*adev_readlink_fn)(const char *, char *, size_t);
+typedef ssize_t (*adev_readlinkat_fn)(int, const char *, char *, size_t);
 typedef int (*adev_posix_spawn_fn)(
     pid_t *,
     const char *,
@@ -47,11 +49,73 @@ typedef struct {
 static pthread_once_t adev_execve_once = PTHREAD_ONCE_INIT;
 static adev_execve_fn adev_next_execve = NULL;
 static adev_posix_spawn_fn adev_next_posix_spawn = NULL;
+static pthread_once_t adev_readlink_once = PTHREAD_ONCE_INIT;
+static adev_readlink_fn adev_next_readlink = NULL;
+static adev_readlinkat_fn adev_next_readlinkat = NULL;
 extern char **environ;
+
+static bool adev_is_file(const char *path);
 
 static void adev_resolve_next_execve(void) {
     adev_next_execve = (adev_execve_fn)dlsym(RTLD_NEXT, "execve");
     adev_next_posix_spawn = (adev_posix_spawn_fn)dlsym(RTLD_NEXT, "posix_spawn");
+}
+
+static void adev_resolve_next_readlink(void) {
+    adev_next_readlink = (adev_readlink_fn)dlsym(RTLD_NEXT, "readlink");
+    adev_next_readlinkat = (adev_readlinkat_fn)dlsym(RTLD_NEXT, "readlinkat");
+}
+
+/*
+ * Android refuses execve() for app-writable ELF files. libtermux-exec enters
+ * those Bionic binaries through /system/bin/linker64 and publishes the real
+ * target as TERMUX_EXEC__PROC_SELF_EXE. Without this bridge, self-relative
+ * launchers see the linker as /proc/self/exe and search for sibling payloads
+ * under /apex/com.android.runtime/bin.
+ *
+ * Preserve normal readlink semantics (no trailing NUL, truncation allowed) and
+ * affect only the exact self-exe pseudo-link. This is generic for every
+ * writable Android CLI; no package name or payload layout is special-cased.
+ */
+static ssize_t adev_virtual_self_exe(
+    const char *path,
+    char *buffer,
+    size_t size
+) {
+    if (path == NULL || buffer == NULL || size == 0 ||
+        strcmp(path, "/proc/self/exe") != 0) {
+        return -1;
+    }
+    const char *original = getenv("TERMUX_EXEC__PROC_SELF_EXE");
+    if (original == NULL || original[0] != '/' || !adev_is_file(original)) return -1;
+    const size_t original_length = strlen(original);
+    const size_t copy_length = original_length < size ? original_length : size;
+    memcpy(buffer, original, copy_length);
+    return (ssize_t)copy_length;
+}
+
+ssize_t readlink(const char *path, char *buffer, size_t size) {
+    const ssize_t virtual_result = adev_virtual_self_exe(path, buffer, size);
+    if (virtual_result >= 0) return virtual_result;
+    pthread_once(&adev_readlink_once, adev_resolve_next_readlink);
+    if (adev_next_readlink == NULL) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return adev_next_readlink(path, buffer, size);
+}
+
+ssize_t readlinkat(int directory, const char *path, char *buffer, size_t size) {
+    if (directory == AT_FDCWD || (path != NULL && path[0] == '/')) {
+        const ssize_t virtual_result = adev_virtual_self_exe(path, buffer, size);
+        if (virtual_result >= 0) return virtual_result;
+    }
+    pthread_once(&adev_readlink_once, adev_resolve_next_readlink);
+    if (adev_next_readlinkat == NULL) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return adev_next_readlinkat(directory, path, buffer, size);
 }
 
 /*
@@ -95,6 +159,41 @@ static bool adev_copy_path(char destination[PATH_MAX], const char *source) {
 static bool adev_is_file(const char *path) {
     struct stat metadata;
     return path != NULL && stat(path, &metadata) == 0 && !S_ISDIR(metadata.st_mode);
+}
+
+/*
+ * Android blocks direct execution from filesDir, even when that pathname is a
+ * symlink whose final inode lives in the APK's executable nativeLibraryDir.
+ * Resolve only real symlinks whose canonical target remains inside that exact
+ * native directory. This keeps ordinary writable ELFs on the noexec boundary
+ * while allowing stable runtime aliases (including the optional glibc loader)
+ * to enter their genuine APK-native executable.
+ */
+static bool adev_resolve_apk_native_symlink(
+    const char *path,
+    char *const envp[],
+    char destination[PATH_MAX]
+) {
+    if (path == NULL || destination == NULL) return false;
+    struct stat link_metadata;
+    if (lstat(path, &link_metadata) != 0 || !S_ISLNK(link_metadata.st_mode)) return false;
+
+    const char *configured_native = adev_env_value(envp, "MOBILEIDE_NATIVE_LIB");
+    if (configured_native == NULL || configured_native[0] == '\0') return false;
+
+    char native_directory[PATH_MAX];
+    if (realpath(configured_native, native_directory) == NULL ||
+        realpath(path, destination) == NULL) {
+        return false;
+    }
+    const size_t native_length = strlen(native_directory);
+    if (native_length == 0 ||
+        strncmp(destination, native_directory, native_length) != 0 ||
+        destination[native_length] != '/' ||
+        !adev_is_file(destination)) {
+        return false;
+    }
+    return true;
 }
 
 static bool adev_is_stale_termux_shell(const char *path) {
@@ -544,8 +643,16 @@ static int adev_recursive_execve(
     for (size_t depth = 0; depth < ADEV_MAX_SHEBANG_DEPTH; ++depth) {
         const int script = adev_read_shebang(current_path, &shebangs[depth]);
         if (script <= 0) {
+            char native_target[PATH_MAX];
+            const char *executable_path = current_path;
+            if (script == 0 && adev_resolve_apk_native_symlink(
+                    current_path,
+                    (char *const *)effective_envp,
+                    native_target)) {
+                executable_path = native_target;
+            }
             result = adev_next_execve(
-                current_path,
+                executable_path,
                 (char *const *)current_argv,
                 (char *const *)effective_envp
             );

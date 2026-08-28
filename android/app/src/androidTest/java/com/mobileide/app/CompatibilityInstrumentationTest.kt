@@ -186,6 +186,48 @@ class CompatibilityInstrumentationTest {
     }
 
     @Test
+    fun prefixBinIsOwnerWritableForCliInstallers() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = RuntimeManager(context)
+        if (!manager.isRuntimeReady()) manager.initializeRuntime()
+        val workspace = File(manager.getWorkspacesDir(), ".adev-prefix-bin-test").apply {
+            mkdirs()
+            check(isDirectory)
+        }
+        val shellScript = """
+            set -eu
+            touch_target="${'$'}PREFIX/bin/test-file"
+            trap 'rm -f "${'$'}touch_target"' EXIT
+            touch "${'$'}touch_target"
+            printf '#!/system/bin/sh\necho ok\n' > "${'$'}touch_target"
+            chmod 755 "${'$'}touch_target"
+            test -w "${'$'}PREFIX/bin"
+            test -f "${'$'}touch_target"
+            test -x "${'$'}touch_target"
+        """.trimIndent()
+        try {
+            val javascript =
+                "const r=require('child_process').spawnSync(process.env.SHELL," +
+                    "['-c',process.argv[1]],{stdio:'inherit',env:process.env});" +
+                    "process.exit(r.status??1)"
+            val result = runRuntimeCommand(
+                manager,
+                listOf("-e", javascript, shellScript),
+                workspace,
+                5
+            )
+            assertEquals(
+                "A CLI installer could not write to ${manager.getBinDir()}:\n${result.output}",
+                0,
+                result.exitCode
+            )
+            assertTrue("Runtime bin must remain owner-writable", File(manager.getBinDir()).canWrite())
+        } finally {
+            workspace.deleteRecursively()
+        }
+    }
+
+    @Test
     fun packageVersionUsesTheReleaseVersionAuthority() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val info = context.packageManager.getPackageInfo(context.packageName, 0)

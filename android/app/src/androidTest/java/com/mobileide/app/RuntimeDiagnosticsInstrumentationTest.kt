@@ -48,6 +48,9 @@ class RuntimeDiagnosticsInstrumentationTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = RuntimeManager(context)
+        if (arguments.getString("adevRefreshRuntime") == "true") {
+            File(context.filesDir, "runtime/.runtime_fingerprint").delete()
+        }
         if (!manager.isRuntimeReady()) manager.initializeRuntime()
 
         // Preferred transport: the script arrives inside the instrumentation

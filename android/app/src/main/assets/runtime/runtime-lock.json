@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "1.17.6",
+  "runtimeVersion": "1.17.8",
   "platform": "android-bionic",
   "minApi": 29,
   "compileApi": 36,
@@ -20,8 +20,8 @@
         },
         {
           "packagedName": "libbin_adev_env.so",
-          "sha256": "a2157f378e68db60161cbc76bfa6da9e387a1bd1ed63c8d58eeb863e02f0b99b",
-          "bytes": 55624,
+          "sha256": "21c98bea46a2e176e9df50f135a48f9584f5673cdb913e23148785e06a04d8ba",
+          "bytes": 56904,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -29,6 +29,27 @@
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "fc0b5f6c0be0b54367360de1a08ea1d2d3f950d3f8650ac3d9463eeb6f887d6e",
           "bytes": 41272,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_git_launcher.so",
+          "sha256": "10fcc0be8039b6fe7e0fbd2c112ac4c9dff91e633b19ec8963d930ca6655b839",
+          "bytes": 41328,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_glibc_ld.so",
+          "sha256": "02993e282185a05cdbd5ebd02bbbb3d8f494ad16320f2c58ce37483de4940859",
+          "bytes": 242560,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_glibc_loader.so",
+          "sha256": "1a044c86c6e7d08601a6789d919877be3b44d984a5f948b5819add6e05e7e851",
+          "bytes": 8248,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -48,15 +69,22 @@
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "64d7f3b9b4ad406e0d9008d39bedd2452dab9a1a53ea0451a04885c00add323d",
-          "bytes": 16456,
+          "sha256": "dd93fb980759c388495eb23ed77a1b2d499dce9b5d5e88dd1183f396d7aef023",
+          "bytes": 16064,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_secret.so",
+          "sha256": "7fe05b040440468674294d7ad4c9f0f91084fecbe4f709049deb05f2f9c11162",
+          "bytes": 42760,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_xdg_open.so",
-          "sha256": "eb78104b4c9ddda9d5f29fa460b085069e37bf2d617d74edfa9b4d05d779e76c",
-          "bytes": 37824,
+          "sha256": "aa2c45892a7e25773941734f2c4440f25330fcb029dd82cada756b86244e4125",
+          "bytes": 41104,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -242,15 +270,15 @@
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "095425708e15b29ee2ed6667850bd0e76733a731676607f1e682e741dcdfc1ba",
-          "bytes": 61120,
+          "sha256": "1f88b3c90259acbdfb63c45c8c06b44fc082cdf088008bb36ad88dd5d6650156",
+          "bytes": 62336,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_opencode_runtime.so",
-          "sha256": "db2f90e9b044543c5983e2d0c3e3e20cf3a59c1f9206342ff3519a95e2a7b2c3",
-          "bytes": 206540686,
+          "sha256": "e5079d3c6b974bb6693e033fd292e38dc5342e022c96e8f32b4127ba7d293862",
+          "bytes": 173519275,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -283,10 +311,28 @@
         },
         {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "51c52e98bd08d8a013f308838daaee758a781c3ed83efa19049bb0c2d5757f72",
-          "bytes": 23384,
+          "sha256": "94f1fc5eb112afd2ccaf6f6c7b8040bd8c90f9e0adf7ebba44452763d50f953c",
+          "bytes": 24688,
           "runtimePaths": [],
           "owner": "app-native"
+        },
+        {
+          "packagedName": "liblib_adev_native_addons_koffi_3_1_6_android_arm64_koffi_node.so",
+          "sha256": "b966208920c804d167bdd442132d102b55cb11c352af5fc526bad4bb53119bff",
+          "bytes": 1153528,
+          "runtimePaths": [
+            "lib/adev-native-addons/koffi/3.1.6/android-arm64/koffi.node"
+          ],
+          "owner": "developer-runtime"
+        },
+        {
+          "packagedName": "liblib_adev_native_addons_node_pty_1_2_0_beta_15_android_arm64_pty_node.so",
+          "sha256": "021da78d1cf0efdc41e5c46460fea178e87359c6d2893aab2aafb43ed8d2a07e",
+          "bytes": 74448,
+          "runtimePaths": [
+            "lib/adev-native-addons/node-pty/1.2.0-beta.15/android-arm64/pty.node"
+          ],
+          "owner": "developer-runtime"
         },
         {
           "packagedName": "liblib_adev_opencode_compat.so",
@@ -1245,8 +1291,8 @@
         },
         {
           "packagedName": "liblib_opencode_opentui.so",
-          "sha256": "4f9c16e90496fa457321fb17a2bf64a0e67535077a7763d0feb836e95e9c0f44",
-          "bytes": 9905129,
+          "sha256": "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a",
+          "bytes": 14386712,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1957,8 +2003,8 @@
         },
         {
           "packagedName": "libbin_adev_env.so",
-          "sha256": "862d1d820d080bc1327e5a76136a9b7855aa899102f77b5b05095f9aafd7f7ad",
-          "bytes": 56648,
+          "sha256": "86b6e1c64d81674e7b4997d458ad8cfce425521a7d17b7f42d6885099815c9b9",
+          "bytes": 57816,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1966,6 +2012,20 @@
           "packagedName": "libbin_adev_git_credential.so",
           "sha256": "77057ec11dcdad955fd3acf9b9c25f9e369c37e918690d2870feb45addd706b3",
           "bytes": 42232,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_git_launcher.so",
+          "sha256": "85feb902cde60a53371ebb76c4fe8ea6b4578efe28204dbd5f43d063dba207b7",
+          "bytes": 40936,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_glibc_loader.so",
+          "sha256": "c23905cdcafe19cc3bedc2f8cca451f99a0d5dacce463cedf765f6036a22390b",
+          "bytes": 8104,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -1985,29 +2045,36 @@
         },
         {
           "packagedName": "libbin_adev_npm_shell.so",
-          "sha256": "9ad6aea2eebdb549a63e245ae67ac71f35666ccab329bd6ddd3505f7ee166086",
-          "bytes": 16792,
+          "sha256": "83cf5ddc0332e46efaaa85839cd04ab6c71f7d507b00a3c4a9e351f8ae6e1e4b",
+          "bytes": 16184,
+          "runtimePaths": [],
+          "owner": "app-native"
+        },
+        {
+          "packagedName": "libbin_adev_secret.so",
+          "sha256": "d716cea93331ae044b41414dbfdf942c313e6816b3d20cabc82d5a0a4c0089a0",
+          "bytes": 43688,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_adev_xdg_open.so",
-          "sha256": "8af4adca3ad1414d29a745047163ff2d790d37d75725d26baf2c706344d1858f",
-          "bytes": 37864,
+          "sha256": "3014e21455a0a191c61654fdbaf8058eadee2ca83fa229ee113e4cbda60f7f50",
+          "bytes": 41240,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "libbin_opencode.so",
-          "sha256": "ab2950320ab9fd9cfad69276c20394d7bc0492f7819a7bc5336a4d22fc7a90c2",
-          "bytes": 64440,
+          "sha256": "9097b72aee4e623788a65d3d52057a79ea89621e9875255537f1d5d73b1180e0",
+          "bytes": 66040,
           "runtimePaths": [],
           "owner": "app-native"
         },
         {
           "packagedName": "liblib_adev_exec_compat.so",
-          "sha256": "1aeb7b10b153488258b46bde5494ba0d2f37ced65f48074881d262f83b53e7a2",
-          "bytes": 24472,
+          "sha256": "6cd1a2674da4be1094661d5e5607b4d379d96d66e4744d1b93ef03855a1b9e95",
+          "bytes": 25680,
           "runtimePaths": [],
           "owner": "app-native"
         },
@@ -2247,30 +2314,43 @@
     ]
   },
   "openCode": {
-    "sha256": "0750c849ff900030b268919b015c9d360c8616558fa27899786ed2021d3e3a8c",
-    "version": "1.17.9",
+    "sha256": "cc0eb71b99a3e632faf0d01faeee4a064a09ad2cc625fc094b44f22e95a5c8da",
+    "version": "1.18.23",
     "platform": "android-bionic",
     "supportedAbis": [
       "arm64-v8a"
     ],
     "source": {
       "openCodeRepository": "https://github.com/anomalyco/opencode",
-      "openCodeCommit": "5c23e88419c4743b9be42cea132f2fb1e6cb63ff",
+      "openCodeCommit": "ef2880f379129aa048be9e9353e30aa168d42c17",
       "androidPortRepository": "https://github.com/guysoft/opencode-termux",
       "androidPortTag": "v0.2.1",
       "androidPortCommit": "f63664eaa774b7fb8ff9e043ad735b05ecb7024b",
       "archiveUrl": "https://github.com/guysoft/opencode-termux/releases/download/v0.2.1/opencode-1.17.9-android-aarch64.zip",
       "archiveSha256": "0c77d4b8f286e01ba08c9e9aeca8c73a0e0c655342044ab3a59cf1953093a9b0",
+      "archivePurpose": "pinned source for the generic Bionic libtagfix.so preload only",
       "androidBunPrefixSha256": "a209437cd7afe24f0c5654f097e9a3558cba9b67fd9d5d5b8cfdd3f3bd165bde",
       "graphBuildBunVersion": "1.3.2",
       "graphBuildBunArchiveSha256": "5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6",
-      "modelsSnapshotSha256": "a524cf9fbd30c0086b57e4aff18ebe3bd81947d6132fb3e33546f5e6b1ee98b1",
+      "modelsSnapshotSha256": "d6a5ad68b1772eecb1fdc135f8c73995a2b0dfad29162fb84a3fa1d8320c7141",
       "graphBuildTarget": "bun-linux-arm64",
-      "graphPatchFile": "scripts/patches/opencode-1.17.9-android.patch",
+      "graphPatchFile": "scripts/patches/opencode-1.18.23-android.patch",
+      "graphRuntimeSha256": "e5079d3c6b974bb6693e033fd292e38dc5342e022c96e8f32b4127ba7d293862",
+      "graphRuntimeBytes": 173519275,
+      "openTuiRepository": "https://github.com/anomalyco/opentui",
+      "openTuiVersion": "0.4.5",
+      "openTuiCommit": "0c8c4f7cff2927e3df63a9757a45eff9a343611c",
+      "openTuiPatchFile": "scripts/patches/opentui-0.4.5-android.patch",
+      "openTuiSha256": "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a",
+      "openTuiBytes": 14386712,
       "androidGraphPatches": [
         "use the launcher-provided app-private XDG cache for OpenCode temporary files",
         "skip background plugin dependency installation on Android",
-        "embed the OpenCode TUI worker and use the external Android/Bionic OpenTUI library",
+        "embed the OpenCode TUI worker and route OpenTUI through the external Android/Bionic library via OPENTUI_LIB_PATH (setRenderLibPath)",
+        "retain upstream spinner registration and degrade unknown non-critical OpenTUI components to a visible text fallback instead of terminating the TUI",
+        "replace bundled glibc/musl OpenTUI entries with the matching external Android/Bionic OpenTUI 0.4.5 renderer",
+        "derive the verified sibling APK-native OpenTUI renderer from process.execPath when a lazy Bun TUI module cannot observe OPENTUI_LIB_PATH",
+        "pin OpenTUI's parser worker to its explicit bunfs entrypoint because grafted Android Bun file imports do not publish a default path",
         "resolve the sibling APK-native ripgrep before environment, PATH, cache, or any desktop download",
         "launch web URLs through the verified sibling APK-native Android URL broker helper using an owner-only app-private rotating capability file",
         "route the core Bash tool through ADEV's APK-native environment-restoring shell broker instead of Bun's sanitized /bin/sh child"

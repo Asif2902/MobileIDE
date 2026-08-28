@@ -1,5 +1,5 @@
 {
-  "version": "1.16.0",
+  "version": "1.17.8",
   "name": "MobileIDE Runtime",
   "description": "Bundled developer runtime for MobileIDE",
   "components": {
@@ -44,6 +44,12 @@
       "version": "3.14.x",
       "description": "Python programming language",
       "required": false
+    },
+    "glibc": {
+      "version": "2.44-0 / pack 1.0.1",
+      "description": "Optional ARM64 Linux glibc compatibility runtime; Bionic remains the default",
+      "required": false,
+      "delivery": "separate-checksummed-release-archive"
     }
   },
   "utilities": [

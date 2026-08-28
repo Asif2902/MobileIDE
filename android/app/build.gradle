@@ -289,6 +289,15 @@ def openCodeRuntimeSha256 = "e5079d3c6b974bb6693e033fd292e38dc5342e022c96e8f32b4
 def openTuiArchive = file("src/main/prebuilt/arm64-v8a/liblib_opencode_opentui.so.gz")
 def openTuiBinary = new File(jniLibsArm64Dir, "liblib_opencode_opentui.so")
 def openTuiSha256 = "0b16d269a096ed8f362956c93257b369f68de3c8e846299926cbf51d912e2e4a"
+def glibcLoaderArchive = file("src/main/prebuilt/arm64-v8a/libbin_adev_glibc_ld.so.gz")
+def glibcLoaderBinary = new File(jniLibsArm64Dir, "libbin_adev_glibc_ld.so")
+def glibcLoaderSha256 = "02993e282185a05cdbd5ebd02bbbb3d8f494ad16320f2c58ce37483de4940859"
+def nodePtyAddonArchive = file("src/main/prebuilt/arm64-v8a/liblib_adev_native_addons_node_pty_1_2_0_beta_15_android_arm64_pty_node.so.gz")
+def nodePtyAddonBinary = new File(jniLibsArm64Dir, "liblib_adev_native_addons_node_pty_1_2_0_beta_15_android_arm64_pty_node.so")
+def nodePtyAddonSha256 = "021da78d1cf0efdc41e5c46460fea178e87359c6d2893aab2aafb43ed8d2a07e"
+def koffiAddonArchive = file("src/main/prebuilt/arm64-v8a/liblib_adev_native_addons_koffi_3_1_6_android_arm64_koffi_node.so.gz")
+def koffiAddonBinary = new File(jniLibsArm64Dir, "liblib_adev_native_addons_koffi_3_1_6_android_arm64_koffi_node.so")
+def koffiAddonSha256 = "b966208920c804d167bdd442132d102b55cb11c352af5fc526bad4bb53119bff"
 
 def restoreGzipPayload = { java.io.File archive, java.io.File binary, String expectedSha256, String label ->
     if (!archive.isFile()) {
@@ -332,6 +341,49 @@ task restoreOpenCodeRuntime {
     doLast {
         restoreGzipPayload(openCodeRuntimeArchive, openCodeRuntimeBinary, openCodeRuntimeSha256, "OpenCode ARM64 payload")
         restoreGzipPayload(openTuiArchive, openTuiBinary, openTuiSha256, "OpenTUI ARM64 renderer")
+    }
+}
+
+task restoreAdevGlibcLoader {
+    description = "Restore the genuine ARM64 glibc loader exec anchor for the optional runtime pack"
+    inputs.file(glibcLoaderArchive)
+    outputs.file(glibcLoaderBinary)
+    outputs.upToDateWhen {
+        glibcLoaderBinary.isFile() && sha256Hex(glibcLoaderBinary) == glibcLoaderSha256
+    }
+    doLast {
+        restoreGzipPayload(
+            glibcLoaderArchive,
+            glibcLoaderBinary,
+            glibcLoaderSha256,
+            "ADEV optional glibc 2.44 ARM64 loader",
+        )
+    }
+}
+
+task restoreAdevCliAddons {
+    description = "Restore pinned ARM64 Node-API addons used by Android CLI compatibility rules"
+    inputs.files(nodePtyAddonArchive, koffiAddonArchive)
+    outputs.files(nodePtyAddonBinary, koffiAddonBinary)
+    outputs.upToDateWhen {
+        nodePtyAddonBinary.isFile() &&
+            sha256Hex(nodePtyAddonBinary) == nodePtyAddonSha256 &&
+            koffiAddonBinary.isFile() &&
+            sha256Hex(koffiAddonBinary) == koffiAddonSha256
+    }
+    doLast {
+        restoreGzipPayload(
+            nodePtyAddonArchive,
+            nodePtyAddonBinary,
+            nodePtyAddonSha256,
+            "node-pty 1.2.0-beta.15 Android ARM64 addon",
+        )
+        restoreGzipPayload(
+            koffiAddonArchive,
+            koffiAddonBinary,
+            koffiAddonSha256,
+            "Koffi 3.1.6 Android ARM64 addon",
+        )
     }
 }
 
@@ -389,7 +441,7 @@ task sanitizeRuntimeNpmAssets {
 
 task prepareRuntimeNativeLibs {
     description = "Relocate ELF runtime binaries from assets into jniLibs as lib*.so"
-    dependsOn sanitizeRuntimeNpmAssets, "pruneRuntimeNativeLibs", restoreOpenCodeRuntime
+    dependsOn sanitizeRuntimeNpmAssets, "pruneRuntimeNativeLibs", restoreOpenCodeRuntime, restoreAdevGlibcLoader, restoreAdevCliAddons
     doLast {
         if (!runtimeAssetsDir.exists()) {
             logger.lifecycle("[runtime] no runtime assets dir; skipping relocation")
@@ -453,6 +505,7 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
                 "libbin_adev_npm_shell.so",
                 "libbin_adev_busybox.so",
                 "libbin_adev_env.so",
+                "libbin_adev_glibc_loader.so",
                 "libbin_adev_make.so",
                 "libbin_adev_ld_lld.so",
                 "libbin_adev_git_credential.so",

@@ -40,6 +40,11 @@ function load(name) {
   }
 }
 
+// Exact Android native prebuilds are installed before upstream lifecycle
+// scripts fall back to irrelevant Linux/CMake paths. This may intentionally
+// finish the matching lifecycle process, so it must run before other hooks.
+load('adev-native-addon-lifecycle.js');
+
 // Package capability policy — reports Android/Bionic honestly, no platform spoof.
 load('adev-runtime-policy.js');
 // Route only Android-noexec scripts/runtime shims through the APK-native env

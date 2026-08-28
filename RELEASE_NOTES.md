@@ -1,3 +1,25 @@
+# A Dev Studio 1.3.32
+
+This beta completes an isolated Linux ARM64 glibc runtime and adds verified Android native/WASM compatibility for DeepSeek DSH.
+
+- `dsh` launches the exact supported `@deepseek-ai/dsh@0.1.1-rc.2` CLI with Node's real `--expose-internals` process flag while preserving ADEV's existing `NODE_OPTIONS` contract.
+- Sharp 0.35.4 uses the official `@img/sharp-wasm32` package because upstream does not publish an Android ARM64 native Sharp binary.
+- Real Android/Bionic ARM64 Node-API builds are provided for `node-pty@1.2.0-beta.15` (74,448 bytes) and `koffi@3.1.6` (1,153,528 bytes). They are installed only for exact catalogued versions, through the generic npm lifecycle compatibility layer, and are verified by hash before atomic placement.
+- Device validation covers Sharp image processing, real PTY spawn/I/O, Koffi FFI, HMR initialization, the `@dshline/dshline` plugin tree, `dsh web`, and a live DSH profile.
+
+- `adev runtime install glibc`, `update`, `remove`, and `list` manage a separately versioned, SHA-256-verified runtime under `$PREFIX/glibc`; `adev install glibc` is an install alias.
+- Bionic remains the application-wide default. The glibc library directory is never placed on global `PATH` or `LD_LIBRARY_PATH`; compatible binaries opt in through `glibc-run` or the genuine loader path.
+- Runtime pack 1.0.1 uses the Android-patched Termux-pacman glibc 2.44-0 package. It contains the minimal shared-library closure, `getconf` smoke-test binary, NSS/resolver data, checksummed manifest, and GPL/LGPL notices—no headers, static archives, locales, or gconv catalog.
+- Modern Android cannot execute downloaded ELF files from app-writable storage. A tiny APK-native Bionic launcher opens the installed glibc root on inherited fd 255 and raw-execs the genuine 242,560-byte glibc loader in `nativeLibraryDir`. The conventional `$PREFIX/glibc/lib/ld-linux-aarch64.so.1` path points to that launcher. Android `/system/bin/linker64` is never substituted for the glibc loader and no fake loader is created.
+- Pack files with a compiled Termux prefix are reproducibly retargeted to `/proc/self/fd/255`, preserving ELF offsets while making the pack independent of Android package ID and user/profile paths.
+- The generated ARM64 archive is deterministic, 1,791,064 compressed bytes and 4,593,452 installed payload bytes. Its SHA-256 is `d842729decf8632fc4385aac0be9c2711d655113b58ff3d3af457dcb002f551b`.
+- The installer validates architecture, Android API, archive size, checksum, safe paths, every extracted file, the APK loader hash, and a real `getconf GNU_LIBC_VERSION` execution before committing the install atomically.
+- Compatibility setup creates the CA and NSS/resolver files expected by Linux glibc tools without replacing Bionic's global environment.
+- `$PREFIX/bin` remains a normal owner-managed CLI destination. Runtime setup now applies `0700` to the directory and `0755` to regular commands, and a readiness check automatically repairs legacy read-only (`0500`) installations on upgrade. No group/world write permission is granted.
+- On an ARM64/API-30 device, `touch "$PREFIX/bin/test-file"` succeeds with app-UID ownership. The unmodified upstream Antigravity installer reports `[OK] Binary found` and `[OK] Engine online (1.1.22 verified)`, and `agy --version` reports `1.1.22`.
+- Antigravity exposed three generic boundaries that are now fixed: `/proc/self/exe` reported Android's linker after noexec dispatch, a writable loader symlink was incorrectly re-entered through the Android linker, and the upstream glibc package hard-coded Termux's NSS/resolver prefix. No Antigravity package code or verification was bypassed.
+- A non-interactive ADB instrumentation process has no controlling `/dev/tty`, so Antigravity's Bubble Tea UI cannot remain open in that harness after the engine is verified. The visible ADEV terminal provides the PTY required by interactive TUIs.
+
 # A Dev Studio 1.3.31
 
 This beta upgrades the bundled Android-native OpenCode runtime itself from 1.17.9 to upstream 1.18.23.

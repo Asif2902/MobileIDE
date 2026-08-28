@@ -94,6 +94,14 @@ runtime/downloads/
 # out of Git avoids Git LFS quota failures while preserving reproducible builds.
 /android/app/src/main/jniLibs/arm64-v8a/libbin_opencode_runtime.so
 /android/app/src/main/jniLibs/arm64-v8a/liblib_opencode_opentui.so
+/android/app/src/main/jniLibs/arm64-v8a/libbin_adev_glibc_loader.so
+/android/app/src/main/jniLibs/x86_64/libbin_adev_glibc_loader.so
+
+# Superseded local glibc pack outputs. The current independently publishable
+# pack is v1.0.1 and the genuine loader payload is named glibc_ld.
+/android/app/src/main/prebuilt/arm64-v8a/libbin_adev_glibc_loader.so.gz
+/release/glibc/adev-glibc-aarch64-v1.0.0.tar.gz
+/release/glibc/adev-glibc-aarch64-v1.0.0.tar.gz.sha256
 
 # Agent working memory (do not commit)
 **/CONTEXT.md

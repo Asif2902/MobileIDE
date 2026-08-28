@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-08-27
-Application: A Dev Studio 1.3.31 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.17.6
+Application: A Dev Studio 1.3.32 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.17.8
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -396,12 +396,12 @@ Status meanings:
 | node-gyp | ✅ ARM64/API-30 baseline verified | node-gyp 12.3.0, Python, APK-native Make/Clang/LLD and Node headers are bundled. The connected phone completed N-API C/C++ install, rebuild, direct `node-gyp rebuild`, load, consumer install/uninstall/reinstall, plus a C++20 V8 addon compile/link/load. Remaining certification is the API/ABI/storage matrix, not the original EACCES path. |
 | Python | ✅ ARM64/API-30 baseline verified | Python 3.14.6 includes all 589 standard-library files and native modules. The connected Phase 1 run passed env-Python and `os.popen()` through ADEV's exec-safe shell; no stale `com.termux` shell was used. Other API/ABI combinations remain release gates. |
 | Clang / Make / build tools | ✅ ARM64/API-30 baseline verified | Clang/LLVM 21.1.8, GNU Make 4.4.1, Unix LLD bridge, `llvm-ar`, headers, CRT objects, Bionic and libc++ include order, and libraries compiled and linked real N-API/V8 addons on the connected phone. Optional tool packs and x86_64 developer compilation remain explicit feature/matrix gates. |
-| BusyBox / Linux CLI | ⚠️ Integrated; final device retest | Pinned Termux BusyBox 1.38.0-1 is ELF64 AArch64/Bionic, not the previously staged ELF32 payload. Executable SHA-256 is `db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058`; its exact SONAME closure and `0x4000` alignment pass. The argv-zero dispatcher covers the essential command suite; `w` explicitly maps to Android uptime because app UIDs have no utmp login-session access. |
+| BusyBox / Linux CLI | ⚠️ Partially integrated | Pinned Termux BusyBox 1.38.0-1 is ELF64 AArch64/Bionic, not the previously staged ELF32 payload. Executable SHA-256 is `db7f2a847ab051086c71d1c8c367e71adf59a3c39c8323ff801126ff11c84058`; its exact SONAME closure and `0x4000` alignment pass. The argv-zero dispatcher covers the essential command suite; `w` explicitly maps to Android uptime because app UIDs have no utmp login-session access. Connected-device testing on API 30 found one remaining generic defect: the `install` applet copies its first input and then crashes while `libandroid_selinux` initializes `matchpathcon`. This is tracked as a BusyBox/SELinux integration issue, not hidden with an installer-specific fallback. |
 | Nano | ⚠️ Integrated; final device retest | Nano 9.2 is a signed-index-verified ARM64/Bionic PIE with exact dependencies, 40 terminfo entries, 44 syntax definitions, generated prefix-correct `.nanorc`, and Nano/Git/editor defaults. Host, lock, license, closure, and final-APK content checks pass; interactive phone editing remains. x86_64 honestly falls back to `vi`. |
 | Build target | ✅ Fully integrated | Generated native addons target `aarch64-linux-android29`, matching `minSdk`, rather than the SDK level of the phone doing the build. |
 | 16 KiB pages | ⚠️ Integrated; strict-device gate | React Native/Hermes and native dependencies were upgraded. The 1.3.11 verifier checks the final APK with `zipalign -P 16` and scans all 248 packaged ELF files: every loadable file has `PT_LOAD >= 0x4000`; six compiler `ET_REL` objects correctly have no load segments. A strict 16 KiB device run remains required. |
 | PATH resolution | ✅ ARM64/API-30 baseline verified | System tools stay first, but virtual `/usr/bin/env` is deliberately routed to ADEV's native interpreter before Toybox. The connected phone runs both the untouched AchSwap global CLI and the isolated package-neutral global npm fixture by command name. Recursive Node/Python/system-sh resolution passes without bad-ELF or EACCES. |
-| Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. |
+| Executable permissions | ✅ Fully integrated | Executable ELFs are packaged in `nativeLibraryDir`. App-data scripts are interpreted or translated; `chmod` is not treated as a fix for SELinux/noexec. `$PREFIX/bin` is an app-owned private installer destination: directories are `0700`, regular files are `0755`, symlinks retain their native-library targets, and runtime readiness repairs legacy `0500` installs on upgrade. A real API-30 run of `touch "$PREFIX/bin/test-file"` passed under the app UID without global write permissions. |
 | Child process: Java spawn | ⚠️ Integrated; device gate | `ProcessManager` clears inherited host state, installs the runtime environment, resolves core/runtime/build commands, launches each task under `setsid`, obtains the PID from the child instead of reflection, streams output, and terminates the process group with a `/proc` descendant fallback. Device process-tree tests remain. |
 | Child process: Node `spawn` / `exec` / `fork` | ✅ ARM64/API-30 baseline verified | Node/OpenCode subprocesses inherit the complete runtime contract. ADEV exports Android's `LIBC`-versioned `execve`/`execvp` ABI and routes `execve`, `execv`, `execvp`, `execvpe`, `execl`, `execlp`, and `execle` through one recursive resolver before termux-exec. On-device OpenCode-environment evidence covers normal-path Node/Python/Bash scripts, script-to-script chains with preserved arguments, loop/malformed-shebang errors, and direct npm/npx PATH execution without manual exports or native `.so` paths. Other API/ABI rows remain release-matrix gates. |
 | Shell execution | ⚠️ Fixed; 1.3.13 device retest | Native Bash is preferred; `/system/bin/sh` is the fallback. Runtime 1.16.8 exports that choice as `ADEV_PYTHON_SHELL`, removes the stale Termux shell from Python/Git helper text and `paths.h`, and remaps legacy compiled requests at the exec boundary. Existing POSIX `NODE_OPTIONS` generation tests remain. Connected Vite/Python shell execution is still required. |
@@ -1396,6 +1396,92 @@ OpenCode compatibility basis:
   API 29/API 36 and an x86_64 OpenCode payload remain explicit matrix gates.
   The signed runtime lock still requires the external owner key before release;
   no bootstrap/replacement signing key was generated.
+
+## Optional glibc runtime pack — 1.3.32 / runtime 1.17.8
+
+Status: **ARM64/API-30 DEVICE VERIFIED — INDEPENDENT PACK RELEASE PENDING**
+
+- The existing Android/Bionic runtime remains authoritative and unchanged for
+  Node, npm, Next.js, Vite, Python, Git, OpenCode, Grok, shell and PTY tasks.
+- `adev runtime install|update|remove|list glibc` manages a versioned runtime
+  under `$PREFIX/glibc`; `adev install glibc` is the short install form and
+  `glibc-run` is the explicit execution boundary.
+- Pack 1.0.1 selects only the dynamic runtime closure from Termux-pacman glibc
+  2.44-0. The pinned upstream archive SHA-256 is
+  `8725a20d85fa35a094cf092286295668fd5292247128c4bb8101585ba063799c`.
+- Android target-SDK 29+ forbids direct execution of downloaded ELF files from
+  app-writable storage. A small APK-native Bionic launcher is the public exec
+  anchor. It opens the installed pack root on inherited fd 255, removes only
+  incompatible Bionic loader injections, and raw-execs the genuine 242,560-byte
+  glibc loader from `nativeLibraryDir`. Android linker64 is never substituted
+  for that loader and Bionic remains the default runtime.
+- Fixed-length compiled references to Termux's private prefix are reproducibly
+  retargeted to `/proc/self/fd/255` without changing ELF layout. The launcher
+  binds that fd to the actual `$PREFIX/glibc`, so secondary users and package
+  path changes do not recreate a `/data/data/com.termux` dependency.
+- Installation is checksum-verified, path-contained, per-file verified,
+  atomic with rollback, and accepted only after the loader executes the
+  packaged `getconf` binary and reports glibc 2.44.
+- Release assets are independent of the APK:
+  `adev-glibc-aarch64-v1.0.1.tar.gz`, its `.sha256`, and
+  `release/adev-glibc-index.json`. Future packs must retain the loader hash or
+  declare that a newer ADEV APK is required.
+- Remaining explicit boundaries: aarch64 first; x86_64 reports unsupported;
+  Linux kernel, `/proc`, namespace, syscall, VA-size, TLS and CPU-extension
+  assumptions of individual desktop binaries remain tool-specific and must be
+  diagnosed rather than hidden by extra random libraries.
+
+Connected API-30 evidence (2026-08-28):
+
+- Upgrade repair changed the pre-existing `$PREFIX/bin` from `0500` to `0700`;
+  owner and group remained the app UID (`11828`).
+- The exact `touch "$PREFIX/bin/test-file"` check passed. The resulting test
+  executable was app-owned and `0755`; the directory remained `0700`.
+- The exact upstream payload contains a 20,680-byte Android/Bionic launcher
+  (`/system/bin/linker64`) and a 198,070,504-byte glibc engine whose interpreter
+  is `/lib/ld-linux-aarch64.so.1`; it has no RPATH/RUNPATH and needs the normal
+  glibc resolver/thread/math/dl/rt/libc closure.
+- The first real `agy --version` failure was not a missing random library. The
+  Bionic launcher's `/proc/self/exe` resolved to Android linker64 after ADEV's
+  noexec dispatch, so it searched for its engine under `/apex`. Generic exact
+  `/proc/self/exe` readlink/readlinkat interposition now returns the intended
+  command path while preserving every other procfs readlink.
+- The second failure came from attempting to enter a writable glibc loader
+  symlink through Android linker64. The two-stage native launcher above removes
+  that ambiguity. The final failure was DNS: upstream glibc had a compiled
+  Termux prefix and could not find NSS/resolver data. Pack retargeting plus the
+  minimal owned `nsswitch.conf`, hosts and resolver files fixes it generically.
+- A clean pack remove/install passes the real glibc `getconf` smoke test. The
+  unmodified Antigravity installer reaches `[OK] Binary found` and
+  `[OK] Engine online (1.1.22 verified)`; `agy --version` returns `1.1.22`.
+- The generated pack is 1,791,064 compressed bytes and 4,593,452 installed
+  bytes, SHA-256
+  `d842729decf8632fc4385aac0be9c2711d655113b58ff3d3af457dcb002f551b`.
+  The catalog currently names the intended independent GitHub release; that
+  release asset must be published before normal remote installs can succeed.
+
+## DeepSeek DSH Android compatibility — runtime 1.17.8
+
+Status: **ARM64/API-30 DEVICE VERIFIED FOR EXACT CATALOGUED VERSIONS**
+
+- `dsh` launches `@deepseek-ai/dsh@0.1.1-rc.2` with the real Node CLI flag
+  `--expose-internals`; the flag is not placed in `NODE_OPTIONS`, which Node
+  rejects, and the existing environment preload contract remains unchanged.
+- Upstream Sharp 0.35.4 publishes no Android ARM64 native module. ADEV bundles
+  the official `@img/sharp-wasm32@0.35.4` fallback with
+  `@emnapi/runtime@1.11.3` and `tslib@2.8.1`.
+- Upstream node-pty and Koffi publish no usable Android ARM64 prebuilds. ADEV
+  supplies real Bionic Node-API 8 builds for `node-pty@1.2.0-beta.15`
+  (74,448 bytes) and `koffi@3.1.6` (1,153,528 bytes), installed only for exact
+  package/version/lifecycle matches after SHA-256 validation and atomic rename.
+- Device evidence: Sharp processed a valid PNG; node-pty spawned
+  `/system/bin/sh` and returned `pty-ok`; Koffi called libc `strlen` and
+  returned 8; HMR initialized; `@dshline/dshline@0.12.0` loaded through the
+  supported plugin command; `dsh web` served HTML on loopback; and an actual
+  profile reached `ready` through a PTY.
+- Remaining boundary: these native addon payloads are currently ARM64-only and
+  exact-version gated. Unknown versions fail with an actionable unsupported
+  message rather than receiving an ABI-incompatible binary.
 
 ## Definition of done for Android-native npm installs
 

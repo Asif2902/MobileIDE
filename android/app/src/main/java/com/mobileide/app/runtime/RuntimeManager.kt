@@ -135,6 +135,7 @@ class RuntimeManager(private val context: Context) {
             if (!versionFile.isFile) return false
             if (versionFile.readText().trim() != CURRENT_RUNTIME_VERSION) return false
             if (!binDir.isDirectory) return false
+            if (!binDir.canWrite() || !binDir.canExecute()) return false
             if (!runtimeSupportAssetsComplete()) return false
 
             // Re-initialize whenever the bundled binary/library set changes, even if
@@ -256,6 +257,12 @@ class RuntimeManager(private val context: Context) {
             File(libDir, "node_modules/npm/bin/npx-cli.js"),
             File(libDir, "adev-node-preload.js"),
             File(libDir, "adev-child-process-compat.js"),
+            File(libDir, "adev-native-addon-lifecycle.js"),
+            File(libDir, "adev-node-cli.js"),
+            File(libDir, "adev-cli-compat.json"),
+            File(libDir, "adev-native-addons/node-pty/1.2.0-beta.15/android-arm64/pty.node"),
+            File(libDir, "adev-native-addons/koffi/3.1.6/android-arm64/koffi.node"),
+            File(libDir, "node_modules/@img/sharp-wasm32/lib/sharp-wasm32-0.35.4.node.wasm"),
             File(libDir, "adev-runtime-env-test.js")
         )
         if (!required.all { it.isFile && it.length() > 0L }) return false
@@ -286,6 +293,13 @@ class RuntimeManager(private val context: Context) {
                 "runtime-lock.json",
                 "lib/adev-node-preload.js",
                 "lib/adev-child-process-compat.js",
+                "lib/adev-native-addon-lifecycle.js",
+                "lib/adev-runtime-cli.js",
+                // The catalog pins all Android addon/WASM artifact hashes. Hash
+                // it and its launcher rather than reading 11 MiB on every app
+                // readiness check.
+                "lib/adev-node-cli.js",
+                "lib/adev-cli-compat.json",
                 // Agent-facing guide: refresh extracted copy whenever edited.
                 "share/adev/SKILL.md"
             ).forEach { relativePath ->
@@ -353,12 +367,13 @@ class RuntimeManager(private val context: Context) {
         createGitRemoteAliases()
         createBusyboxAliases()
         createNpmShellAlias()
+        refreshOptionalGlibcBindings()
         // Replace key bin/* symlinks with shebang trampolines so OpenCode / agents
         // can exec node|npm|git via PATH (termux-exec runs scripts on noexec).
         createPathTrampolines()
 
-        onProgress?.invoke("Protecting runtime...", 0.9f)
-        protectBinDirectory()
+        onProgress?.invoke("Finalizing runtime permissions...", 0.9f)
+        finalizeBinPermissions()
 
         // The trust store is assembled before the environment contract is
         // published: SSL_CERT_FILE and its siblings are only advertised once a
@@ -409,10 +424,11 @@ class RuntimeManager(private val context: Context) {
         createGitRemoteAliases()
         createBusyboxAliases()
         createNpmShellAlias()
+        refreshOptionalGlibcBindings()
         createPathTrampolines()
         setExecutablePermissions()
         setupShellWrappers()
-        protectBinDirectory()
+        finalizeBinPermissions()
         // The trust store and the published environment contract both embed the
         // current install paths, so an upgrade must rewrite them here too. A
         // previously failed CA assembly is repaired on the next launch instead of
@@ -433,15 +449,77 @@ class RuntimeManager(private val context: Context) {
     }
 
     /**
-     * A prior init marks bin/ (and its files) read-only via protectBinDirectory().
-     * Before re-extracting assets on an upgrade we must restore write access
-     * across the bin tree, otherwise overwriting a protected helper script throws
-     * and aborts the rebuild. Cheap because bin/ holds only a handful of files.
+     * An APK update moves nativeLibraryDir. Keep an already-installed optional
+     * glibc pack intact, but atomically rebind its loader and generic runner to
+     * the current APK-native executable anchor. No download or user action is
+     * required, and Bionic remains the default runtime.
      */
+    private fun refreshOptionalGlibcBindings() {
+        val glibcRoot = File(runtimeRoot, "glibc")
+        if (!File(glibcRoot, "manifest.json").isFile) return
+        val loader = File(nativeLibDir, "libbin_adev_glibc_ld.so")
+        val launcher = File(nativeLibDir, "libbin_adev_glibc_loader.so")
+        if (!loader.isFile || !launcher.isFile) return
+
+        val glibcLib = File(glibcRoot, "lib").apply { mkdirs() }
+        val glibcBin = File(glibcRoot, "bin").apply { mkdirs() }
+        fun replaceLink(link: File, target: String) {
+            try {
+                if (link.exists() || Files.isSymbolicLink(link.toPath())) link.delete()
+                Os.symlink(target, link.absolutePath)
+            } catch (error: Exception) {
+                Log.w(TAG, "Optional glibc binding ${link.name} failed: ${error.message}")
+            }
+        }
+        replaceLink(File(glibcLib, "ld-linux-aarch64.so.1"), launcher.absolutePath)
+        replaceLink(File(glibcBin, "ld.so"), "../lib/ld-linux-aarch64.so.1")
+
+        val runner = File(glibcBin, "glibc-run")
+        runner.writeText(
+            "#!/system/bin/sh\n" +
+                "ADEV_GLIBC_ROOT=\"${glibcRoot.absolutePath}\"\n" +
+                "unset LD_PRELOAD\n" +
+                "export ADEV_ENV_AUTOFILL=0\n" +
+                "export LD_LIBRARY_PATH=\"\$ADEV_GLIBC_ROOT/lib\"\n" +
+                "export GCONV_PATH=\"\$ADEV_GLIBC_ROOT/lib/gconv\"\n" +
+                "if [ \"\$#\" -eq 0 ]; then echo \"usage: glibc-run <program> [args...]\" >&2; exit 64; fi\n" +
+                "ADEV_GLIBC_PROGRAM=\"\$1\"\n" +
+                "shift\n" +
+                "case \"\$ADEV_GLIBC_PROGRAM\" in\n" +
+                "  */*) ;;\n" +
+                "  *)\n" +
+                "    if [ -f \"\$ADEV_GLIBC_ROOT/bin/\$ADEV_GLIBC_PROGRAM\" ]; then\n" +
+                "      ADEV_GLIBC_PROGRAM=\"\$ADEV_GLIBC_ROOT/bin/\$ADEV_GLIBC_PROGRAM\"\n" +
+                "    else\n" +
+                "      ADEV_GLIBC_PROGRAM=\"\$(command -v \"\$ADEV_GLIBC_PROGRAM\")\" || exit 127\n" +
+                "    fi\n" +
+                "    ;;\n" +
+                "esac\n" +
+                "exec \"${launcher.absolutePath}\" " +
+                "--library-path \"\$ADEV_GLIBC_ROOT/lib\" \"\$ADEV_GLIBC_PROGRAM\" \"\$@\"\n"
+        )
+        try {
+            Os.chmod(runner.absolutePath, 0b111101101) // 0755
+        } catch (_: Exception) {
+            runner.setExecutable(true, true)
+        }
+    }
+
+    /** Restore owner write access before replacing packaged bin entries. */
     private fun restoreBinWritability() {
         if (!binDir.exists()) return
         fun walk(f: File) {
-            try { f.setWritable(true, false) } catch (_: Exception) { }
+            if (Files.isSymbolicLink(f.toPath())) return
+            try {
+                Os.chmod(
+                    f.absolutePath,
+                    if (f.isDirectory) 0b111000000 else 0b111101101
+                ) // directories 0700, files 0755
+            } catch (_: Exception) {
+                f.setWritable(true, true)
+                f.setReadable(true, true)
+                if (f.isDirectory || f.isFile) f.setExecutable(true, true)
+            }
             if (f.isDirectory) f.listFiles()?.forEach { walk(it) }
         }
         walk(binDir)
@@ -650,7 +728,7 @@ class RuntimeManager(private val context: Context) {
         // noexec path. createPathTrampolines() may re-add a few as shell scripts
         // for applets agents need when toybox is incomplete.
         listOf(
-            "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown",
+            "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown", "install",
             "touch", "find", "grep", "sed", "awk", "head", "tail", "wc", "sort", "uniq",
             "tr", "cut", "xargs", "tee", "diff", "which", "whoami", "id",
             "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
@@ -714,6 +792,9 @@ class RuntimeManager(private val context: Context) {
             val bunBoundary = File(libDir, "adev-bun.js")
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
+            val runtimeCli = File(libDir, "adev-runtime-cli.js")
+            val nodeCliLauncher = File(libDir, "adev-node-cli.js")
+            val glibcLoader = File(nativeLibDir, "libbin_adev_glibc_ld.so")
             val phase3Test = File(libDir, "adev-phase3-test.js")
             val environmentTest = File(libDir, "adev-runtime-env-test.js")
             val hasBusybox =
@@ -795,6 +876,14 @@ class RuntimeManager(private val context: Context) {
                 if (sshLauncher.exists()) {
                     sb.appendLine("ssh() { \"$node\" \"${sshLauncher.absolutePath}\" \"\$@\"; }")
                 }
+                if (runtimeCli.exists()) {
+                    sb.appendLine("adev() { \"$node\" \"${runtimeCli.absolutePath}\" \"\$@\"; }")
+                }
+                if (nodeCliLauncher.exists()) {
+                    // --expose-internals must be a real Node CLI argument. Keep
+                    // the authoritative single-entry NODE_OPTIONS untouched.
+                    sb.appendLine("dsh() { \"$node\" --expose-internals \"${nodeCliLauncher.absolutePath}\" dsh \"\$@\"; }")
+                }
                 sb.appendLine("tsc() { adev-require-private-workspace \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install tsc \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes tsc \"\$@\"; }")
                 sb.appendLine("eslint() { adev-require-private-workspace \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install eslint \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes eslint \"\$@\"; }")
                 sb.appendLine("vite() { adev-workspace-guard vite \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --no-install vite \"\$@\" 2>/dev/null || \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" --yes vite \"\$@\"; }")
@@ -851,9 +940,66 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine("adev-npm-shell() { \"$npmShell\" \"\$@\"; }")
                 sb.appendLine()
             }
+            if (glibcLoader.isFile) {
+                sb.appendLine("glibc-run() {")
+                sb.appendLine("  [ -f \"\$PREFIX/glibc/manifest.json\" ] || { echo \"glibc runtime is not installed; run: adev runtime install glibc\" >&2; return 69; }")
+                sb.appendLine("  \"\$PREFIX/glibc/bin/glibc-run\" \"\$@\"")
+                sb.appendLine("}")
+                sb.appendLine()
+            }
 
             if (hasBusybox) {
                 sb.appendLine("busybox() { \"$busyboxDispatcher\" \"\$@\"; }")
+                // Pure-shell install emulation — BusyBox install segfaults (139)
+                // via matchpathcon/selabel_file_init as app UID cannot access
+                // file_contexts. Emulate with cp/chmod/mkdir only (no BusyBox).
+                sb.appendLine("install() {")
+                sb.appendLine("  adev_install_mode=755")
+                sb.appendLine("  adev_install_directory=0")
+                sb.appendLine("  adev_install_target=\"\"")
+                sb.appendLine("  while [ \"\$#\" -gt 0 ]; do")
+                sb.appendLine("    case \"\$1\" in")
+                sb.appendLine("      -m) adev_install_mode=\"\$2\"; shift 2 ;;")
+                sb.appendLine("      -m*) adev_install_mode=\"\${1#-m}\"; shift ;;")
+                sb.appendLine("      -D) adev_install_directory=1; shift ;;")
+                sb.appendLine("      -Dm) adev_install_directory=1; adev_install_mode=\"\$2\"; shift 2 ;;")
+                sb.appendLine("      -Dm*) adev_install_directory=1; adev_install_mode=\"\${1#-Dm}\"; shift ;;")
+                sb.appendLine("      -t) adev_install_target=\"\$2\"; shift 2 ;;")
+                sb.appendLine("      -t*) adev_install_target=\"\${1#-t}\"; shift ;;")
+                sb.appendLine("      --) shift; break ;;")
+                sb.appendLine("      -*) echo \"install: unknown option \$1\" >&2; return 64 ;;")
+                sb.appendLine("      *) break ;;")
+                sb.appendLine("    esac")
+                sb.appendLine("  done")
+                sb.appendLine("  if [ -n \"\$adev_install_target\" ]; then")
+                sb.appendLine("    mkdir -p \"\$adev_install_target\" || return \$?")
+                sb.appendLine("    for adev_install_src in \"\$@\"; do")
+                sb.appendLine("      cp -f \"\$adev_install_src\" \"\$adev_install_target/\" || return \$?")
+                sb.appendLine("      chmod \"\$adev_install_mode\" \"\$adev_install_target/\$(basename \"\$adev_install_src\")\" || return \$?")
+                sb.appendLine("    done")
+                sb.appendLine("    return 0")
+                sb.appendLine("  fi")
+                sb.appendLine("  eval \"adev_install_dest=\\\${\$#}\"")
+                sb.appendLine("  if [ \"\$adev_install_directory\" -eq 1 ]; then")
+                sb.appendLine("    mkdir -p \"\$(dirname \"\$adev_install_dest\")\" || return \$?")
+                sb.appendLine("  fi")
+                sb.appendLine("  adev_install_count=\$#")
+                sb.appendLine("  if [ \"\$adev_install_count\" -eq 2 ]; then")
+                sb.appendLine("    cp -f \"\$1\" \"\$adev_install_dest\" || return \$?")
+                sb.appendLine("    if [ -d \"\$adev_install_dest\" ]; then")
+                sb.appendLine("      chmod \"\$adev_install_mode\" \"\$adev_install_dest/\$(basename \"\$1\")\" || return \$?")
+                sb.appendLine("    else")
+                sb.appendLine("      chmod \"\$adev_install_mode\" \"\$adev_install_dest\" || return \$?")
+                sb.appendLine("    fi")
+                sb.appendLine("    return 0")
+                sb.appendLine("  fi")
+                sb.appendLine("  mkdir -p \"\$adev_install_dest\" || return \$?")
+                sb.appendLine("  for adev_install_src in \"\$@\"; do")
+                sb.appendLine("    [ \"\$adev_install_src\" = \"\$adev_install_dest\" ] && break")
+                sb.appendLine("    cp -f \"\$adev_install_src\" \"\$adev_install_dest/\" || return \$?")
+                sb.appendLine("    chmod \"\$adev_install_mode\" \"\$adev_install_dest/\$(basename \"\$adev_install_src\")\" || return \$?")
+                sb.appendLine("  done")
+                sb.appendLine("}")
                 // Fall back only when BusyBox could not *run* the applet (127 /
                 // 126), never on a non-zero exit status. Chaining with || meant
                 // `grep` finding no match, or `diff` reporting a difference, ran
@@ -1090,6 +1236,9 @@ class RuntimeManager(private val context: Context) {
             val bunBoundary = File(libDir, "adev-bun.js")
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
+            val runtimeCli = File(libDir, "adev-runtime-cli.js")
+            val nodeCliLauncher = File(libDir, "adev-node-cli.js")
+            val glibcLoader = File(nativeLibDir, "libbin_adev_glibc_ld.so")
             val phase3Test = File(libDir, "adev-phase3-test.js")
             val environmentTest = File(libDir, "adev-runtime-env-test.js")
             val openCodeUpdater = File(libDir, "adev-opencode-update.js")
@@ -1116,6 +1265,28 @@ class RuntimeManager(private val context: Context) {
                 writeScript(
                     "adev-opencode-update",
                     "#!/system/bin/sh\nexec \"${node.absolutePath}\" \"${openCodeUpdater.absolutePath}\" \"\$@\"\n"
+                )
+            }
+            if (node.exists() && runtimeCli.exists()) {
+                writeScript(
+                    "adev",
+                    "#!/system/bin/sh\nexec \"${node.absolutePath}\" \"${runtimeCli.absolutePath}\" \"\$@\"\n"
+                )
+            }
+            if (node.exists() && nodeCliLauncher.exists()) {
+                writeScript(
+                    "dsh",
+                    "#!/system/bin/sh\n" +
+                        "exec \"${node.absolutePath}\" --expose-internals " +
+                        "\"${nodeCliLauncher.absolutePath}\" dsh \"\$@\"\n"
+                )
+            }
+            if (glibcLoader.isFile) {
+                writeScript(
+                    "glibc-run",
+                    "#!/system/bin/sh\n" +
+                        "[ -f \"\$PREFIX/glibc/manifest.json\" ] || { echo \"glibc runtime is not installed; run: adev runtime install glibc\" >&2; exit 69; }\n" +
+                        "exec \"\$PREFIX/glibc/bin/glibc-run\" \"\$@\"\n"
                 )
             }
 
@@ -1344,6 +1515,57 @@ adev_guard() {
                 ).forEach { ap ->
                     writeScript(ap, "#!/system/bin/sh\nexec \"$bb\" $ap \"\$@\"\n")
                 }
+                // Pure-shell install — BusyBox install segfaults (see shell function
+                // above). Provide /bin/install as a shell script using cp/chmod.
+                writeScript(
+                    "install",
+                    "#!/system/bin/sh\n" +
+                        "adev_install_mode=755\n" +
+                        "adev_install_directory=0\n" +
+                        "adev_install_target=\"\"\n" +
+                        "while [ \"\$#\" -gt 0 ]; do\n" +
+                        "  case \"\$1\" in\n" +
+                        "    -m) adev_install_mode=\"\$2\"; shift 2 ;;\n" +
+                        "    -m*) adev_install_mode=\"\${1#-m}\"; shift ;;\n" +
+                        "    -D) adev_install_directory=1; shift ;;\n" +
+                        "    -Dm) adev_install_directory=1; adev_install_mode=\"\$2\"; shift 2 ;;\n" +
+                        "    -Dm*) adev_install_directory=1; adev_install_mode=\"\${1#-Dm}\"; shift ;;\n" +
+                        "    -t) adev_install_target=\"\$2\"; shift 2 ;;\n" +
+                        "    -t*) adev_install_target=\"\${1#-t}\"; shift ;;\n" +
+                        "    --) shift; break ;;\n" +
+                        "    -*) echo \"install: unknown option \$1\" >&2; exit 64 ;;\n" +
+                        "    *) break ;;\n" +
+                        "  esac\n" +
+                        "done\n" +
+                        "if [ -n \"\$adev_install_target\" ]; then\n" +
+                        "  mkdir -p \"\$adev_install_target\" || exit \$?\n" +
+                        "  for adev_install_src in \"\$@\"; do\n" +
+                        "    cp -f \"\$adev_install_src\" \"\$adev_install_target/\" || exit \$?\n" +
+                        "    chmod \"\$adev_install_mode\" \"\$adev_install_target/\$(basename \"\$adev_install_src\")\" || exit \$?\n" +
+                        "  done\n" +
+                        "  exit 0\n" +
+                        "fi\n" +
+                        "eval \"adev_install_dest=\\\${\$#}\"\n" +
+                        "if [ \"\$adev_install_directory\" -eq 1 ]; then\n" +
+                        "  mkdir -p \"\$(dirname \"\$adev_install_dest\")\" || exit \$?\n" +
+                        "fi\n" +
+                        "adev_install_count=\$#\n" +
+                        "if [ \"\$adev_install_count\" -eq 2 ]; then\n" +
+                        "  cp -f \"\$1\" \"\$adev_install_dest\" || exit \$?\n" +
+                        "  if [ -d \"\$adev_install_dest\" ]; then\n" +
+                        "    chmod \"\$adev_install_mode\" \"\$adev_install_dest/\$(basename \"\$1\")\" || exit \$?\n" +
+                        "  else\n" +
+                        "    chmod \"\$adev_install_mode\" \"\$adev_install_dest\" || exit \$?\n" +
+                        "  fi\n" +
+                        "  exit 0\n" +
+                        "fi\n" +
+                        "mkdir -p \"\$adev_install_dest\" || exit \$?\n" +
+                        "for adev_install_src in \"\$@\"; do\n" +
+                        "  [ \"\$adev_install_src\" = \"\$adev_install_dest\" ] && break\n" +
+                        "  cp -f \"\$adev_install_src\" \"\$adev_install_dest/\" || exit \$?\n" +
+                        "  chmod \"\$adev_install_mode\" \"\$adev_install_dest/\$(basename \"\$adev_install_src\")\" || exit \$?\n" +
+                        "done\n"
+                )
             }
             python?.let {
                 val p = it.absolutePath
@@ -1636,14 +1858,28 @@ adev_guard() {
     }
 
     /**
-     * Make bin directory read-only to protect runtime binaries
+     * Keep packaged commands executable while preserving the standard writable
+     * $PREFIX/bin contract used by CLI installers. Android's app sandbox and
+     * owner-only 0700 directory mode provide the boundary; making bin read-only
+     * prevents legitimate tools such as `install -m 755 ... "$PREFIX/bin"`.
      */
-    private fun protectBinDirectory() {
-        binDir.setWritable(false, false)
-        binDir.listFiles()?.forEach { file ->
-            file.setWritable(false, false)
+    private fun finalizeBinPermissions() {
+        fun walk(file: File) {
+            if (Files.isSymbolicLink(file.toPath())) return
+            try {
+                Os.chmod(
+                    file.absolutePath,
+                    if (file.isDirectory) 0b111000000 else 0b111101101
+                ) // directories 0700, files 0755
+            } catch (_: Exception) {
+                file.setReadable(true, true)
+                file.setWritable(true, true)
+                file.setExecutable(true, true)
+            }
+            if (file.isDirectory) file.listFiles()?.forEach { walk(it) }
         }
-        Log.i(TAG, "Runtime bin directory protected (read-only)")
+        if (binDir.exists()) walk(binDir)
+        Log.i(TAG, "Runtime bin directory ready for owner-managed CLI installs")
     }
 
     /**
@@ -2523,7 +2759,13 @@ adev_guard() {
                 "libbin_adev_git_credential.so"
             ).isFile,
             "git-lfs" to File(nativeLibDir, "libbin_git_lfs.so").isFile,
-            "adev-toolpack" to File(libDir, "adev-toolpack.js").isFile
+            "adev-toolpack" to File(libDir, "adev-toolpack.js").isFile,
+            "adev" to File(libDir, "adev-runtime-cli.js").isFile,
+            "glibc-run" to (
+                File(libDir, "adev-runtime-cli.js").isFile &&
+                    File(nativeLibDir, "libbin_adev_glibc_loader.so").isFile &&
+                    File(nativeLibDir, "libbin_adev_glibc_ld.so").isFile
+                )
         )
         val nativeBuildReady = listOf(
             "node-gyp", "python", "make", "clang", "lld"
@@ -2569,6 +2811,12 @@ adev_guard() {
             toolPacks = linkedMapOf(
                 "native-c-cpp" to nativeBuildReady,
                 "signed-catalog" to File(libDir, "adev-toolpacks.json").isFile,
+                "glibc-optional" to (
+                    File(libDir, "adev-runtime-cli.js").isFile &&
+                        File(nativeLibDir, "libbin_adev_glibc_loader.so").isFile &&
+                        File(nativeLibDir, "libbin_adev_glibc_ld.so").isFile
+                    ),
+                "glibc-installed" to File(runtimeRoot, "glibc/manifest.json").isFile,
                 "cmake-ninja" to false,
                 "rust-cargo" to false,
                 "nasm" to false,

@@ -125,6 +125,12 @@ for (const directory of [
 }
 assert.match(runtimeManager, /adevEnv\.ensureDirectories\(\)/);
 assert.match(runtimeManager, /adevEnv\.writeContractFiles\(\)/);
+assert.match(environment, /Os\.chmod\(directory\.absolutePath, 0b111000000\)/);
+assert.match(runtimeManager, /private fun finalizeBinPermissions\(\)/);
+assert.match(runtimeManager, /if \(file\.isDirectory\) 0b111000000 else 0b111101101/);
+assert.match(runtimeManager, /Runtime bin directory ready for owner-managed CLI installs/);
+assert.match(runtimeManager, /!binDir\.canWrite\(\) \|\| !binDir\.canExecute\(\)/);
+assert.doesNotMatch(runtimeManager, /protectBinDirectory|Runtime bin directory protected/);
 
 // A partial asset extraction or stale PATH publication must never be accepted
 // as a ready runtime. This prevents incomplete publication from adding the same

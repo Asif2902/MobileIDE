@@ -332,19 +332,12 @@ int main(int argc, char **argv) {
         }
         free(copy);
     } else {
-        // For compound scripts, try to rewrite leading "node " to absolute node
-        // so postinstall `node ./postinstall.mjs` works under noexec shims.
-        if (strncmp(command, "node ", 5) == 0 || strncmp(command, "node\t", 5) == 0) {
-            resolve_node();
-            char *copy = strdup(command);
-            char *v[64];
-            int n = tokenize(copy, v, 64);
-            if (n > 0) {
-                v[0] = g_node_path;
-                execv(g_node_path, v);
-            }
-            free(copy);
-        }
+        // Compound commands (||, &&, ;) must run via the system shell so the
+        // operators are interpreted. Previously this tried to exec node directly
+        // with the raw tokens (e.g. node prebuild.js || node-gyp rebuild → node
+        // with args "||"), which never executed the fallback. Fall through to
+        // run_system_sh which uses bash/sh -c with the full command and proper
+        // PATH/BASH_ENV.
     }
 
     // Fallback: system shell (with LD_PRELOAD=termux-exec from parent env if set)

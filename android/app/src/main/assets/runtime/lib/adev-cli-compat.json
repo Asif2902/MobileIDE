@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "commands": {
+    "dsh": {
+      "package": "@deepseek-ai/dsh",
+      "versions": ["0.1.1-rc.2"],
+      "bin": "lib/bin.js",
+      "nodeArgs": ["--expose-internals"]
+    }
+  },
+  "nativeAddons": [
+    {
+      "package": "node-pty",
+      "version": "1.2.0-beta.15",
+      "platform": "android",
+      "architecture": "arm64",
+      "napi": 8,
+      "lifecycleEvents": ["install", "postinstall"],
+      "source": "adev-native-addons/node-pty/1.2.0-beta.15/android-arm64/pty.node",
+      "target": "prebuilds/android-arm64/pty.node",
+      "sha256": "021da78d1cf0efdc41e5c46460fea178e87359c6d2893aab2aafb43ed8d2a07e"
+    },
+    {
+      "package": "koffi",
+      "version": "3.1.6",
+      "platform": "android",
+      "architecture": "arm64",
+      "napi": 8,
+      "lifecycleEvents": ["install"],
+      "source": "adev-native-addons/koffi/3.1.6/android-arm64/koffi.node",
+      "target": "build/koffi/android_arm64/koffi.node",
+      "sha256": "b966208920c804d167bdd442132d102b55cb11c352af5fc526bad4bb53119bff"
+    }
+  ],
+  "wasmFallbacks": [
+    {
+      "consumer": "sharp",
+      "consumerVersion": "0.35.4",
+      "package": "@img/sharp-wasm32",
+      "version": "0.35.4",
+      "integrity": "sha512-zQnl4Kwp7Q6NHsENtU2T/00Zi+w3AQNwz3+UaTyVBy2FpXrzXzGjndpK61onhZjRtRpQXxCTeqw19bVyXOh7jA=="
+    }
+  ]
+}

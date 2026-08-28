@@ -183,7 +183,7 @@ function probe(name, executable, probeArgs, options = {}) {
     const result = childProcess.spawnSync(executable, probeArgs, {
       encoding: 'utf8',
       timeout: options.timeout || 15000,
-      env: process.env,
+      env: options.env || process.env,
     });
     const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
     return {
@@ -329,7 +329,7 @@ const gitIntegration = {
 };
 
 const requiredLinuxCommands = [
-  'sh', 'env', 'ls', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'ln', 'chmod', 'touch',
+  'sh', 'env', 'ls', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'ln', 'chmod', 'touch', 'install',
   'find', 'grep', 'sed', 'awk', 'head', 'tail', 'wc', 'sort', 'uniq', 'xargs',
   'tee', 'diff', 'patch', 'tar', 'gzip', 'gunzip', 'xz', 'base64', 'sha256sum',
   'ps', 'kill', 'pgrep', 'pkill', 'du', 'df', 'id', 'whoami', 'date', 'sleep',
@@ -481,6 +481,31 @@ const nativeSysrootHeaders = [
 ];
 const nativeSysrootReady = nativeSysrootHeaders.every(file => fs.existsSync(file));
 
+const glibcRoot = path.join(prefix, 'glibc');
+const glibcLoader = process.env.MOBILEIDE_GLIBC_LOADER || '';
+let glibcManifest = null;
+try {
+  glibcManifest = JSON.parse(
+    fs.readFileSync(path.join(glibcRoot, 'manifest.json'), 'utf8')
+  );
+} catch {}
+let glibcSelfTest = null;
+if ((selfTest || verbose) && glibcManifest && fs.existsSync(glibcLoader)) {
+  const environment = {...process.env, LD_LIBRARY_PATH: path.join(glibcRoot, 'lib')};
+  delete environment.LD_PRELOAD;
+  glibcSelfTest = probe(
+    'glibc-loader',
+    glibcLoader,
+    [
+      '--library-path',
+      path.join(glibcRoot, 'lib'),
+      path.join(glibcRoot, 'bin', 'getconf'),
+      'GNU_LIBC_VERSION',
+    ],
+    {env: environment}
+  );
+}
+
 const requiredReady = [
   probes.node,
   probes.npm,
@@ -612,6 +637,18 @@ const report = {
   packageResolution: packagePolicy,
   packageManagers,
   runtimeDistribution,
+  optionalGlibc: {
+    available: process.arch === 'arm64' && fs.existsSync(glibcLoader),
+    installed: Boolean(glibcManifest),
+    defaultRuntime: false,
+    root: glibcRoot,
+    loader: glibcLoader || null,
+    version: glibcManifest?.version || null,
+    glibcVersion: glibcManifest?.glibcVersion || null,
+    selfTest: glibcSelfTest,
+    installCommand: 'adev runtime install glibc',
+    runCommand: 'glibc-run <linux-arm64-program> [args...]',
+  },
   git: gitIntegration,
   toolPacks,
   bun: {

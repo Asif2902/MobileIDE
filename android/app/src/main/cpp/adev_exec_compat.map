@@ -9,6 +9,8 @@ LIBC {
         execle;
         posix_spawn;
         posix_spawnp;
+        readlink;
+        readlinkat;
     local:
         *;
 };

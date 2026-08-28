@@ -13,6 +13,10 @@ const runtimeLock = readJson(
   'android/app/src/main/assets/runtime/runtime-lock.json',
 );
 const runtimeProvenance = readJson('release/runtime-provenance.json');
+const glibcRuntimeIndex = readJson('release/adev-glibc-index.json');
+const cliCompatibilityCatalog = readJson(
+  'android/app/src/main/assets/runtime/lib/adev-cli-compat.json',
+);
 const packageName = packagePath => {
   const marker = 'node_modules/';
   const offset = packagePath.lastIndexOf(marker);
@@ -350,6 +354,54 @@ const bundledRuntimePackages = bundledPackageDefinitions.map(definition => {
     entrypoint: definition.descriptor.entrypoint ?? null,
   };
 });
+const bundledCompatibilityDefinitions = [
+  {
+    name: '@img/sharp-wasm32',
+    version: '0.35.4',
+    packageJson:
+      'android/app/src/main/assets/runtime/lib/node_modules/@img/sharp-wasm32/package.json',
+    source: 'https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.4.tgz',
+    integrity: cliCompatibilityCatalog.wasmFallbacks.find(
+      entry => entry.package === '@img/sharp-wasm32',
+    )?.integrity,
+  },
+  {
+    name: '@emnapi/runtime',
+    version: '1.11.3',
+    packageJson:
+      'android/app/src/main/assets/runtime/lib/node_modules/@emnapi/runtime/package.json',
+    source: 'https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.11.3.tgz',
+    integrity:
+      'sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==',
+  },
+  {
+    name: 'tslib',
+    version: '2.8.1',
+    packageJson:
+      'android/app/src/main/assets/runtime/lib/node_modules/tslib/package.json',
+    source: 'https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz',
+    integrity:
+      'sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==',
+  },
+];
+const bundledCompatibilityPackages = bundledCompatibilityDefinitions.map(
+  definition => {
+    const metadata = readJson(definition.packageJson);
+    if (metadata.version !== definition.version) {
+      throw new Error(
+        `Bundled compatibility package mismatch for ${definition.name}: ` +
+          `${metadata.version} != ${definition.version}`,
+      );
+    }
+    return {
+      name: definition.name,
+      version: definition.version,
+      license: metadata.license ?? null,
+      source: definition.source,
+      registryIntegrity: definition.integrity,
+    };
+  },
+);
 const bundledRuntimeData = (nanoManifest?.components ?? [])
   .filter(component => component.runtimePath && !component.packagedName)
   .map(component => ({
@@ -391,7 +443,26 @@ const inventory = {
   packageCount: packages.length,
   packages,
   bundledRuntimePackages,
+  bundledCompatibilityPackages,
   bundledRuntimeData,
+  optionalRuntimePacks: Object.entries(glibcRuntimeIndex.packages ?? {}).map(
+    ([architecture, pack]) => ({
+      id: glibcRuntimeIndex.id,
+      version: pack.version,
+      glibcVersion: pack.glibcVersion,
+      architecture,
+      delivery: 'separate-checksummed-release-archive',
+      archive: pack.archive,
+      archiveSha256: pack.sha256,
+      archiveBytes: pack.bytes,
+      installedBytes: pack.installedBytes,
+      source: pack.source?.repository ?? null,
+      sourceArchive: pack.source?.archive ?? null,
+      sourceArchiveSha256: pack.source?.archiveSha256 ?? null,
+      licenses: pack.source?.licenses ?? [],
+      loaderSha256: pack.requiredLoaderSha256,
+    }),
+  ),
   runtimeArtifactCount: nativeRuntimeArtifacts.length,
   runtimeMetadataCoverage: {
     total: nativeRuntimeArtifacts.length,

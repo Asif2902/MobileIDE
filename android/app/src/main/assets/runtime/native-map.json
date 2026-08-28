@@ -237,5 +237,7 @@
     "lib/python3.14/lib-dynload/xxlimited_35.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_xxlimited_35_cpython_314_aarch64_linux_android_so.so",
     "lib/python3.14/lib-dynload/xxlimited.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_xxlimited_cpython_314_aarch64_linux_android_so.so",
     "lib/python3.14/lib-dynload/xxsubtype.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_xxsubtype_cpython_314_aarch64_linux_android_so.so",
-    "lib/python3.14/lib-dynload/zlib.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_zlib_cpython_314_aarch64_linux_android_so.so"
+    "lib/python3.14/lib-dynload/zlib.cpython-314-aarch64-linux-android.so": "liblib_python3_14_lib_dynload_zlib_cpython_314_aarch64_linux_android_so.so",
+    "lib/adev-native-addons/node-pty/1.2.0-beta.15/android-arm64/pty.node": "liblib_adev_native_addons_node_pty_1_2_0_beta_15_android_arm64_pty_node.so",
+    "lib/adev-native-addons/koffi/3.1.6/android-arm64/koffi.node": "liblib_adev_native_addons_koffi_3_1_6_android_arm64_koffi_node.so"
 }

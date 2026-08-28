@@ -1,5 +1,6 @@
 package com.mobileide.app.runtime
 
+import android.system.Os
 import android.util.Log
 import java.io.File
 
@@ -38,6 +39,7 @@ class AdevEnvironment(
     val tmpDir: File = File(runtimeRoot, "tmp")
     val cacheDir: File = File(runtimeRoot, "cache")
     val etcDir: File = File(runtimeRoot, "etc")
+    val glibcDir: File = File(runtimeRoot, "glibc")
 
     /**
      * Commands ADEV must own even though `/system/bin` deliberately comes first
@@ -124,7 +126,19 @@ class AdevEnvironment(
             if (!directory.exists() && !directory.mkdirs() && !directory.isDirectory) {
                 Log.w(TAG, "Could not create runtime directory: ${directory.absolutePath}")
             }
-            directory.setWritable(true, false)
+            try {
+                // Private runtime directories must remain writable/traversable by
+                // the app UID. Java's setWritable(true, false) changes only the
+                // write bits and previously produced modes such as 0722/0500.
+                Os.chmod(directory.absolutePath, 0b111000000) // 0700
+            } catch (_: Exception) {
+                directory.setReadable(false, false)
+                directory.setWritable(false, false)
+                directory.setExecutable(false, false)
+                directory.setReadable(true, true)
+                directory.setWritable(true, true)
+                directory.setExecutable(true, true)
+            }
         }
     }
 
@@ -185,6 +199,23 @@ class AdevEnvironment(
             "MOBILEIDE_NATIVE_LIB" to nativeLibDir.absolutePath,
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath
         )
+
+        // The optional Linux/glibc runtime is deliberately not added to PATH or
+        // LD_LIBRARY_PATH. Modern Android forbids executing downloaded ELF files
+        // from filesDir, so the APK carries only this genuine glibc loader anchor
+        // in nativeLibraryDir. `adev runtime install glibc` verifies that exact
+        // loader hash and links the separately downloaded pack to it.
+        File(nativeLibDir, "libbin_adev_glibc_ld.so")
+            .takeIf { it.isFile }
+            ?.let { loader ->
+                values["MOBILEIDE_GLIBC_LOADER"] = loader.absolutePath
+                values["ADEV_GLIBC_ROOT"] = glibcDir.absolutePath
+                File(nativeLibDir, "libbin_adev_glibc_loader.so")
+                    .takeIf { it.isFile }
+                    ?.let { launcher ->
+                        values["MOBILEIDE_GLIBC_LAUNCHER"] = launcher.absolutePath
+                    }
+            }
 
         // TLS. The bundled Python and OpenSSL were built for a Termux prefix and
         // their compiled-in default store (`…/com.termux/files/usr/etc/tls`) does

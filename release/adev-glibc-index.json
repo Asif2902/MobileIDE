@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "adev-glibc",
+  "channel": "stable",
+  "packages": {
+    "aarch64": {
+      "version": "1.0.1",
+      "glibcVersion": "2.44-0",
+      "archive": "https://github.com/Asif2902/MobileIDE/releases/download/adev-glibc-v1.0.1/adev-glibc-aarch64-v1.0.1.tar.gz",
+      "sha256": "d842729decf8632fc4385aac0be9c2711d655113b58ff3d3af457dcb002f551b",
+      "bytes": 1791064,
+      "installedBytes": 4593452,
+      "minAndroidApi": 29,
+      "requiredLoaderSha256": "02993e282185a05cdbd5ebd02bbbb3d8f494ad16320f2c58ce37483de4940859",
+      "source": {
+        "repository": "https://github.com/termux-pacman/glibc-packages",
+        "archive": "https://service.termux-pacman.dev/gpkg/aarch64/glibc-2.44-0-aarch64.pkg.tar.xz",
+        "archiveSha256": "8725a20d85fa35a094cf092286295668fd5292247128c4bb8101585ba063799c",
+        "licenses": [
+          "GPL-3.0-only",
+          "LGPL-3.0-only"
+        ]
+      }
+    }
+  }
+}

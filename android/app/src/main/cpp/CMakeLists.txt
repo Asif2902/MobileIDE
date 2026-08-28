@@ -37,11 +37,33 @@ add_executable(adev_npm_shell adev_npm_shell.cpp adev_runtime_env.c)
 # responsible for Android noexec/system-linker handling after resolution.
 add_library(adev_exec_compat SHARED adev_exec_compat.c adev_runtime_env.c)
 
+# Transparent Bionic entrypoint for Termux-style tools that execute
+# $PREFIX/glibc/lib/ld-linux-aarch64.so.1. Android cannot directly exec a
+# writable loader path, so that stable path points here; this launcher enters
+# the separately packaged genuine glibc loader through a raw native-dir exec.
+add_executable(adev_glibc_launcher adev_glibc_launcher.c)
+
 target_link_libraries(adev_npm_shell
     ${log-lib}
 )
 
 target_link_libraries(adev_exec_compat PRIVATE dl)
+
+target_link_options(adev_glibc_launcher PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--strip-all"
+)
+target_compile_options(adev_glibc_launcher PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_glibc_launcher PRIVATE NDEBUG)
+set_target_properties(adev_glibc_launcher PROPERTIES
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "bin_adev_glibc_loader"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
 
 target_link_options(adev_exec_compat PRIVATE
     "-Wl,-z,max-page-size=16384"

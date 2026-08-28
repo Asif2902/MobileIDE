@@ -51,6 +51,15 @@ assert.match(resolver, /RTLD_NEXT, "execve"/);
 assert.match(resolver, /adev_runtime_env_prepare_exec\(envp, &prepared_environment\)/);
 assert.match(resolver, /adev_shell_fallback\(\(char \*const \*\)effective_envp/);
 assert.match(resolver, /adev_next_execve\([\s\S]*?effective_envp/);
+assert.match(resolver, /static bool adev_resolve_apk_native_symlink\(/);
+assert.match(resolver, /lstat\(path, &link_metadata\)/);
+assert.match(resolver, /!S_ISLNK\(link_metadata\.st_mode\)/);
+assert.match(resolver, /adev_env_value\(envp, "MOBILEIDE_NATIVE_LIB"\)/);
+assert.match(resolver, /destination\[native_length\] != '\/'/);
+assert.match(
+  resolver,
+  /adev_resolve_apk_native_symlink\([\s\S]*?executable_path = native_target;[\s\S]*?adev_next_execve\(\s*executable_path/,
+);
 for (const symbol of [
   'execve',
   'execv',
@@ -69,6 +78,17 @@ for (const symbol of [
     `${symbol} must be exported at Bionic's LIBC symbol version`,
   );
 }
+for (const symbol of ['readlink', 'readlinkat']) {
+  assert.match(resolver, new RegExp(`ssize_t ${symbol}\\(`));
+  assert.match(
+    resolverMap,
+    new RegExp(`\\b${symbol};`),
+    `${symbol} must be exported at Bionic's LIBC symbol version`,
+  );
+}
+assert.match(resolver, /TERMUX_EXEC__PROC_SELF_EXE/);
+assert.match(resolver, /strcmp\(path, "\/proc\/self\/exe"\)/);
+assert.match(resolver, /adev_virtual_self_exe/);
 assert.match(resolver, /RTLD_NEXT, "posix_spawn"/);
 assert.match(resolver, /adev_runtime_env_prepare_exec\(envp, &prepared_environment\)/);
 assert.match(resolver, /static int adev_spawn_via_broker\(/);
