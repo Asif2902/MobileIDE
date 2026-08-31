@@ -1,3 +1,14 @@
+# A Dev Studio 1.3.33
+
+This release removes the execution split between ADEV's interactive terminal and its AI-agent/background command runners, and restores Python virtual-environment bootstrapping from the packaged CPython distribution.
+
+- Interactive PTYs, background tasks, AI-agent commands, Git UI subprocesses, and SSH-key tools now enter through one APK-native Android compatibility launcher and the same authoritative ADEV environment contract.
+- Core `$PREFIX/bin` commands and PATH-leading shims resolve to the native multicall launcher, so Android never tries to execute Bash, Node, npm, Git, Python, or OpenCode wrapper scripts directly from noexec app storage.
+- The launcher retains ADEV's recursive shebang resolver, renamed-library mapping, TLS paths, `NODE_OPTIONS`, working directory, XDG paths, optional glibc configuration, and child-process compatibility.
+- The Python packaging pipeline now includes the distribution-provided `python-ensurepip-wheels` package and preserves every `ensurepip/_bundled` wheel through Android's underscore-directory asset restriction. No pip version is hardcoded in ADEV logic.
+- Verified through the real agent/background runner on Infinix X689B/API 30: Bash, Node, npm, Git and Python versions; direct `$PREFIX/bin/bash`; Node child processes; `git status`; `python -m venv test`; and `test/bin/python -m pip --version`.
+- This downloadable APK is the release-mode phone-test package for direct device testing. Production Play signing and the externally signed updated runtime lock remain separate credential-controlled release gates.
+
 # A Dev Studio 1.3.32
 
 This beta completes an isolated Linux ARM64 glibc runtime and adds verified Android native/WASM compatibility for DeepSeek DSH.

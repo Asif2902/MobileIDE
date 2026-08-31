@@ -48,7 +48,7 @@ param(
     [string]$Base = "https://packages.termux.dev/apt/termux-main",
     [string[]]$Roots = @(
         "nodejs", "git", "curl", "bash", "dropbear", "openssh",
-        "python", "make", "clang", "pkg-config"
+        "python", "python-ensurepip-wheels", "make", "clang", "pkg-config"
     ),
     [switch]$SkipToolchainFiles
 )
@@ -429,6 +429,33 @@ foreach ($name in ($closure | Sort-Object)) {
                     Copy-TreeContents (Join-Path $usr "lib") $libDest $name
                 }
             }
+
+            # Android's asset packager omits directory names beginning with an
+            # underscore. Preserve every ensurepip wheel supplied by the
+            # selected Python distribution under a transport-safe name;
+            # RuntimeManager restores it to ensurepip/_bundled on-device. No pip
+            # version is encoded here: the package contents are authoritative.
+            Get-ChildItem (Join-Path $usr "lib") -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^python\d+\.\d+$' } |
+                ForEach-Object {
+                    $sourceBundled = Join-Path $_.FullName "ensurepip\_bundled"
+                    if (Test-Path -LiteralPath $sourceBundled -PathType Container) {
+                        $ensurepipDest = Join-Path (Join-Path $libDest $_.Name) "ensurepip"
+                        $transportDest = Join-Path $ensurepipDest "adev-bundled"
+                        Copy-TreeContents $sourceBundled $transportDest $name
+                        $unsafeAssetDir = Join-Path $ensurepipDest "_bundled"
+                        if (Test-Path -LiteralPath $unsafeAssetDir) {
+                            Remove-Item -LiteralPath $unsafeAssetDir -Recurse -Force
+                        }
+                        $wheelCount = @(
+                            Get-ChildItem -LiteralPath $transportDest -File -Filter "*.whl" -ErrorAction SilentlyContinue
+                        ).Count
+                        if ($wheelCount -eq 0) {
+                            throw "Package $name supplied an empty ensurepip wheel directory"
+                        }
+                        Write-Host "  staged $wheelCount ensurepip wheel(s) from $name" -ForegroundColor DarkGray
+                    }
+                }
         }
     }
     Write-Host ("  [{0}/{1}] {2}: {3} lib(s)" -f $pkgNum, $closure.Count, $name, $cnt) -ForegroundColor DarkGray

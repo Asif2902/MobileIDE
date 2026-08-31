@@ -10,6 +10,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 extern char** environ;
 
@@ -91,6 +92,159 @@ std::string sibling_with_prefix(const char* prefix) {
 std::string verified_env_path(const char* name) {
     const char* value = std::getenv(name);
     return regular_file(value) ? std::string(value) : std::string();
+}
+
+const char* path_basename(const char* path) {
+    if (path == nullptr) return "";
+    const char* slash = std::strrchr(path, '/');
+    return slash == nullptr ? path : slash + 1;
+}
+
+std::string runtime_file(const char* relative) {
+    const char* prefix = std::getenv("PREFIX");
+    if (prefix == nullptr || prefix[0] != '/' || relative == nullptr) return {};
+    const std::string candidate = std::string(prefix) + "/" + relative;
+    return regular_file(candidate.c_str()) ? candidate : std::string();
+}
+
+bool launcher_alias(const char* path) {
+    if (path == nullptr || std::strchr(path, '/') == nullptr) return false;
+    char executable[PATH_MAX];
+    char candidate[PATH_MAX];
+    const ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    if (length <= 0) return false;
+    executable[length] = '\0';
+    return realpath(path, candidate) != nullptr && std::strcmp(candidate, executable) == 0;
+}
+
+[[noreturn]] void exec_arguments(
+    const std::string& executable,
+    std::vector<std::string> arguments,
+    const char* display_name
+) {
+    std::vector<char*> values;
+    values.reserve(arguments.size() + 1);
+    for (std::string& argument : arguments) values.push_back(argument.data());
+    values.push_back(nullptr);
+
+    if (std::strchr(executable.c_str(), '/') == nullptr) {
+        execvp(executable.c_str(), values.data());
+    } else {
+        execv(executable.c_str(), values.data());
+    }
+    const int error = errno == 0 ? EIO : errno;
+    std::fprintf(
+        stderr,
+        "adev-env: exec %s via %s: %s\n",
+        display_name,
+        executable.c_str(),
+        std::strerror(error)
+    );
+    _exit(error == EACCES ? 126 : 127);
+}
+
+/**
+ * Resolve the logical ADEV commands whose public paths live below filesDir.
+ * Unknown commands deliberately stay generic: the exec compatibility code
+ * compiled into this launcher performs PATH lookup and bounded recursive
+ * shebang resolution for global npm/Python/shell CLIs.
+ */
+[[noreturn]] void run_adev_command(
+    const char* requested,
+    char* const* tail,
+    bool force_logical
+) {
+    if (requested == nullptr || requested[0] == '\0') {
+        std::fputs("adev-env: empty command\n", stderr);
+        _exit(127);
+    }
+    adev_runtime_env_apply();
+
+    const char* base = path_basename(requested);
+    const bool logical = force_logical || std::strchr(requested, '/') == nullptr ||
+        launcher_alias(requested);
+    std::string executable;
+    std::vector<std::string> arguments;
+
+    if (logical && std::strcmp(base, "node") == 0) {
+        executable = sibling("libbin_node.so");
+    } else if (logical &&
+               (std::strcmp(base, "python") == 0 || std::strcmp(base, "python3") == 0)) {
+        executable = sibling_with_prefix("libbin_python");
+    } else if (logical && std::strcmp(base, "bash") == 0) {
+        executable = sibling("libbin_bash.so");
+    } else if (logical && std::strcmp(base, "sh") == 0) {
+        executable = "/system/bin/sh";
+    } else if (logical && std::strcmp(base, "git") == 0) {
+        executable = sibling("libbin_adev_git_launcher.so");
+        if (executable.empty()) executable = sibling("libbin_git.so");
+    } else if (logical && std::strcmp(base, "opencode") == 0) {
+        executable = sibling("libbin_opencode.so");
+    } else if (logical && std::strcmp(base, "curl") == 0) {
+        executable = sibling("libbin_curl.so");
+    } else if (logical && std::strcmp(base, "nano") == 0) {
+        executable = sibling("libbin_nano.so");
+    } else if (logical && (std::strcmp(base, "rg") == 0 || std::strcmp(base, "ripgrep") == 0)) {
+        executable = sibling("libbin_rg.so");
+    } else if (logical && std::strcmp(base, "make") == 0) {
+        executable = sibling("libbin_adev_make.so");
+    } else if (logical && std::strcmp(base, "xdg-open") == 0) {
+        executable = sibling("libbin_adev_xdg_open.so");
+    } else if (logical && std::strcmp(base, "busybox") == 0) {
+        executable = sibling("libbin_adev_busybox.so");
+    }
+
+    const bool npm = logical && std::strcmp(base, "npm") == 0;
+    const bool npx = logical && std::strcmp(base, "npx") == 0;
+    const bool node_gyp = logical && std::strcmp(base, "node-gyp") == 0;
+    const bool next = logical &&
+        (std::strcmp(base, "next") == 0 || std::strcmp(base, "adev-next") == 0);
+    const bool package_manager = logical &&
+        (std::strcmp(base, "corepack") == 0 || std::strcmp(base, "yarn") == 0 ||
+         std::strcmp(base, "yarnpkg") == 0 || std::strcmp(base, "pnpm") == 0 ||
+         std::strcmp(base, "pnpx") == 0);
+
+    if (npm || npx || node_gyp || next || package_manager) {
+        executable = sibling("libbin_node.so");
+        std::string entrypoint;
+        if (npm) {
+            entrypoint = runtime_file("lib/node_modules/npm/bin/npm-cli.js");
+        } else if (npx) {
+            entrypoint = runtime_file("lib/node_modules/npm/bin/npx-cli.js");
+        } else if (node_gyp) {
+            entrypoint = runtime_file(
+                "lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+            );
+        } else if (next) {
+            entrypoint = runtime_file("lib/adev-next.js");
+        } else {
+            entrypoint = runtime_file("lib/adev-package-manager.js");
+        }
+        if (executable.empty() || entrypoint.empty()) {
+            std::fprintf(stderr, "adev-env: %s runtime entrypoint is missing\n", base);
+            _exit(127);
+        }
+        arguments.push_back(executable);
+        arguments.push_back(entrypoint);
+        if (package_manager) {
+            if (std::strcmp(base, "yarnpkg") == 0) {
+                arguments.emplace_back("yarn");
+            } else if (std::strcmp(base, "pnpx") == 0) {
+                arguments.emplace_back("pnpm");
+                arguments.emplace_back("dlx");
+            } else {
+                arguments.emplace_back(base);
+            }
+        }
+    } else {
+        if (executable.empty()) executable = requested;
+        arguments.emplace_back(logical ? base : requested);
+    }
+
+    for (size_t index = 0; tail != nullptr && tail[index] != nullptr; ++index) {
+        arguments.emplace_back(tail[index]);
+    }
+    exec_arguments(executable, std::move(arguments), requested);
 }
 
 std::string direct_interpreter(const char* command) {
@@ -232,6 +386,28 @@ int main(int argc, char** argv) {
     }
     if (argc >= 2 && std::strcmp(argv[1], "--adev-opencode-shell-v1") == 0) {
         run_opencode_shell_broker(argc, argv);
+    }
+    if (argc >= 4 && std::strcmp(argv[1], "--adev-run-v1") == 0) {
+        if (std::strcmp(argv[3], "--") != 0) {
+            std::fputs("adev-env: invalid command launcher invocation\n", stderr);
+            return 125;
+        }
+        run_adev_command(argv[2], argv + 4, false);
+    }
+
+    // Public aliases in $PREFIX/bin and bin/adev-shims all point at this real
+    // APK-native executable.  Dispatch by argv[0] so a foreign agent can call
+    // `$PREFIX/bin/bash` directly without touching a noexec script.
+    const char* invoked_as = path_basename(argv[0]);
+    static const char* const aliases[] = {
+        "bash", "sh", "node", "npm", "npx", "node-gyp", "python", "python3",
+        "git", "opencode", "curl", "nano", "rg", "ripgrep", "make", "xdg-open",
+        "busybox", "corepack", "yarn", "yarnpkg", "pnpm", "pnpx", "next", "adev-next"
+    };
+    for (const char* alias : aliases) {
+        if (std::strcmp(invoked_as, alias) == 0) {
+            run_adev_command(alias, argv + 1, true);
+        }
     }
     int index = 1;
     while (index < argc) {

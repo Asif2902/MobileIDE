@@ -9,6 +9,75 @@ const runtimeManagerPath = path.join(
   repo,
   'android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt',
 );
+const processManager = fs.readFileSync(
+  path.join(
+    repo,
+    'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
+  ),
+  'utf8',
+);
+const processLauncher = fs.readFileSync(
+  path.join(
+    repo,
+    'android/app/src/main/java/com/mobileide/app/process/AdevProcessLauncher.kt',
+  ),
+  'utf8',
+);
+const ptyManager = fs.readFileSync(
+  path.join(
+    repo,
+    'android/app/src/main/java/com/mobileide/app/pty/PtySessionManager.kt',
+  ),
+  'utf8',
+);
+const nativeLauncher = fs.readFileSync(
+  path.join(repo, 'android/app/src/main/cpp/adev_env.cpp'),
+  'utf8',
+);
+const gitNativeModule = fs.readFileSync(
+  path.join(
+    repo,
+    'android/app/src/main/java/com/mobileide/app/modules/GitNativeModule.kt',
+  ),
+  'utf8',
+);
+const runtimeManager = fs.readFileSync(runtimeManagerPath, 'utf8');
+
+assert.match(processLauncher, /--adev-run-v1/);
+assert.match(processManager, /processLauncher\.command\(command, args\)/);
+assert.match(processManager, /processLauncher\.environment\(workingDir\.absolutePath\)/);
+assert.match(ptyManager, /processLauncher\.interactiveShell\(\)/);
+assert.match(gitNativeModule, /AdevProcessLauncher\(runtime\)/);
+assert.match(gitNativeModule, /launcher\.command\("git", arguments\)/);
+assert.doesNotMatch(gitNativeModule, /ProcessBuilder\(listOf\(executable\.absolutePath\)/);
+assert.match(nativeLauncher, /run_adev_command/);
+for (const command of ['bash', 'node', 'npm', 'git', 'python']) {
+  assert.match(nativeLauncher, new RegExp(`"${command}"`));
+}
+assert.match(runtimeManager, /File\(binDir, name\), File\(adevEnv\.shimDir, name\)/);
+
+const ensurepipRoots = fs
+  .readdirSync(path.join(repo, 'android/app/src/main/assets/runtime/lib'))
+  .filter(name => /^python\d+\.\d+$/.test(name));
+assert.ok(ensurepipRoots.length > 0, 'Packaged Python stdlib is missing');
+for (const pythonHome of ensurepipRoots) {
+  const ensurepip = path.join(
+    repo,
+    'android/app/src/main/assets/runtime/lib',
+    pythonHome,
+    'ensurepip',
+  );
+  if (!fs.existsSync(ensurepip)) continue;
+  const source = fs.readFileSync(path.join(ensurepip, '__init__.py'), 'utf8');
+  const version = source.match(/^_PIP_VERSION\s*=\s*["']([^"']+)["']/m)?.[1];
+  assert.ok(version, `${pythonHome} does not publish its ensurepip pip version`);
+  const transport = path.join(ensurepip, 'adev-bundled');
+  const wheels = fs.existsSync(transport)
+    ? fs.readdirSync(transport).filter(name => name.endsWith('.whl'))
+    : [];
+  assert.deepEqual(wheels, [`pip-${version}-py3-none-any.whl`]);
+}
+assert.match(runtimeManager, /File\(ensurepip, "_bundled"\)/);
 
 function decodeKotlinString(fragment) {
   return fragment

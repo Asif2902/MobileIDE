@@ -5,6 +5,7 @@ import com.facebook.react.bridge.*
 import com.mobileide.app.git.GitCredentialMetadata
 import com.mobileide.app.git.GitCredentialStore
 import com.mobileide.app.git.GitPolicy
+import com.mobileide.app.process.AdevProcessLauncher
 import org.eclipse.jgit.api.CreateBranchCommand
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ListBranchCommand
@@ -78,13 +79,14 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
      */
     private fun runNativeGit(cwd: File, arguments: List<String>): NativeGitResult {
         val runtime = MobileIDENativeModule.getRuntimeManager(reactApplicationContext)
-        val executable = File(runtime.getNativeLibDir(), "libbin_git.so")
-        check(executable.isFile) { "Bundled native Git is unavailable" }
-        val process = ProcessBuilder(listOf(executable.absolutePath) + arguments)
+        val launcher = AdevProcessLauncher(runtime)
+        val launch = launcher.command("git", arguments)
+        val process = ProcessBuilder(launch.processBuilderCommand())
             .directory(cwd)
             .redirectErrorStream(true)
             .apply {
-                environment().putAll(runtime.getEnvironment(cwd.absolutePath))
+                environment().clear()
+                environment().putAll(launcher.environment(cwd.absolutePath))
                 environment()["GIT_TERMINAL_PROMPT"] = "0"
             }
             .start()
@@ -374,15 +376,17 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
             val privateFile = File(keyDir, "key-${UUID.randomUUID()}").canonicalFile
             check(privateFile.toPath().startsWith(keyDir.toPath())) { "Invalid key path" }
             try {
-                val generate = ProcessBuilder(
+                val launcher = AdevProcessLauncher(runtime)
+                val generateLaunch = launcher.command(
                     keygen.absolutePath,
-                    "-t",
-                    "ed25519",
-                    "-f",
-                    privateFile.absolutePath
+                    listOf("-t", "ed25519", "-f", privateFile.absolutePath)
                 )
+                val generate = ProcessBuilder(generateLaunch.processBuilderCommand())
                     .redirectErrorStream(true)
-                    .apply { environment().putAll(runtime.getEnvironment(keyDir.absolutePath)) }
+                    .apply {
+                        environment().clear()
+                        environment().putAll(launcher.environment(keyDir.absolutePath))
+                    }
                     .start()
                 val generateOutput = generate.inputStream.bufferedReader().use { it.readText() }
                 if (!generate.waitFor(30, TimeUnit.SECONDS)) {
@@ -392,14 +396,16 @@ class GitNativeModule(reactContext: ReactApplicationContext) :
                 check(generate.exitValue() == 0 && privateFile.isFile) {
                     "SSH key generation failed: ${generateOutput.trim()}"
                 }
-                val publicProcess = ProcessBuilder(
+                val publicLaunch = launcher.command(
                     keygen.absolutePath,
-                    "-y",
-                    "-f",
-                    privateFile.absolutePath
+                    listOf("-y", "-f", privateFile.absolutePath)
                 )
+                val publicProcess = ProcessBuilder(publicLaunch.processBuilderCommand())
                     .redirectErrorStream(true)
-                    .apply { environment().putAll(runtime.getEnvironment(keyDir.absolutePath)) }
+                    .apply {
+                        environment().clear()
+                        environment().putAll(launcher.environment(keyDir.absolutePath))
+                    }
                     .start()
                 val publicOutput = publicProcess.inputStream.bufferedReader().use { it.readText() }
                 if (!publicProcess.waitFor(30, TimeUnit.SECONDS)) {

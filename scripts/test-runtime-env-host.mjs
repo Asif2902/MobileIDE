@@ -145,15 +145,18 @@ for (const required of [
 ]) {
   assert.ok(runtimeManager.includes(required), `runtime readiness must require ${required}`);
 }
+const nativeAliasValidation = runtimeManager.match(
+  /val nativeAliases = mutableListOf\(([\s\S]*?)if \(!nativeAliases\.all/,
+)?.[0];
+assert.ok(nativeAliasValidation, 'runtime readiness must validate native command aliases');
 for (const binding of ['node', 'npm', 'npx', 'python', 'python3']) {
-  assert.match(
-    runtimeManager,
-    new RegExp(`File\\(binDir, "${binding}"\\)`),
+  assert.ok(
+    nativeAliasValidation.includes(`"${binding}"`),
     `runtime readiness must validate the ${binding} launcher`,
   );
 }
-assert.match(runtimeManager, /File\(adevEnv\.shimDir, "env"\)/);
-assert.match(runtimeManager, /envShim\.canonicalFile != envNative\.canonicalFile/);
+assert.match(runtimeManager, /File\(binDir, name\), File\(adevEnv\.shimDir, name\)/);
+assert.match(runtimeManager, /link\.canonicalFile == envNative\.canonicalFile/);
 assert.match(runtimeManager, /contract\.contains\("LD_LIBRARY_PATH=/);
 assert.match(
   runtimeManager,

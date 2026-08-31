@@ -13,9 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
  * ProcessManager handles spawning and managing background processes
  * (dev servers, builds, agent tasks). All spawns get the full ADEV environment.
  *
- * Android 10+ noexec: bare names like `node`/`ls` on PATH often point at
- * filesDir symlinks that cannot be exec'd. We rewrite known commands to
- * absolute ELFs under nativeLibraryDir (or node + npm-cli.js for npm/npx).
+ * Android 10+ noexec: commands may resolve to scripts below filesDir that
+ * cannot be passed directly to execve. Every managed process enters through
+ * AdevProcessLauncher, which owns the Android-safe command resolution policy.
  */
 class ProcessManager(private val runtimeManager: RuntimeManager) {
 
@@ -24,47 +24,11 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
         val MONITORED_PORTS = listOf(3000, 3001, 4173, 5173, 8000, 8080, 5000, 4000, 8787)
 
-        /** Busybox multi-call applets we rewrite to: busybox <applet> … */
-        val BUSYBOX_APPLETS = setOf(
-            "ls", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "chmod", "chown",
-            "touch", "find", "grep", "egrep", "fgrep", "sed", "awk", "head", "tail",
-            "wc", "sort", "uniq", "tr", "cut", "xargs", "tee", "diff", "which",
-            "whoami", "id", "clear", "sleep", "date", "base64", "md5sum", "sha256sum",
-            "sha1sum", "tar", "gzip", "gunzip", "bzip2", "xz", "wget", "vi", "less",
-            "more", "ps", "kill", "killall", "pgrep", "pkill", "du", "df", "realpath",
-            "dirname", "basename", "seq", "yes", "printf", "echo", "test", "true",
-            "false", "env", "printenv", "expr", "stat", "od", "hexdump", "strings",
-            "cmp", "comm", "paste", "fold", "expand", "unexpand", "nl", "rev",
-            "cksum", "split", "csplit", "install", "sync", "truncate", "dd",
-            "readlink", "basename", "dirname", "mktemp", "mkfifo", "mknod",
-            "chgrp", "touch", "pwd", "uname", "uptime", "free", "nproc", "getconf",
-            "logger", "logname", "tty", "stty", "time", "timeout", "nice", "nohup", "w",
-            "ionice", "renice", "flock", "setsid", "chroot", "mount", "umount",
-            "losetup", "swapon", "swapoff", "fdisk", "blkid", "lsblk", "lsof",
-            "nc", "netstat", "ifconfig", "ip", "ping", "traceroute", "route",
-            "arping", "nslookup", "hostname", "dnsdomainname", "ftpget", "ftpput",
-            "tftp", "httpd", "telnet", "ssh", "scp", "ash", "sh", "hush",
-            "microcom", "reset", "resize", "setconsole", "loadkmap", "dumpkmap",
-            "openvt", "deallocvt", "chvt", "fgconsole", "setkeycodes",
-            "adduser", "deluser", "addgroup", "delgroup", "passwd", "su", "login",
-            "getty", "cryptpw", "mkpasswd", "start-stop-daemon", "run-parts",
-            "crontab", "crond", "watch", "iostat", "top", "sysctl", "dmesg",
-            "hwclock", "fstrim", "blockdev", "fsck", "mkfs", "mke2fs", "tune2fs",
-            "lzma", "unlzma", "lzop", "lzcat", "bzcat", "zcat", "uncompress",
-            "ar", "rpm", "rpm2cpio", "dpkg", "dpkg-deb", "ipcalc", "nameif",
-            "vconfig", "brctl", "tc", "tunctl", "udhcpc", "udhcpd", "ntpd",
-            "rdate", "adjtimex", "fbset", "fbsplash", "loadfont", "setfont",
-            "showkey", "kbd_mode", "dumpkmap", "loadkmap", "setkeycodes",
-            "patch", "diff3", "sdiff", "ed", "hexedit", "xxd", "bc", "dc",
-            "factor", "dos2unix", "unix2dos", "expand", "unexpand", "fmt",
-            "pr", "fold", "column", "tac", "shuf", "tsort", "join", "ptx",
-            "sum", "cksum", "md5sum", "sha256sum", "sha512sum", "sha3sum",
-            "base32", "base64", "uuencode", "uudecode", "volname", "watchdog"
-        )
     }
 
     private val processes = ConcurrentHashMap<Int, ManagedProcess>()
     private val taskRegistry = TaskRegistry.shared()
+    private val processLauncher = AdevProcessLauncher(runtimeManager)
 
     /**
      * Spawn a process, rewriting node/npm/git/busybox applets to exec-safe paths.
@@ -126,7 +90,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
 
         val env = processBuilder.environment()
         env.clear()
-        env.putAll(runtimeManager.getEnvironment(workingDir.absolutePath))
+        env.putAll(processLauncher.environment(workingDir.absolutePath))
 
         val process = try {
             processBuilder.start()
@@ -208,9 +172,6 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
         onError: ((Int, String) -> Unit)? = null,
         onExit: ((Int, Int) -> Unit)? = null
     ): ManagedProcess {
-        val native = runtimeManager.getNativeLibDir()
-        val bash = File(native, "libbin_bash.so")
-        val sh = if (bash.exists()) bash.absolutePath else "/system/bin/sh"
         val agentEnv = File(runtimeManager.getHomeDir(), ".adev-agent-env").absolutePath
         val wrappers = File(runtimeManager.getHomeDir(), ".adev-wrappers").absolutePath
         // Prefer agent-env (exports + wrappers + capability policy); fall back
@@ -219,7 +180,7 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
             "[ -f \"$agentEnv\" ] && . \"$agentEnv\" || { [ -f \"$wrappers\" ] && . \"$wrappers\"; }; $script"
         // -c only (not -l): env already from getEnvironment(); avoid double-sourcing rc.
         return spawnProcess(
-            sh,
+            "bash",
             listOf("-c", wrapped),
             cwd,
             taskType,
@@ -231,97 +192,13 @@ class ProcessManager(private val runtimeManager: RuntimeManager) {
     }
 
     /**
-     * Map logical commands to absolute ELFs / node entrypoints.
+     * Route every command through the APK-native ADEV launcher.  Command
+     * resolution intentionally lives in one native implementation shared with
+     * the terminal and with foreign/agent processes entering through bin aliases.
      */
     fun resolveCommand(command: String, args: List<String>): Pair<String, List<String>> {
-        val native = runtimeManager.getNativeLibDir()
-        val base = command.substringAfterLast('/').substringAfterLast('\\')
-        val node = File(native, "libbin_node.so")
-        val git = File(native, "libbin_git.so")
-        val busybox = File(native, "libbin_adev_busybox.so")
-        val busyboxPayload = File(native, "libbin_busybox.so")
-        val busyboxReady = busybox.isFile && busyboxPayload.isFile
-        val bash = File(native, "libbin_bash.so")
-        val npmCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npm-cli.js")
-        val npxCli = File(runtimeManager.getLibDir(), "node_modules/npm/bin/npx-cli.js")
-        val corepack = File(runtimeManager.getLibDir(), "node_modules/corepack/dist/corepack.js")
-        val nextLauncher = File(runtimeManager.getLibDir(), "adev-next.js")
-        val directTools = mapOf(
-            "curl" to "libbin_curl.so",
-            "nano" to "libbin_nano.so",
-            "rg" to "libbin_rg.so",
-            "make" to "libbin_adev_make.so",
-            "llvm-ar" to "libbin_llvm_ar.so",
-            "ar" to "libbin_llvm_ar.so",
-            "lld" to "libbin_adev_ld_lld.so",
-            "ld.lld" to "libbin_adev_ld_lld.so",
-            "pkg-config" to "libbin_pkg_config.so",
-            "adev-npm-shell" to "libbin_adev_npm_shell.so",
-            "env" to "libbin_adev_env.so",
-            "xdg-open" to "libbin_adev_xdg_open.so",
-            "opencode" to "libbin_opencode.so"
-        )
-        fun findNative(prefix: String): File? =
-            File(native).listFiles()
-                ?.filter { it.isFile && it.name.startsWith(prefix) && it.name.endsWith(".so") }
-                ?.sortedBy { it.name }
-                ?.firstOrNull()
-
-        return when (base) {
-            "node" -> if (node.exists()) node.absolutePath to args else command to args
-            "git" -> if (git.exists()) git.absolutePath to args else command to args
-            "bash" -> if (bash.exists()) bash.absolutePath to args else command to args
-            "busybox" -> if (busyboxReady) busybox.absolutePath to args else command to args
-            "node-gyp" -> {
-                val nodeGyp = File(
-                    runtimeManager.getLibDir(),
-                    "node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
-                )
-                if (node.exists() && nodeGyp.exists()) {
-                    node.absolutePath to listOf(nodeGyp.absolutePath) + args
-                } else command to args
-            }
-            "npm" -> if (node.exists() && npmCli.exists()) {
-                node.absolutePath to listOf(npmCli.absolutePath) + args
-            } else command to args
-            "npx" -> if (node.exists() && npxCli.exists()) {
-                node.absolutePath to listOf(npxCli.absolutePath) + args
-            } else command to args
-            "corepack", "yarn", "pnpm" -> if (node.exists() && corepack.exists()) {
-                val extra = if (base == "corepack") emptyList() else listOf(base)
-                node.absolutePath to listOf(corepack.absolutePath) + extra + args
-            } else command to args
-            "next" -> if (node.exists() && nextLauncher.exists()) {
-                node.absolutePath to listOf(nextLauncher.absolutePath) + args
-            } else command to args
-            "tsc", "eslint", "prettier", "vite", "webpack", "rollup", "esbuild",
-            "tsx", "nodemon", "jest", "vitest", "turbo", "nx" -> {
-                if (node.exists() && npxCli.exists()) {
-                    node.absolutePath to listOf(npxCli.absolutePath, "--yes", base) + args
-                } else command to args
-            }
-            else -> {
-                val nativeTool = directTools[base]?.let {
-                    File(native, it).takeIf(File::isFile)
-                } ?: when (base) {
-                    "python", "python3" -> findNative("libbin_python")
-                    "clang", "cc", "gcc", "clang++", "c++", "g++" ->
-                        findNative("libbin_clang_")
-                    else -> null
-                }
-                if (nativeTool != null) {
-                    nativeTool.absolutePath to args
-                } else if (BUSYBOX_APPLETS.contains(base) && busyboxReady) {
-                    busybox.absolutePath to listOf(base) + args
-                } else if (File(command).isFile) {
-                    // Absolute path provided
-                    command to args
-                } else {
-                    // Leave to PATH (system toybox, etc.)
-                    command to args
-                }
-            }
-        }
+        val spec = processLauncher.command(command, args)
+        return spec.executable to spec.arguments
     }
 
     private fun startOutputReader(

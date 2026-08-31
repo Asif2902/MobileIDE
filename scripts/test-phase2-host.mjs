@@ -252,7 +252,13 @@ try {
     ),
     'utf8',
   );
-  assert.match(processManager, /"next" -> if \(node\.exists\(\) && nextLauncher\.exists\(\)\)/);
+  const nativeLauncher = fs.readFileSync(
+    path.join(repo, 'android/app/src/main/cpp/adev_env.cpp'),
+    'utf8',
+  );
+  assert.match(processManager, /processLauncher\.command\(command, args\)/);
+  assert.match(nativeLauncher, /std::strcmp\(base, "next"\) == 0/);
+  assert.match(nativeLauncher, /runtime_file\("lib\/adev-next\.js"\)/);
 
   const child = spawn(
     process.execPath,

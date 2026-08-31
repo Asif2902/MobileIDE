@@ -4,6 +4,7 @@ import android.util.Log
 import com.mobileide.app.process.TaskRegistry
 import com.mobileide.app.process.TaskSource
 import com.mobileide.app.process.TaskType
+import com.mobileide.app.process.AdevProcessLauncher
 import com.mobileide.app.runtime.RuntimeManager
 import java.io.File
 import java.io.IOException
@@ -41,6 +42,7 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
     private val sessions = ConcurrentHashMap<Int, PtySession>()
     private val sessionIdCounter = AtomicInteger(0)
     private val taskRegistry = TaskRegistry.shared()
+    private val processLauncher = AdevProcessLauncher(runtimeManager)
 
     // Cached result of the bundled-bash usability probe (null = not yet checked).
     private var bashUsable: Boolean? = null
@@ -66,14 +68,21 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
         // fall back to a plain ProcessBuilder shell so the terminal still works
         // (and never hard-crashes the app when the native lib is missing).
         val backend: TerminalBackend = if (PtyProcess.isNativeLoaded) {
-            val shellPath = resolveShell()
-            val args = arrayOf(shellPath, "-i")
+            val shell = resolveShell()
             NativePtyBackend(
-                createPtyProcess(sessionId, shellPath, args, env, workingDir, cols, rows)
+                createPtyProcess(
+                    sessionId,
+                    shell.executable,
+                    shell.nativeArgv(),
+                    env,
+                    workingDir,
+                    cols,
+                    rows
+                )
             )
         } else {
             Log.w(TAG, "Native PTY unavailable; using ProcessBuilder shell fallback")
-            ProcessShellBackend(resolveShell(), env, workingDir)
+            ProcessShellBackend(resolveShell().processBuilderCommand(), env, workingDir)
         }
 
         val taskId = taskRegistry.create(
@@ -100,30 +109,25 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
         return session
     }
 
-    /**
-     * Resolve a usable shell binary.
-     * Prefer the real bash ELF under nativeLibraryDir (exec-permitted). The
-     * filesDir symlink can hit Android 10+ noexec even when the target is fine.
-     */
-    private fun resolveShell(): String {
-        val native = "${runtimeManager.getNativeLibDir()}/libbin_bash.so"
-        if (isBashUsable(native)) return native
-        val linked = "${runtimeManager.getBinDir()}/bash"
-        if (isBashUsable(linked)) return linked
-        return "/system/bin/sh"
+    /** Resolve the interactive shell through the shared Android-safe launcher. */
+    private fun resolveShell(): AdevProcessLauncher.LaunchSpec {
+        val shell = processLauncher.interactiveShell()
+        if (isBashUsable(shell)) return shell
+        throw IOException("ADEV compatibility launcher could not start the bundled shell")
     }
 
     /** One-time (cached) probe that the bundled bash can execute on this device. */
-    private fun isBashUsable(bashPath: String): Boolean {
-        // Cache per-path result only for the first successful/failed probe of native.
+    private fun isBashUsable(shell: AdevProcessLauncher.LaunchSpec): Boolean {
+        // Cache the result after the native launcher's first successful probe.
         bashUsable?.let { return it }
-        val f = File(bashPath)
+        val f = File(shell.executable)
         if (!f.exists()) {
             return false
         }
         val ok = try {
-            val pb = ProcessBuilder(bashPath, "-c", "exit 0")
-            pb.environment().putAll(runtimeManager.getEnvironment())
+            val probe = processLauncher.command("bash", listOf("-c", "exit 0"))
+            val pb = ProcessBuilder(probe.processBuilderCommand())
+            pb.environment().putAll(processLauncher.environment())
             val p = pb.start()
             val exited = p.waitFor(5, TimeUnit.SECONDS)
             if (!exited) {
@@ -131,21 +135,19 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
                 if (!p.waitFor(250, TimeUnit.MILLISECONDS)) {
                     p.destroyForcibly()
                 }
-                Log.w(TAG, "Timed out while validating shell: $bashPath")
+                Log.w(TAG, "Timed out while validating shell: ${shell.executable}")
                 false
             } else {
                 p.exitValue() == 0
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            Log.w(TAG, "Shell validation interrupted: $bashPath", e)
+            Log.w(TAG, "Shell validation interrupted: ${shell.executable}", e)
             false
         } catch (e: Exception) {
-            Log.w(TAG, "Bash not usable at $bashPath: ${e.message}")
+            Log.w(TAG, "Bash not usable through ${shell.executable}: ${e.message}")
             false
         }
-        // Only cache terminal result after we may try multiple candidates;
-        // cache true immediately; cache false only for final fallback path.
         if (ok) bashUsable = true
         return ok
     }
@@ -315,7 +317,7 @@ class NativePtyBackend(private val ptyProcess: PtyProcess) : TerminalBackend {
  * remains usable when the native PTY library is unavailable.
  */
 class ProcessShellBackend(
-    shellPath: String,
+    command: List<String>,
     env: Map<String, String>,
     cwd: String
 ) : TerminalBackend {
@@ -325,7 +327,7 @@ class ProcessShellBackend(
     private val stdout: InputStream
 
     init {
-        val builder = ProcessBuilder(shellPath, "-i")
+        val builder = ProcessBuilder(command)
         builder.redirectErrorStream(true)
         val dir = File(cwd)
         if (dir.isDirectory) {

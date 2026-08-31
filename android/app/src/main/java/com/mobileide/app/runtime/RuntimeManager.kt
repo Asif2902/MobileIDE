@@ -168,27 +168,12 @@ class RuntimeManager(private val context: Context) {
                 }
             }
 
-            val bindings = mutableListOf(
-                File(binDir, "node"),
-                File(binDir, "npm"),
-                File(binDir, "npx"),
+            val generatedTextBindings = mutableListOf(
                 File(homeDir, ".adev-wrappers"),
                 File(homeDir, ".adev-agent-env")
             )
-            if (findNativeTool("libbin_python", ".so") != null) {
-                bindings += File(binDir, "python")
-                bindings += File(binDir, "python3")
-            }
-            if (File(nativeLibDir, "libbin_opencode.so").isFile) {
-                bindings += File(binDir, "opencode")
-            }
-            if (File(nativeLibDir, "libbin_adev_xdg_open.so").isFile) {
-                bindings += File(binDir, "xdg-open")
-            }
-
-            if (!bindings.all { file ->
+            if (!generatedTextBindings.all { file ->
                 if (!file.isFile) return@all false
-                if (!file.canExecute() && file.parentFile == binDir) return@all false
                 val content = file.readText()
                 if (!content.contains(nativeLibDir.absolutePath)) return@all false
 
@@ -210,18 +195,28 @@ class RuntimeManager(private val context: Context) {
                 true
             }) return false
 
-            // `#!/usr/bin/env` must resolve to the native launcher, never to a
-            // script or Toybox. A stale/missing link recreates the exact split
-            // where interactive shell functions work but raw Node spawn does not.
+            // Every core public command must resolve to the one APK-native
+            // launcher, never to a script below filesDir. A stale/missing link
+            // recreates the exact terminal-vs-agent split this layer prevents.
             val envNative = File(nativeLibDir, "libbin_adev_env.so")
-            val envShim = File(adevEnv.shimDir, "env")
-            if (!envNative.isFile || !envShim.isFile || !Files.isSymbolicLink(envShim.toPath())) {
-                return false
+            if (!envNative.isFile) return false
+            val nativeAliases = mutableListOf(
+                "env", "bash", "sh", "node", "npm", "npx", "node-gyp", "git"
+            )
+            if (findNativeTool("libbin_python", ".so") != null) {
+                nativeAliases += "python"
+                nativeAliases += "python3"
             }
-            if (envShim.canonicalFile != envNative.canonicalFile) return false
-
-            val shellShim = File(binDir, "sh")
-            if (!shellShim.isFile || !shellShim.canExecute()) return false
+            if (File(nativeLibDir, "libbin_opencode.so").isFile) nativeAliases += "opencode"
+            if (File(nativeLibDir, "libbin_adev_xdg_open.so").isFile) nativeAliases += "xdg-open"
+            if (!nativeAliases.all { name ->
+                listOf(File(binDir, name), File(adevEnv.shimDir, name)).all { link ->
+                    link.isFile &&
+                        link.canExecute() &&
+                        Files.isSymbolicLink(link.toPath()) &&
+                        link.canonicalFile == envNative.canonicalFile
+                }
+            }) return false
 
             // The native recovery layer reads this flat file. Validate the
             // current install paths before reporting readiness; otherwise an
@@ -354,6 +349,12 @@ class RuntimeManager(private val context: Context) {
         onProgress?.invoke("Extracting runtime files...", 0.1f)
         extractRuntimeAssets(onProgress)
 
+        // aapt omits underscore-prefixed asset directories. The packaging
+        // pipeline stores CPython's ensurepip payload under a safe transport
+        // name; restore the distribution-owned `_bundled` directory before
+        // Python or venv can observe the runtime.
+        restorePythonEnsurepipAssets()
+
         // Before anything reads the sysroot, make its recorded install prefix
         // this app rather than the Termux package it was built against.
         retargetPackagedPrefixes()
@@ -419,6 +420,10 @@ class RuntimeManager(private val context: Context) {
         createDirectoryStructure()
         ensureWorkspaceHomeLink()
         restoreBinWritability()
+        // Runtime upgrades normally preserve extracted assets. Reconcile the
+        // independently packaged ensurepip payload here so an APK upgrade fixes
+        // existing installations without deleting workspaces or caches.
+        restorePythonEnsurepipAssets()
         buildSymlinkFarm()
         createDropbearAliases()
         createGitRemoteAliases()
@@ -589,6 +594,73 @@ class RuntimeManager(private val context: Context) {
             assets.forEach { asset ->
                 extractAssetRecursive(assetManager, "$assetPath/$asset", subDir)
             }
+        }
+    }
+
+    /**
+     * Restore CPython's packaged ensurepip wheels after Android asset
+     * extraction.  Wheel names and versions come entirely from the Python
+     * distribution; ADEV never pins or rewrites a pip version here.
+     */
+    private fun restorePythonEnsurepipAssets() {
+        val pythonName = Regex("""python\d+\.\d+""")
+        val assetManager = context.assets
+        val packagedHomes = try {
+            assetManager.list("runtime/lib")
+                .orEmpty()
+                .filter { it.matches(pythonName) }
+        } catch (_: IOException) {
+            emptyList()
+        }
+        val installedHomes = libDir.listFiles()
+            ?.filter { it.isDirectory && it.name.matches(pythonName) }
+            ?.map { it.name }
+            .orEmpty()
+
+        (packagedHomes + installedHomes).distinct().forEach { homeName ->
+            val pythonHome = File(libDir, homeName).apply { mkdirs() }
+            val ensurepip = File(pythonHome, "ensurepip")
+            val transported = File(ensurepip, "adev-bundled")
+            val bundled = File(ensurepip, "_bundled").apply { mkdirs() }
+            val assetPath = "runtime/lib/$homeName/ensurepip/adev-bundled"
+            val packagedEntries = try {
+                assetManager.list(assetPath).orEmpty().filter { it.endsWith(".whl") }
+            } catch (_: IOException) {
+                emptyList()
+            }
+            val installedEntries = bundled.listFiles()
+                ?.filter { it.isFile && it.extension == "whl" }
+                ?.map { it.name }
+                .orEmpty()
+            if (packagedEntries.isNotEmpty() && packagedEntries.toSet() != installedEntries.toSet()) {
+                transported.deleteRecursively()
+                bundled.deleteRecursively()
+                ensurepip.mkdirs()
+                extractAssetRecursive(assetManager, assetPath, ensurepip)
+            }
+            if (!transported.isDirectory) return@forEach
+            bundled.mkdirs()
+            transported.listFiles().orEmpty().forEach { source ->
+                val destination = File(bundled, source.name)
+                if (source.isDirectory) {
+                    source.copyRecursively(destination, overwrite = true)
+                } else {
+                    source.copyTo(destination, overwrite = true)
+                }
+            }
+            transported.deleteRecursively()
+            val wheels = bundled.listFiles()
+                ?.filter { it.isFile && it.extension == "whl" }
+                .orEmpty()
+            if (wheels.isEmpty()) {
+                throw IOException(
+                    "Packaged Python ${pythonHome.name} has no ensurepip wheel payload"
+                )
+            }
+            Log.i(
+                TAG,
+                "Restored ${wheels.size} distribution ensurepip wheel(s) for ${pythonHome.name}"
+            )
         }
     }
 
@@ -1659,6 +1731,30 @@ adev_guard() {
                     Os.symlink(secretCli.absolutePath, link.absolutePath)
                 } catch (e: Exception) {
                     Log.w(TAG, "adev-secret shim failed: ${e.message}")
+                }
+            }
+
+            // Core public commands must be real Android-executable entrypoints,
+            // not scripts below filesDir. Both the stable $PREFIX/bin paths and
+            // PATH-leading aliases enter the same native multicall launcher
+            // used by ProcessManager and the interactive PTY.
+            if (envLauncher.isFile) {
+                adevEnv.shimDir.mkdirs()
+                val nativeAliases = listOf(
+                    "bash", "sh", "node", "npm", "npx", "node-gyp", "python", "python3",
+                    "git", "opencode", "curl", "nano", "rg", "make", "xdg-open",
+                    "busybox", "corepack", "yarn", "yarnpkg", "pnpm", "pnpx",
+                    "next", "adev-next"
+                )
+                nativeAliases.forEach { name ->
+                    listOf(File(binDir, name), File(adevEnv.shimDir, name)).forEach { link ->
+                        try {
+                            if (link.exists() || isSymlink(link)) link.delete()
+                            Os.symlink(envLauncher.absolutePath, link.absolutePath)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "native launcher alias ${link.absolutePath} failed: ${e.message}")
+                        }
+                    }
                 }
             }
 

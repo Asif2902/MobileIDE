@@ -11,6 +11,12 @@ describe('Android terminal Linux command policy', () => {
   const processManager = readProjectFile(
     'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
   );
+  const processLauncher = readProjectFile(
+    'android/app/src/main/java/com/mobileide/app/process/AdevProcessLauncher.kt',
+  );
+  const nativeLauncher = readProjectFile(
+    'android/app/src/main/cpp/adev_env.cpp',
+  );
   const phase1DeviceMatrix = readProjectFile(
     'android/app/src/main/assets/runtime/lib/adev-phase1-test.js',
   );
@@ -38,10 +44,10 @@ describe('Android terminal Linux command policy', () => {
     expect(processManager).toContain(
       'File(runtimeManager.getNativeLibDir(), "libbin_adev_busybox.so")',
     );
-    expect(processManager).toContain('File(native, "libbin_adev_busybox.so")');
-    expect(processManager).toContain('File(native, "libbin_busybox.so")');
     expect(processManager).toContain('busybox.isFile && busyboxPayload.isFile');
-    expect(processManager).toContain('val busyboxReady = busybox.isFile && busyboxPayload.isFile');
+    expect(processManager).toContain('processLauncher.command(command, args)');
+    expect(processLauncher).toContain('--adev-run-v1');
+    expect(nativeLauncher).toContain('sibling("libbin_adev_busybox.so")');
   });
 
   it('exposes the essential shell command set through the dispatcher', () => {
@@ -97,12 +103,14 @@ describe('Android terminal Linux command policy', () => {
     expect(runtime).toContain('"EDITOR" to preferredEditor');
     expect(runtime).toContain('cproj <folder>');
     expect(runtime).not.toMatch(/alias\s+nano=/);
-    expect(processManager).toContain('"nano" to "libbin_nano.so"');
+    expect(nativeLauncher).toContain('std::strcmp(base, "nano") == 0');
+    expect(nativeLauncher).toContain('sibling("libbin_nano.so")');
   });
 
   it('never bypasses the Android Make shell bridge in managed tasks', () => {
-    expect(processManager).toContain('"make" to "libbin_adev_make.so"');
-    expect(processManager).not.toContain('"make" to "libbin_make.so"');
+    expect(nativeLauncher).toContain('std::strcmp(base, "make") == 0');
+    expect(nativeLauncher).toContain('sibling("libbin_adev_make.so")');
+    expect(nativeLauncher).not.toContain('sibling("libbin_make.so")');
   });
 
   it('device-tests the exact websocket native packages reported by the user', () => {
