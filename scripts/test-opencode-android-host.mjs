@@ -227,7 +227,7 @@ assert.match(
 );
 assert.match(runtimeManager, /refreshInstallPathBindings\(\)/);
 assert.match(runtimeManager, /writeNativeLibraryDirBinding\(\)/);
-assert.match(runtimeManager, /File\(binDir, "opencode"\)/);
+assert.match(runtimeManager, /nativeAliases \+= "opencode"/);
 assert.match(runtimeManager, /File\(homeDir, "\.adev-agent-env"\)/);
 assert.match(
   runtimeManager,

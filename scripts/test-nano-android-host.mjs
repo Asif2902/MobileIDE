@@ -219,10 +219,9 @@ assert.match(runtime, /"TERMINFO" to File\(runtimeRoot, "share\/terminfo"\)/);
 assert.match(runtime, /nano\(\) \{ \\"\$\{nano\.absolutePath\}\\"/);
 assert.match(runtime, /writeScript\("nano"/);
 assert.match(runtime, /MOBILEIDE_NANO/);
-const processManager = text(
-  'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
-);
-assert.match(processManager, /"nano" to "libbin_nano\.so"/);
+const nativeLauncher = text('android/app/src/main/cpp/adev_env.cpp');
+assert.match(nativeLauncher, /std::strcmp\(base, "nano"\) == 0/);
+assert.match(nativeLauncher, /sibling\("libbin_nano\.so"\)/);
 const doctor = text('android/app/src/main/assets/runtime/lib/adev-doctor.js');
 assert.match(doctor, /MOBILEIDE_NANO/);
 assert.match(doctor, /terminfoEntries/);

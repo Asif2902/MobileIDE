@@ -94,7 +94,11 @@ assert.match(linkerLauncher, /execv\(runtime\.c_str\(\)/);
 const processManager = source(
   'android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt',
 );
-assert.match(processManager, /"ld\.lld" to "libbin_adev_ld_lld\.so"/);
+const processLauncher = source(
+  'android/app/src/main/java/com/mobileide/app/process/AdevProcessLauncher.kt',
+);
+assert.match(processManager, /processLauncher\.command\(command, args\)/);
+assert.match(processLauncher, /listOf\("--adev-run-v1", command, "--"\) \+ args/);
 
 const fetcher = source('scripts/fetch-runtime-libs.ps1');
 for (const header of [

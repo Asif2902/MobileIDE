@@ -63,8 +63,8 @@ const runtimeManager = fs.readFileSync(
   fromRoot('android/app/src/main/java/com/mobileide/app/runtime/RuntimeManager.kt'),
   'utf8',
 );
-const processManager = fs.readFileSync(
-  fromRoot('android/app/src/main/java/com/mobileide/app/process/ProcessManager.kt'),
+const nativeLauncher = fs.readFileSync(
+  fromRoot('android/app/src/main/cpp/adev_env.cpp'),
   'utf8',
 );
 assert.match(fetchScript, /ripgrep_15\.2\.0_aarch64\.deb/);
@@ -74,7 +74,8 @@ assert.match(runtimeManager, /val ripgrep = File\(nativeLibDir, "libbin_rg\.so"\
 assert.match(runtimeManager, /writeScript\("rg", "#!\/system\/bin\/sh\\nexec/);
 assert.match(runtimeManager, /export MOBILEIDE_RG=/);
 assert.match(runtimeManager, /"rg" to File\(nativeLibDir, "libbin_rg\.so"\)\.isFile/);
-assert.match(processManager, /"rg" to "libbin_rg\.so"/);
+assert.match(nativeLauncher, /std::strcmp\(base, "rg"\) == 0/);
+assert.match(nativeLauncher, /sibling\("libbin_rg\.so"\)/);
 assert.match(
   manifest.runtime.openCodePolicy,
   /ADEV_OPENCODE_RG.*before.*desktop/i,

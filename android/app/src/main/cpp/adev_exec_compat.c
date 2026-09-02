@@ -3,6 +3,7 @@
 #include "adev_runtime_env.h"
 
 #include <dlfcn.h>
+#include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -46,6 +47,24 @@ typedef struct {
     bool has_argument;
 } adev_shebang;
 
+typedef enum {
+    ADEV_ELF_NOT_ELF = 0,
+    ADEV_ELF_ANDROID,
+    ADEV_ELF_LINUX_STATIC,
+    ADEV_ELF_LINUX_GLIBC,
+    ADEV_ELF_LINUX_MUSL,
+    ADEV_ELF_LINUX_OTHER,
+    ADEV_ELF_UNSUPPORTED_ARCH,
+    ADEV_ELF_INVALID,
+} adev_elf_kind;
+
+typedef struct {
+    adev_elf_kind kind;
+    uint16_t type;
+    uint16_t machine;
+    char interpreter[PATH_MAX];
+} adev_elf_info;
+
 static pthread_once_t adev_execve_once = PTHREAD_ONCE_INIT;
 static adev_execve_fn adev_next_execve = NULL;
 static adev_posix_spawn_fn adev_next_posix_spawn = NULL;
@@ -55,6 +74,8 @@ static adev_readlinkat_fn adev_next_readlinkat = NULL;
 extern char **environ;
 
 static bool adev_is_file(const char *path);
+static const char *adev_env_value(char *const envp[], const char *name);
+static size_t adev_argv_count(char *const argv[]);
 
 static void adev_resolve_next_execve(void) {
     adev_next_execve = (adev_execve_fn)dlsym(RTLD_NEXT, "execve");
@@ -159,6 +180,248 @@ static bool adev_copy_path(char destination[PATH_MAX], const char *source) {
 static bool adev_is_file(const char *path) {
     struct stat metadata;
     return path != NULL && stat(path, &metadata) == 0 && !S_ISDIR(metadata.st_mode);
+}
+
+static bool adev_is_regular_executable(const char *path) {
+    struct stat metadata;
+    return path != NULL && stat(path, &metadata) == 0 && S_ISREG(metadata.st_mode) &&
+        (metadata.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
+}
+
+static uint16_t adev_host_elf_machine(void) {
+#if defined(__aarch64__)
+    return EM_AARCH64;
+#elif defined(__x86_64__)
+    return EM_X86_64;
+#else
+    return EM_NONE;
+#endif
+}
+
+static const char *adev_elf_machine_name(uint16_t machine) {
+    switch (machine) {
+        case EM_AARCH64: return "arm64";
+        case EM_X86_64: return "x86_64";
+        case EM_ARM: return "arm";
+        case EM_386: return "x86";
+        default: return "unknown";
+    }
+}
+
+static bool adev_android_interpreter(const char *interpreter) {
+    return interpreter != NULL &&
+        (strcmp(interpreter, "/system/bin/linker64") == 0 ||
+         strcmp(interpreter, "/system/bin/linker") == 0 ||
+         strstr(interpreter, "/com.android.runtime/bin/linker") != NULL);
+}
+
+/*
+ * Inspect just the ELF/program headers; never execute a probe. This is the
+ * routing boundary between Android/Bionic executables, dynamic glibc files,
+ * musl files and Linux static/static-PIE files. In particular, ET_EXEC with no
+ * PT_INTERP must never be handed to Android's userspace linker: linker64 emits
+ * the misleading `unexpected e_type: 2` error for that valid kernel ELF.
+ */
+static adev_elf_info adev_inspect_elf(const char *path) {
+    adev_elf_info result = {
+        .kind = ADEV_ELF_NOT_ELF,
+        .type = ET_NONE,
+        .machine = EM_NONE,
+        .interpreter = {0},
+    };
+    if (!adev_is_regular_executable(path)) return result;
+
+    const int descriptor = open(path, O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+        result.kind = ADEV_ELF_INVALID;
+        return result;
+    }
+    Elf64_Ehdr header;
+    const ssize_t header_count = pread(descriptor, &header, sizeof(header), 0);
+    if (header_count < (ssize_t)EI_NIDENT ||
+        memcmp(header.e_ident, ELFMAG, SELFMAG) != 0) {
+        close(descriptor);
+        return result;
+    }
+    if (header_count != (ssize_t)sizeof(header) ||
+        header.e_ident[EI_CLASS] != ELFCLASS64 ||
+        header.e_ident[EI_DATA] != ELFDATA2LSB ||
+        header.e_ident[EI_VERSION] != EV_CURRENT ||
+        header.e_version != EV_CURRENT ||
+        (header.e_type != ET_EXEC && header.e_type != ET_DYN) ||
+        header.e_phentsize < sizeof(Elf64_Phdr) ||
+        header.e_phnum == 0 || header.e_phnum > 1024) {
+        close(descriptor);
+        result.kind = ADEV_ELF_INVALID;
+        return result;
+    }
+    result.type = header.e_type;
+    result.machine = header.e_machine;
+    if (header.e_machine != adev_host_elf_machine()) {
+        close(descriptor);
+        result.kind = ADEV_ELF_UNSUPPORTED_ARCH;
+        return result;
+    }
+
+    bool executable_load = false;
+    for (uint16_t index = 0; index < header.e_phnum; ++index) {
+        const off_t offset = (off_t)header.e_phoff + (off_t)index * header.e_phentsize;
+        if (offset < 0) {
+            result.kind = ADEV_ELF_INVALID;
+            break;
+        }
+        Elf64_Phdr program;
+        if (pread(descriptor, &program, sizeof(program), offset) !=
+            (ssize_t)sizeof(program)) {
+            result.kind = ADEV_ELF_INVALID;
+            break;
+        }
+        if (program.p_type == PT_LOAD && (program.p_flags & PF_X) != 0) {
+            executable_load = true;
+        }
+        if (program.p_type != PT_INTERP) continue;
+        if (program.p_filesz < 2 || program.p_filesz > sizeof(result.interpreter)) {
+            result.kind = ADEV_ELF_INVALID;
+            break;
+        }
+        const ssize_t count = pread(
+            descriptor,
+            result.interpreter,
+            (size_t)program.p_filesz,
+            (off_t)program.p_offset
+        );
+        if (count != (ssize_t)program.p_filesz ||
+            result.interpreter[program.p_filesz - 1] != '\0') {
+            result.kind = ADEV_ELF_INVALID;
+            break;
+        }
+    }
+    close(descriptor);
+    if (result.kind == ADEV_ELF_INVALID) return result;
+    if (!executable_load || header.e_entry == 0) {
+        result.kind = ADEV_ELF_INVALID;
+        return result;
+    }
+    if (result.interpreter[0] == '\0') {
+        result.kind = ADEV_ELF_LINUX_STATIC;
+    } else if (adev_android_interpreter(result.interpreter)) {
+        result.kind = ADEV_ELF_ANDROID;
+    } else if (strstr(result.interpreter, "ld-linux") != NULL ||
+               strstr(result.interpreter, "/glibc/") != NULL) {
+        result.kind = ADEV_ELF_LINUX_GLIBC;
+    } else if (strstr(result.interpreter, "ld-musl-") != NULL) {
+        result.kind = ADEV_ELF_LINUX_MUSL;
+    } else {
+        result.kind = ADEV_ELF_LINUX_OTHER;
+    }
+    return result;
+}
+
+static bool adev_runtime_component_file(
+    char *const envp[],
+    const char *component,
+    const char *relative,
+    char destination[PATH_MAX]
+) {
+    const char *prefix = adev_env_value(envp, "PREFIX");
+    if (prefix == NULL || prefix[0] != '/' || component == NULL || relative == NULL ||
+        strchr(component, '/') != NULL || strstr(relative, "..") != NULL) {
+        errno = ENOENT;
+        return false;
+    }
+    const int count = snprintf(destination, PATH_MAX, "%s/%s/%s", prefix, component, relative);
+    if (count <= 0 || count >= PATH_MAX || !adev_is_file(destination)) {
+        errno = ENOENT;
+        return false;
+    }
+    return true;
+}
+
+static char **adev_environment_with_library_path(
+    char *const envp[],
+    const char *library_path,
+    const char *extra_name,
+    const char *extra_value,
+    char **owned_library_assignment,
+    char **owned_extra_assignment
+) {
+    const size_t count = adev_argv_count(envp);
+    if (count == SIZE_MAX || count + 3 >= ADEV_MAX_ARGV) return NULL;
+    const size_t library_length = strlen(library_path);
+    *owned_library_assignment = malloc(library_length + sizeof("LD_LIBRARY_PATH="));
+    if (*owned_library_assignment == NULL) return NULL;
+    snprintf(
+        *owned_library_assignment,
+        library_length + sizeof("LD_LIBRARY_PATH="),
+        "LD_LIBRARY_PATH=%s",
+        library_path
+    );
+    if (extra_name != NULL && extra_value != NULL) {
+        const size_t extra_length = strlen(extra_name) + strlen(extra_value) + 2;
+        *owned_extra_assignment = malloc(extra_length);
+        if (*owned_extra_assignment == NULL) {
+            free(*owned_library_assignment);
+            *owned_library_assignment = NULL;
+            return NULL;
+        }
+        snprintf(*owned_extra_assignment, extra_length, "%s=%s", extra_name, extra_value);
+    }
+
+    char **values = calloc(count + 3, sizeof(char *));
+    if (values == NULL) {
+        free(*owned_library_assignment);
+        free(*owned_extra_assignment);
+        *owned_library_assignment = NULL;
+        *owned_extra_assignment = NULL;
+        return NULL;
+    }
+    const size_t extra_name_length = extra_name == NULL ? 0 : strlen(extra_name);
+    size_t output = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (strncmp(envp[index], "LD_LIBRARY_PATH=", 16) == 0) continue;
+        if (extra_name != NULL && strncmp(envp[index], extra_name, extra_name_length) == 0 &&
+            envp[index][extra_name_length] == '=') {
+            continue;
+        }
+        values[output++] = envp[index];
+    }
+    values[output++] = *owned_library_assignment;
+    if (*owned_extra_assignment != NULL) values[output++] = *owned_extra_assignment;
+    values[output] = NULL;
+    return values;
+}
+
+static char **adev_environment_with_assignment(
+    char *const envp[],
+    const char *name,
+    const char *value,
+    char **owned_assignment
+) {
+    const size_t count = adev_argv_count(envp);
+    if (count == SIZE_MAX || count + 2 >= ADEV_MAX_ARGV || name == NULL || value == NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    const size_t name_length = strlen(name);
+    const size_t assignment_length = name_length + strlen(value) + 2;
+    *owned_assignment = malloc(assignment_length);
+    if (*owned_assignment == NULL) return NULL;
+    snprintf(*owned_assignment, assignment_length, "%s=%s", name, value);
+    char **values = calloc(count + 2, sizeof(char *));
+    if (values == NULL) {
+        free(*owned_assignment);
+        *owned_assignment = NULL;
+        return NULL;
+    }
+    size_t output = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (strncmp(envp[index], name, name_length) == 0 &&
+            envp[index][name_length] == '=') continue;
+        values[output++] = envp[index];
+    }
+    values[output++] = *owned_assignment;
+    values[output] = NULL;
+    return values;
 }
 
 /*
@@ -394,6 +657,301 @@ static size_t adev_argv_count(char *const argv[]) {
         return SIZE_MAX;
     }
     return count;
+}
+
+static int adev_exec_glibc_elf(
+    const char *target,
+    char *const argv[],
+    char *const envp[]
+) {
+    char manifest[PATH_MAX];
+    char library_path[PATH_MAX];
+    const char *prefix = adev_env_value(envp, "PREFIX");
+    const char *launcher = adev_env_value(envp, "MOBILEIDE_GLIBC_LAUNCHER");
+    if (prefix == NULL || prefix[0] != '/' ||
+        snprintf(manifest, sizeof(manifest), "%s/glibc/manifest.json", prefix) <= 0 ||
+        !adev_is_file(manifest)) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: %s is a dynamic Linux/glibc executable. Install its optional "
+            "runtime with: adev runtime install glibc\n",
+            target
+        );
+        errno = ENOENT;
+        return -1;
+    }
+    if (launcher == NULL || launcher[0] != '/' || !adev_is_file(launcher)) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: the APK-native glibc launcher is missing; update ADEV before running %s\n",
+            target
+        );
+        errno = ENOENT;
+        return -1;
+    }
+    const int library_count = snprintf(
+        library_path,
+        sizeof(library_path),
+        "%s/glibc/lib",
+        prefix
+    );
+    if (library_count <= 0 || library_count >= (int)sizeof(library_path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    const size_t old_count = adev_argv_count(argv);
+    if (old_count == SIZE_MAX || old_count + 5 >= ADEV_MAX_ARGV) return -1;
+    char **loader_argv = calloc(old_count + 5, sizeof(char *));
+    if (loader_argv == NULL) return -1;
+    size_t output = 0;
+    loader_argv[output++] = (char *)launcher;
+    loader_argv[output++] = "--library-path";
+    loader_argv[output++] = library_path;
+    loader_argv[output++] = (char *)target;
+    for (size_t index = 1; index < old_count; ++index) loader_argv[output++] = argv[index];
+    loader_argv[output] = NULL;
+
+    char gconv_path[PATH_MAX];
+    const int gconv_count = snprintf(
+        gconv_path,
+        sizeof(gconv_path),
+        "%s/glibc/lib/gconv",
+        prefix
+    );
+    if (gconv_count <= 0 || gconv_count >= (int)sizeof(gconv_path)) {
+        free(loader_argv);
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    char *owned_library = NULL;
+    char *owned_gconv = NULL;
+    char **loader_environment = adev_environment_with_library_path(
+        envp,
+        library_path,
+        "GCONV_PATH",
+        gconv_path,
+        &owned_library,
+        &owned_gconv
+    );
+    if (loader_environment == NULL) {
+        free(loader_argv);
+        return -1;
+    }
+    const int result = adev_next_execve(launcher, loader_argv, loader_environment);
+    const int error = errno;
+    free(loader_environment);
+    free(owned_library);
+    free(owned_gconv);
+    free(loader_argv);
+    errno = error;
+    return result;
+}
+
+static int adev_exec_linux_elf(
+    const char *target,
+    char *const argv[],
+    char *const envp[],
+    adev_elf_kind kind
+) {
+    char manifest[PATH_MAX];
+    char emulator[PATH_MAX];
+    char library_path[PATH_MAX * 2];
+    char rootfs[PATH_MAX];
+    char compat_preload[PATH_MAX];
+    char preload_path[PATH_MAX * 2];
+    const char *prefix = adev_env_value(envp, "PREFIX");
+    if (prefix == NULL || prefix[0] != '/' ||
+        snprintf(manifest, sizeof(manifest), "%s/linux/manifest.json", prefix) <= 0 ||
+        !adev_is_file(manifest)) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: %s is a Linux %s executable that Android cannot enter directly. "
+            "Install the optional execution backend with: adev runtime install linux\n",
+            target,
+            kind == ADEV_ELF_LINUX_STATIC ? "static/static-PIE" : "non-Bionic"
+        );
+        errno = ENOENT;
+        return -1;
+    }
+#if defined(__aarch64__)
+    const char *emulator_name = "bin/qemu-aarch64";
+#elif defined(__x86_64__)
+    const char *emulator_name = "bin/qemu-x86_64";
+#else
+    const char *emulator_name = NULL;
+#endif
+    if (emulator_name == NULL ||
+        !adev_runtime_component_file(envp, "linux", emulator_name, emulator)) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: the installed linux runtime has no backend for this device architecture\n"
+        );
+        errno = ENOENT;
+        return -1;
+    }
+    const char *current_library_path = adev_env_value(envp, "LD_LIBRARY_PATH");
+    const int library_count = snprintf(
+        library_path,
+        sizeof(library_path),
+        "%s/linux/lib%s%s",
+        prefix,
+        current_library_path != NULL && current_library_path[0] != '\0' ? ":" : "",
+        current_library_path == NULL ? "" : current_library_path
+    );
+    const int rootfs_count = snprintf(rootfs, sizeof(rootfs), "%s/linux/rootfs", prefix);
+    const char *native_library = adev_env_value(envp, "MOBILEIDE_NATIVE_LIB");
+    const char *current_preload = adev_env_value(envp, "LD_PRELOAD");
+    int compat_preload_count = -1;
+    int preload_count = -1;
+    if (native_library != NULL && native_library[0] == '/') {
+        compat_preload_count = snprintf(
+            compat_preload,
+            sizeof(compat_preload),
+            "%s/liblib_adev_linux_compat.so",
+            native_library
+        );
+        preload_count = snprintf(
+            preload_path,
+            sizeof(preload_path),
+            "%s%s%s",
+            compat_preload,
+            current_preload != NULL && current_preload[0] != '\0' ? ":" : "",
+            current_preload == NULL ? "" : current_preload
+        );
+    }
+    if (library_count <= 0 || library_count >= (int)sizeof(library_path) ||
+        rootfs_count <= 0 || rootfs_count >= (int)sizeof(rootfs) ||
+        compat_preload_count <= 0 || compat_preload_count >= (int)sizeof(compat_preload) ||
+        preload_count <= 0 || preload_count >= (int)sizeof(preload_path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    if (!adev_is_file(compat_preload)) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: the APK-native Linux syscall bridge is missing; update ADEV before running %s\n",
+            target
+        );
+        errno = ENOENT;
+        return -1;
+    }
+
+    const char *trace_value = adev_env_value(envp, "ADEV_LINUX_TRACE");
+    const bool trace_enabled =
+        trace_value != NULL && trace_value[0] != '\0' && strcmp(trace_value, "0") != 0;
+    const size_t old_count = adev_argv_count(argv);
+    if (old_count == SIZE_MAX || old_count + 13 >= ADEV_MAX_ARGV) return -1;
+    char **emulator_argv = calloc(old_count + 13, sizeof(char *));
+    if (emulator_argv == NULL) return -1;
+    size_t output = 0;
+    emulator_argv[output++] = emulator;
+    emulator_argv[output++] = "-0";
+    emulator_argv[output++] = argv != NULL && argv[0] != NULL ? argv[0] : (char *)target;
+    emulator_argv[output++] = "-U";
+    emulator_argv[output++] = "LD_PRELOAD";
+    emulator_argv[output++] = "-U";
+    emulator_argv[output++] = "LD_LIBRARY_PATH";
+    // QEMU's guest path resolver applies this prefix only when a matching
+    // guest file exists. Use it for static executables too: Android has no
+    // conventional /etc/resolv.conf, so otherwise statically linked Linux
+    // CLIs silently fall back to an unusable localhost resolver.
+    emulator_argv[output++] = "-L";
+    emulator_argv[output++] = rootfs;
+    if (trace_enabled) emulator_argv[output++] = "-strace";
+    emulator_argv[output++] = (char *)target;
+    for (size_t index = 1; index < old_count; ++index) emulator_argv[output++] = argv[index];
+    emulator_argv[output] = NULL;
+
+    char *owned_library = NULL;
+    char *owned_active = NULL;
+    char **emulator_environment = adev_environment_with_library_path(
+        envp,
+        library_path,
+        "ADEV_LINUX_BACKEND_ACTIVE",
+        "1",
+        &owned_library,
+        &owned_active
+    );
+    if (emulator_environment == NULL) {
+        free(emulator_argv);
+        return -1;
+    }
+    // Android's linker removes LD_PRELOAD from the live process environment
+    // after loading it. Re-add the APK-native compatibility library explicitly
+    // for QEMU so its host-side seccomp bridge and recursive child launcher are
+    // present even when Node/Bun no longer expose the original variable.
+    char *owned_preload = NULL;
+    char **preloaded_environment = adev_environment_with_assignment(
+        emulator_environment,
+        "LD_PRELOAD",
+        preload_path,
+        &owned_preload
+    );
+    if (preloaded_environment == NULL) {
+        free(emulator_environment);
+        free(owned_library);
+        free(owned_active);
+        free(emulator_argv);
+        return -1;
+    }
+    free(emulator_environment);
+    if (trace_enabled) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV linux trace: backend=%s guest=%s kind=%d rootfs=%s\n",
+            emulator,
+            target,
+            (int)kind,
+            rootfs
+        );
+    }
+    const int result = adev_next_execve(emulator, emulator_argv, preloaded_environment);
+    const int error = errno;
+    free(preloaded_environment);
+    free(owned_library);
+    free(owned_active);
+    free(owned_preload);
+    free(emulator_argv);
+    if (error != 0) {
+        dprintf(
+            STDERR_FILENO,
+            "ADEV: linux backend could not start %s through %s: %s\n",
+            target,
+            emulator,
+            strerror(error)
+        );
+    }
+    errno = error;
+    return result;
+}
+
+static int adev_exec_classified_elf(
+    const char *target,
+    char *const argv[],
+    char *const envp[],
+    const adev_elf_info *info
+) {
+    switch (info->kind) {
+        case ADEV_ELF_LINUX_GLIBC:
+            return adev_exec_glibc_elf(target, argv, envp);
+        case ADEV_ELF_LINUX_STATIC:
+        case ADEV_ELF_LINUX_MUSL:
+        case ADEV_ELF_LINUX_OTHER:
+            return adev_exec_linux_elf(target, argv, envp, info->kind);
+        case ADEV_ELF_UNSUPPORTED_ARCH:
+            dprintf(
+                STDERR_FILENO,
+                "ADEV: %s is a %s ELF, but this device requires %s executables\n",
+                target,
+                adev_elf_machine_name(info->machine),
+                adev_elf_machine_name(adev_host_elf_machine())
+            );
+            errno = ENOEXEC;
+            return -1;
+        default:
+            errno = 0;
+            return 1; /* continue through the normal Android path */
+    }
 }
 
 static bool adev_spawn_broker_path(
@@ -643,6 +1201,19 @@ static int adev_recursive_execve(
     for (size_t depth = 0; depth < ADEV_MAX_SHEBANG_DEPTH; ++depth) {
         const int script = adev_read_shebang(current_path, &shebangs[depth]);
         if (script <= 0) {
+            if (script == 0) {
+                const adev_elf_info elf = adev_inspect_elf(current_path);
+                const int classified = adev_exec_classified_elf(
+                    current_path,
+                    (char *const *)current_argv,
+                    (char *const *)effective_envp,
+                    &elf
+                );
+                if (classified < 0) {
+                    result = -1;
+                    goto cleanup;
+                }
+            }
             char native_target[PATH_MAX];
             const char *executable_path = current_path;
             if (script == 0 && adev_resolve_apk_native_symlink(

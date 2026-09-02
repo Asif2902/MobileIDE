@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "adev-linux",
+  "channel": "stable",
+  "packages": {
+    "aarch64": {
+      "version": "1.2.0",
+      "backend": "qemu-aarch64",
+      "backendVersion": "11.0.3",
+      "archive": "https://github.com/Asif2902/MobileIDE/releases/download/adev-linux-v1.2.0/adev-linux-aarch64-v1.2.0.tar.gz",
+      "sha256": "072e91c00c4794bb8cc3cdf3d8109415bf665980ffd710f12ee463eceb45dc49",
+      "bytes": 11608197,
+      "installedBytes": 25370844,
+      "minAndroidApi": 29
+    }
+  }
+}

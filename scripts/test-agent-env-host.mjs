@@ -111,9 +111,12 @@ function existingShells() {
           path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git/usr/bin/bash.exe'),
         ]
       : [process.env.ADEV_POSIX_SH, process.env.SHELL, '/bin/sh', '/bin/bash'];
-  return [...new Set(candidates.filter(Boolean))].filter(candidate =>
-    path.isAbsolute(candidate) ? fs.existsSync(candidate) : true,
-  );
+  return [...new Set(candidates.filter(Boolean))]
+    .filter(candidate => path.isAbsolute(candidate) ? fs.existsSync(candidate) : true)
+    // SHELL can legally point at PowerShell on a Windows host. It exists, but
+    // is not a POSIX parser and would interpret `-n file` as a command. Probe
+    // the capability instead of assuming every SHELL value is sh-compatible.
+    .filter(candidate => run(candidate, ['-c', ':'], process.env).status === 0);
 }
 
 function shellPath(file) {

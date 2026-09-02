@@ -1,8 +1,8 @@
 # Android Compatibility Audit and Fix Plan
 
-Audit date: 2026-08-27
-Application: A Dev Studio 1.3.32 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
-Runtime: 1.17.8
+Audit date: 2026-09-02
+Application: A Dev Studio 1.3.34 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Runtime: 1.17.9
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
 ## Five-phase execution ledger
@@ -1460,6 +1460,131 @@ Connected API-30 evidence (2026-08-28):
   `d842729decf8632fc4385aac0be9c2711d655113b58ff3d3af457dcb002f551b`.
   The catalog currently names the intended independent GitHub release; that
   release asset must be published before normal remote installs can succeed.
+
+## Optional Linux-user execution runtime — 1.3.34 / runtime 1.17.9
+
+Status: **ARM64/API-30 DEVICE VERIFIED — INDEPENDENT PACK RELEASE PENDING**
+
+- Root cause of `unexpected e_type: 2`: Muse is a Linux ARM64 `ET_EXEC`
+  executable with no `PT_INTERP`. Android's Bionic linker entry path is for
+  Android-compatible dynamic executables and must not be used as a loader for
+  a static Linux executable. Direct execution from app-writable storage is
+  separately blocked by Android's app-data execution policy, which explains
+  the `glibc-run muse` `EACCES`; adding execute bits cannot solve either issue.
+- The shared native executable resolver now parses ELF64 headers and program
+  headers before launch. It distinguishes architecture, `ET_EXEC`/`ET_DYN`,
+  executable load segments, static binaries, Android/Bionic interpreters,
+  glibc, musl and unknown Linux interpreters. Android binaries retain the
+  existing Bionic path, dynamic glibc binaries use the optional glibc pack,
+  and static/musl Linux ARM64 binaries use the optional Linux-user pack.
+- Missing capabilities are explicit: affected commands print either
+  `adev runtime install linux` or `adev runtime install glibc`. No ELF header
+  patch, Android-linker substitution, Termux dependency, root access, remote
+  execution or program-name exception is used.
+- `adev runtime install|update|remove linux`, `adev install linux`,
+  `adev runtime list`, and `linux-run` manage the isolated `$PREFIX/linux`
+  component. Bionic remains the default; neither the guest root nor its
+  libraries are added to ADEV's global PATH/linker environment.
+- Pack 1.0.0 originally contained Termux's Android/Bionic `qemu-aarch64` 11.0.3 and only
+  its verified 23-library dependency closure, plus Alpine musl 1.2.5-r23 as
+  the minimal guest loader/root. It is 7,906,769 compressed bytes and
+  18,020,841 installed bytes, SHA-256
+  `a8a62a99b98866f197427a39d5cf2b12aef8ada120d9edb6fc240aa0a776e51f`.
+  The pack is a separate release artifact and is not present in the main APK.
+- npm remains Android-aware globally. After a normal successful install, the
+  authoritative npm dispatcher may restore only an exact, declared optional
+  `linux-arm64`/`linux-aarch64` alias for a CLI-owning package. The downloaded
+  payload must declare Linux ARM64, contain a standalone supported ARM64 ELF,
+  contain no in-process `.node` addon, and pass interpreter/runtime checks.
+  This avoids selecting Linux native addons for Next.js, Sharp or ordinary
+  Android Node projects.
+
+Runtime-network and seccomp completion (pack 1.2.0):
+
+- The exact Muse `Bad system call` was QEMU translating the guest's
+  `setgid(<current app gid>)` into a host `setgid` call. Android's app seccomp
+  policy kills that forbidden credential syscall with `SIGSYS` before QEMU can
+  translate an errno. A dedicated APK-native QEMU host bridge now treats only
+  same-identity UID/GID calls as Linux no-ops, returns `EPERM` for attempted
+  identity changes, and never grants privileges. `setgroups` also returns
+  `EPERM`; fsuid/fsgid queries retain Linux return semantics. The bridge is
+  scoped to QEMU and is not added to ADEV's normal Bionic processes.
+- Every Linux-user launch supplies the optional guest root through QEMU `-L`.
+  ADEV publishes device-owned `resolv.conf`, `hosts`, `nsswitch.conf`, and the
+  existing ADEV CA bundle into that root without replacing the global Bionic
+  environment. Android `LinkProperties` DNS servers are tested on their bound
+  network before publication. Healthy system resolvers remain preferred; if a
+  resolver returns unrelated A records in the answer section, ADEV selects an
+  independently health-checked IPv4/IPv6 fallback and reports that decision.
+- `adev runtime doctor [binary] [--json] [--trace]` reports ELF type,
+  architecture, interpreter, selected backend, Android API/kernel, guest DNS
+  source, upstream/selected servers, hosts and CA state, execution/DNS/TCP/TLS
+  probes, exit signal, traced signals, and unsupported syscall numbers. QEMU's
+  own `-strace` is used because a host `strace` cannot see translated guest
+  syscalls.
+- Pack 1.2.0 retains QEMU 11.0.3, its verified 23-library Bionic closure, musl
+  1.2.5-r23, and static BusyBox 1.37.0-r30. It adds verified Alpine OpenSSL
+  3.5.8-r0 plus only `libssl.so.3`, `libcrypto.so.3`, and `openssl.cnf`, so the
+  TLS probe validates the certificate chain and hostname instead of relying on
+  BusyBox's explicitly non-validating TLS client. The pack is 11,608,197
+  compressed bytes and 25,370,844 installed bytes, SHA-256
+  `072e91c00c4794bb8cc3cdf3d8109415bf665980ffd710f12ee463eceb45dc49`.
+
+Connected API-30 evidence (2026-09-01):
+
+- Pack install verified its checksum, inventory, QEMU version, musl loader and
+  a deterministic static ARM64 `ET_EXEC` probe before activation.
+- The static probe ran automatically by pathname, through explicit
+  `linux-run`, and as a Node `child_process.spawnSync()` child. Packaged Bionic
+  Node still ran through its original path in the same test.
+- The already-installed Muse command ran normally with `muse --version`; the
+  former `unexpected e_type: 2` and writable-path `EACCES` were absent.
+- A normal `npm install --global @openai/codex@0.151.0` restored its declared
+  Linux ARM64 optional CLI payload through the generic validator, and normal
+  `codex --version` exited zero through the same automatic resolver.
+- Full ARM64+x86_64 APK/native compilation passed. The optional execution pack
+  is currently aarch64-only; x86_64 reports the capability boundary rather
+  than running an ARM64 payload.
+- Remaining limitations: Linux-user translation cannot promise every desktop
+  kernel feature, namespace, seccomp, sandbox, `/proc`, device, or uncommon
+  syscall assumption. QEMU adds startup/runtime overhead. Dynamic glibc tools
+  still require the separate glibc pack. The catalog points to the intended
+  independent GitHub release; that asset must be published before the normal
+  network install command can succeed outside the device test override.
+- Release gate: the native resolver/launcher hashes changed. The checked-in
+  runtime lock remains signed by the owner key, so Phase-4 correctly rejects
+  these new hashes until `ADEV_RUNTIME_LOCK_PRIVATE_KEY` is supplied externally
+  to regenerate/sign the lock. No bootstrap or replacement signing key was
+  created.
+
+Connected API-30 runtime/network evidence (2026-09-02):
+
+- Before the fix, QEMU trace showed Muse calling `setgid(11837)` immediately
+  before Android delivered `SIGSYS`. With the generic host bridge installed,
+  `muse --version` exits zero (`Muse Code 1.0.1`) and a 45-second launch in the
+  real ADEV PTY remains alive without `SIGSYS` or `Bad system call`.
+- The same Muse trace reports guest syscall 287 (`pwritev2`) as unsupported;
+  QEMU returns `ENOSYS` and Muse continues. This is the required safe failure
+  behavior, not another Android process kill.
+- The phone's Windows-hotspot resolver (`192.168.137.1`) returned unrelated
+  `.com` nameserver addresses in an `example.com` answer. Android's resolver
+  tolerated the malformed response, while musl/glibc selected a wrong address.
+  ADEV detected it on the active network and selected verified `1.1.1.1` and
+  `1.0.0.1`; the doctor exposes both the upstream and selected resolver source.
+- The real ProcessManager path passed all doctor probes: static ARM64 execution
+  (67 ms), A/AAAA DNS (171 ms class), TCP port 443 (229 ms class), and OpenSSL
+  TLS 1.3 with CA-chain and `example.com` hostname verification (2.3 s class).
+- `codex login --device-auth` reached the OpenAI device URL/code flow instead
+  of `error sending request`. `grok login` reached the xAI OAuth authorization
+  URL instead of its former HTTPS failure. No credentials were completed or
+  stored by the test.
+- `codex --version`, `grok --version`, and `muse --version` all exit zero using
+  their normal command names through the same automatic ADEV resolver.
+- Remaining boundary: this is Linux-user syscall translation, not a full Linux
+  kernel/container. Unsupported guest syscalls may still return `ENOSYS`, and
+  privileged namespaces, mounts, device access, kernel modules and assumptions
+  that require a desktop seccomp context remain unavailable. The doctor now
+  makes those failures observable instead of allowing silent SIGSYS crashes.
 
 ## DeepSeek DSH Android compatibility — runtime 1.17.8
 

@@ -132,8 +132,10 @@ try {
     'python',
     'git',
     'glibc',
+    'linux',
   ]);
-  assert.equal(report.runtimes.at(-1).installed, false);
+  assert.equal(report.runtimes.find(runtime => runtime.id === 'glibc').installed, false);
+  assert.equal(report.runtimes.find(runtime => runtime.id === 'linux').installed, false);
 } finally {
   fs.rmSync(fixture, {recursive: true, force: true});
 }

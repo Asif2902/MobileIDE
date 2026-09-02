@@ -129,6 +129,7 @@ def nativeBuildStagingDir = nativeBuildStagingOverride
     : (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows")
         ? new File(System.getProperty("user.home"), ".adev-cxx/${nativeBuildWorkspaceKey}")
         : file(".cxx"))
+def linuxRuntimeTestAssetsDir = file("${buildDir}/generated/assets/adevLinuxRuntimeTest")
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -240,6 +241,31 @@ android {
         main {
             jniLibs.srcDirs += file("src/main/jniLibs")
         }
+        // The optional Linux-user archive is intentionally excluded from the
+        // production APK. Instrumentation alone receives the release artifact
+        // so device tests can exercise the same checksum/install flow users do.
+        androidTest {
+            assets.srcDirs += linuxRuntimeTestAssetsDir
+        }
+    }
+}
+
+// AAPT automatically inflates files named *.gz. Give the test-only copy an
+// opaque suffix so instrumentation receives the exact published bytes and can
+// exercise the same SHA-256 verification as an on-device download.
+def prepareAdevLinuxRuntimeTestAssets = tasks.register(
+    "prepareAdevLinuxRuntimeTestAssets",
+    Copy
+) {
+    from(rootProject.file("../release/linux")) {
+        include "*.tar.gz"
+        rename { String name -> name.replaceFirst(/\.tar\.gz$/, ".pack") }
+    }
+    into linuxRuntimeTestAssetsDir
+}
+tasks.configureEach { task ->
+    if (task.name == "mergePhoneTestAndroidTestAssets") {
+        task.dependsOn prepareAdevLinuxRuntimeTestAssets
     }
 }
 
@@ -514,6 +540,7 @@ def registerAdevNativeHelpersSync = { String variantName, String cmakeVariant ->
                 "libbin_adev_secret.so",
                 "libbin_opencode.so",
                 "liblib_adev_exec_compat.so",
+                "liblib_adev_linux_compat.so",
                 "liblib_adev_opencode_compat.so"
             ]
             def candidates = [:].withDefault { [:].withDefault { [] } }

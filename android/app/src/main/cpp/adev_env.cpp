@@ -208,7 +208,10 @@ bool launcher_alias(const char* path) {
         executable = sibling("libbin_node.so");
         std::string entrypoint;
         if (npm) {
-            entrypoint = runtime_file("lib/node_modules/npm/bin/npm-cli.js");
+            // One dispatcher owns npm lifecycle behavior for the terminal,
+            // agents and background tasks. In particular, this keeps optional
+            // portable Linux CLI payload selection out of shell-only wrappers.
+            entrypoint = runtime_file("lib/adev-npm.js");
         } else if (npx) {
             entrypoint = runtime_file("lib/node_modules/npm/bin/npx-cli.js");
         } else if (node_gyp) {

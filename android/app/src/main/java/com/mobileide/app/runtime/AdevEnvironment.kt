@@ -40,6 +40,7 @@ class AdevEnvironment(
     val cacheDir: File = File(runtimeRoot, "cache")
     val etcDir: File = File(runtimeRoot, "etc")
     val glibcDir: File = File(runtimeRoot, "glibc")
+    val linuxDir: File = File(runtimeRoot, "linux")
 
     /**
      * Commands ADEV must own even though `/system/bin` deliberately comes first
@@ -200,10 +201,14 @@ class AdevEnvironment(
             "MOBILEIDE_WORKSPACES" to workspacesDir.absolutePath
         )
 
-        // The optional Linux/glibc runtime is deliberately not added to PATH or
-        // LD_LIBRARY_PATH. Modern Android forbids executing downloaded ELF files
-        // from filesDir, so the APK carries only this genuine glibc loader anchor
-        // in nativeLibraryDir. `adev runtime install glibc` verifies that exact
+        // Optional foreign-Linux runtimes are deliberately not added to PATH or
+        // LD_LIBRARY_PATH. The native executable resolver selects them only after
+        // inspecting an ELF that Android/Bionic cannot enter itself.
+        values["ADEV_LINUX_ROOT"] = linuxDir.absolutePath
+
+        // Modern Android forbids executing downloaded ELF files from filesDir,
+        // so the APK carries only this genuine glibc loader anchor in
+        // nativeLibraryDir. `adev runtime install glibc` verifies that exact
         // loader hash and links the separately downloaded pack to it.
         File(nativeLibDir, "libbin_adev_glibc_ld.so")
             .takeIf { it.isFile }

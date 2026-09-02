@@ -1,3 +1,18 @@
+# A Dev Studio 1.3.34
+
+This beta adds an optional, independently downloadable Linux ARM64 execution runtime without replacing ADEV's Android/Bionic developer environment.
+
+- `adev runtime install linux`, `update`, `remove`, `list`, and `doctor` manage a SHA-256-verified ARM64 compatibility pack under `$PREFIX/linux`. The 11.1 MiB archive remains outside the APK; its installed payload is 24.2 MiB.
+- The shared executable resolver now identifies ARM64 ELF type, interpreter, static/dynamic linking, Android/Bionic, glibc, and musl before selecting the native Android path, the optional glibc loader, or the Linux-user backend. Missing runtimes produce the exact install command instead of `unexpected e_type`, `EACCES`, or an Android-linker crash.
+- npm remains Android-aware. For CLI-owning packages only, ADEV can restore an exact declared Linux ARM64 optional payload after validating its architecture and ensuring it is a standalone executable rather than an in-process native addon.
+- Linux-user networking now publishes Android-derived DNS, hosts, NSS, and CA configuration. Resolver health checks retain the active Android resolver when valid and select a verified fallback only when the network returns malformed DNS answers.
+- A QEMU-scoped native bridge prevents Android seccomp from killing safe same-identity UID/GID calls. Privilege changes still fail with `EPERM`; unsupported translated syscalls return Linux-compatible errors such as `ENOSYS` instead of terminating the process with `SIGSYS`.
+- `adev runtime doctor [binary] [--json] [--trace]` reports ELF classification, chosen backend, Android/kernel details, DNS source, execution/DNS/TCP/TLS probes, signals, and unsupported guest syscalls.
+- On the connected ARM64/API-30 device, Muse starts normally, Codex device authentication reaches the OpenAI device flow, Grok login reaches xAI OAuth, and all three version commands exit successfully. The doctor passes real guest execution, DNS, TCP 443, and TLS 1.3 certificate/hostname verification.
+- Bionic remains the default. Node, npm, Python, Git, Next.js, Vite, OpenCode, the terminal, and background/agent commands continue to use the shared ADEV Android launcher and environment contract.
+- Honest boundary: this is user-mode Linux syscall translation, not a root container or full Linux kernel. Privileged namespaces, mounts, kernel modules, device access, and some uncommon syscalls remain unavailable. The optional pack is currently ARM64-only.
+- The downloadable APK is a debug-test-signed phone-test beta for direct installation. The changed native launcher requires the release owner's external Ed25519 runtime-lock key before a production-signed release can pass the integrity gate; no replacement key or signature bypass is included.
+
 # A Dev Studio 1.3.33
 
 This release removes the execution split between ADEV's interactive terminal and its AI-agent/background command runners, and restores Python virtual-environment bootstrapping from the packaged CPython distribution.

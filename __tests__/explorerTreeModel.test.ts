@@ -43,14 +43,14 @@ describe('Explorer tree model', () => {
     expect(getFileVisual('README').label).toBe('');
   });
 
-  it('keeps the portrait action scroller from consuming the file-tree height', () => {
+  it('keeps the portrait action row compact without consuming the file-tree height', () => {
     const explorerSource = fs.readFileSync(
       path.join(__dirname, '..', 'src/components/explorer/FileExplorer.tsx'),
       'utf8',
     );
-    expect(explorerSource).toContain('style={styles.workspaceActionScroller}');
+    expect(explorerSource).toContain('style={styles.workspaceActions}');
     expect(explorerSource).toMatch(
-      /workspaceActionScroller:\s*\{[\s\S]*?flexGrow:\s*0,[\s\S]*?height:\s*44/,
+      /workspaceActions:\s*\{[\s\S]*?flexDirection:\s*'row',[\s\S]*?minHeight:\s*42/,
     );
   });
 });

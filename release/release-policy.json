@@ -36,9 +36,12 @@
     "assets/runtime/etc/nanorc.termux",
     "assets/runtime/lib/adev-busybox.json",
     "assets/runtime/lib/adev-listen-compat.js",
+    "assets/runtime/lib/adev-linux-npm.js",
+    "assets/runtime/lib/adev-linux.json",
     "assets/runtime/lib/adev-nano.json",
     "assets/runtime/lib/adev-next-swc.js",
     "assets/runtime/lib/adev-node-preload.js",
+    "assets/runtime/lib/adev-npm.js",
     "assets/runtime/lib/adev-opencode.json",
     "assets/runtime/lib/adev-phase1-test.js",
     "assets/runtime/lib/adev-phase2-test.js",
@@ -67,6 +70,7 @@
     "lib/arm64-v8a/libbin_opencode_runtime.so",
     "lib/arm64-v8a/libbin_rg.so",
     "lib/arm64-v8a/liblib_adev_exec_compat.so",
+    "lib/arm64-v8a/liblib_adev_linux_compat.so",
     "lib/arm64-v8a/liblib_adev_opencode_compat.so",
     "lib/arm64-v8a/liblib_libbusybox_so_1_38_0.so",
     "lib/arm64-v8a/liblib_opencode_opentui.so",
@@ -79,6 +83,7 @@
     "lib/x86_64/libbin_adev_xdg_open.so",
     "lib/x86_64/libbin_opencode.so",
     "lib/x86_64/liblib_adev_exec_compat.so",
+    "lib/x86_64/liblib_adev_linux_compat.so",
     "lib/x86_64/liblib_adev_opencode_compat.so"
   ]
 }

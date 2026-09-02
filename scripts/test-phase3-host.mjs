@@ -345,7 +345,8 @@ try {
     path.join(root, 'src', 'components', 'explorer', 'FileExplorer.tsx'),
     'utf8',
   );
-  assert.match(fileExplorer, /Private Projects/);
+  assert.match(fileExplorer, /accessibilityLabel="Private projects"/);
+  assert.match(fileExplorer, />Your projects</);
   assert.match(fileExplorer, /Open \.env/);
 
   process.stdout.write(

@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "architecture": "aarch64",
+  "repository": "https://packages.termux.dev/apt/termux-main/",
+  "packages": [
+    ["qemu-user-aarch64", "1:11.0.3", "pool/main/q/qemu-user-aarch64/qemu-user-aarch64_1:11.0.3_aarch64.deb", "afc75a6e1ace9e9d989101b3b94d997560e27550b200b427f81e5e99117fd4ee", 1002476],
+    ["glib", "2.88.3", "pool/main/g/glib/glib_2.88.3_aarch64.deb", "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc", 2557432],
+    ["libandroid-shmem", "0.7", "pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb", "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6", 7216],
+    ["libdw", "0.193-1", "pool/main/libd/libdw/libdw_0.193-1_aarch64.deb", "9b24d896aba9aa306b19c2dff9697074194ab6abeb9821b7f59ff5fe7e466b68", 212296],
+    ["libgnutls", "3.8.13-1", "pool/main/libg/libgnutls/libgnutls_3.8.13-1_aarch64.deb", "eb12f2cf82923caf288edd99bc4c19a9dd0cf1de4a03855ff4457a1bbdae146d", 776696],
+    ["libpixman", "0.46.4-1", "pool/main/libp/libpixman/libpixman_0.46.4-1_aarch64.deb", "364b8c82ff68f8513930e5d413459fb7c52eccc7ba75a97a8c5a38760eee8d33", 157712],
+    ["argp", "1.5.0-1", "pool/main/a/argp/argp_1.5.0-1_aarch64.deb", "4096bfb8cba379efc3699e94e1cee400e72c274d734b5c1ed5f274ec42003405", 21176],
+    ["libbz2", "1.0.8-8", "pool/main/libb/libbz2/libbz2_1.0.8-8_aarch64.deb", "4335d7f060650b0aabef545d1334c2f9f280223d5962e13c24a00ec934b794ba", 26116],
+    ["liblzma", "5.8.3", "pool/main/libl/liblzma/liblzma_5.8.3_aarch64.deb", "594925a313879f590fbd24050305551a78eadd9a9319f6e612389b1a521113c6", 193040],
+    ["libelf", "0.193-1", "pool/main/libe/libelf/libelf_0.193-1_aarch64.deb", "98fba46ed571c59d38269e5e0c36a7555335ed3546dc9eb0ea5889763e66e621", 66188],
+    ["zstd", "1.5.7-1", "pool/main/z/zstd/zstd_1.5.7-1_aarch64.deb", "e1b4a5113648da8de189620ba1fce74c48b2d0833d9043391b9a1c91fb606fd3", 360488],
+    ["json-c", "0.19", "pool/main/j/json-c/json-c_0.19_aarch64.deb", "894fef1e1001807e862f909cd5645dbb51bc77434779124f69178efe13690655", 52008],
+    ["libandroid-support", "29-1", "pool/main/liba/libandroid-support/libandroid-support_29-1_aarch64.deb", "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517", 10880],
+    ["libffi", "3.5.2", "pool/main/libf/libffi/libffi_3.5.2_aarch64.deb", "8c8c1d6ffb049d8496a21c1202d9b4dc9145140886fdbb45716684565f4ed3f5", 31128],
+    ["libiconv", "1.18-1", "pool/main/libi/libiconv/libiconv_1.18-1_aarch64.deb", "b19e6f348034bb48d2a5590b5cb242769f682c476717374d134d004cc663dc84", 561152],
+    ["pcre2", "10.47", "pool/main/p/pcre2/pcre2_10.47_aarch64.deb", "51f915d22de639bfca6ec029ae613987bbe3bc73626eede13319fd2e95f50b63", 961200],
+    ["zlib", "1.3.2", "pool/main/z/zlib/zlib_1.3.2_aarch64.deb", "75e7d0af17fcc3b40004309fdc00a1ddb9ae08346dce5e269902c34ac3966ac9", 62840],
+    ["libc++", "29", "pool/main/libc/libc++/libc++_29_aarch64.deb", "bb9f12113c137aa0e8513bb51cc49fe77a5ce3ca39ab9e92c57d228ecdf00222", 334828],
+    ["libgmp", "6.3.0-2", "pool/main/libg/libgmp/libgmp_6.3.0-2_aarch64.deb", "5a3c1325638946ca212ddcb89bffb2c4459b4c90757d6e69f820e176534037fa", 328368],
+    ["libnettle", "4.0+really3.10.2", "pool/main/libn/libnettle/libnettle_4.0+really3.10.2_aarch64.deb", "f2d2a84083e66beab642e88496eb16976ccdb12d1278466e687f01431db8a5fb", 405656],
+    ["libidn2", "2.3.8-1", "pool/main/libi/libidn2/libidn2_2.3.8-1_aarch64.deb", "a450a1ba25759ebf78738484a3efee316c51a1fe7bafb0b01a68e2c058a91020", 105308],
+    ["libtasn1", "4.21.0", "pool/main/libt/libtasn1/libtasn1_4.21.0_aarch64.deb", "1d02de3a7e5ef4ff7d893597091176b8ddf135f1ddfacff951f76c18711a7342", 101344],
+    ["libunbound", "1.26.0", "pool/main/libu/libunbound/libunbound_1.26.0_aarch64.deb", "b7dc8206c8aa22463938b2691f15358b5a656f04100e24ad799b50df0a7a0a1a", 384980],
+    ["libunistring", "1.4.2", "pool/main/libu/libunistring/libunistring_1.4.2_aarch64.deb", "5ff75cdf3ddd4ddf5dc9705050f270c3422820295a4b26f93496d3e8e9060122", 561924],
+    ["p11-kit", "0.26.5", "pool/main/p/p11-kit/p11-kit_0.26.5_aarch64.deb", "7911d7427e3c7182cf364e56a45a92307e5e7fddc105dc468f25ae39aa3e0ad7", 468204],
+    ["libevent", "2.1.13", "pool/main/libe/libevent/libevent_2.1.13_aarch64.deb", "cf99e8e6cd1218c0e4956d2ee69efbb26520211b3e03407463eac9016fe55f25", 202848],
+    ["libnghttp2", "1.70.0", "pool/main/libn/libnghttp2/libnghttp2_1.70.0_aarch64.deb", "ab2e0a3408fe4934ffdf774bd5049a265db2e6db62dcb651baecbecfb81e3f0b", 95924],
+    ["libngtcp2", "1.25.0", "pool/main/libn/libngtcp2/libngtcp2_1.25.0_aarch64.deb", "f471bad7f4329b6b0b4aedf124e0a23a35f6ac99bfbae73304136f8bfd570fc3", 174068],
+    ["openssl", "1:3.6.3", "pool/main/o/openssl/openssl_1:3.6.3_aarch64.deb", "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa", 2478376]
+  ],
+  "musl": {
+    "version": "1.2.5-r23",
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/musl-1.2.5-r23.apk",
+    "sha256": "6a3edd924ead1fad88a69e28c5775809af3026b322f58428001cd02fedc5299e",
+    "bytes": 416104
+  },
+  "busyboxStatic": {
+    "version": "1.37.0-r30",
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/busybox-static-1.37.0-r30.apk",
+    "sha256": "44c9abdfb970f398fa72c8382fe2d8808eea16beaf82daf6ac708b92f1b8659e",
+    "bytes": 658740,
+    "entry": "bin/busybox.static"
+  },
+  "opensslProbe": {
+    "version": "3.5.8-r0",
+    "packages": [
+      {
+        "name": "openssl",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/openssl-3.5.8-r0.apk",
+        "sha256": "efb15361a9536ce5ed389ee61f3bfac6947ffb9013de79c7db4a7c86d527f8fd",
+        "bytes": 331080,
+        "files": [
+          ["usr/bin/openssl", "probes/openssl", "0755"]
+        ]
+      },
+      {
+        "name": "libssl3",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/libssl3-3.5.8-r0.apk",
+        "sha256": "77a8ef8f87a3fe6b621fd2c06bb983dea55013a3e67c60741df83f5221983247",
+        "bytes": 370152,
+        "files": [
+          ["usr/lib/libssl.so.3", "rootfs/usr/lib/libssl.so.3", "0644"]
+        ]
+      },
+      {
+        "name": "libcrypto3",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/libcrypto3-3.5.8-r0.apk",
+        "sha256": "2be40da5877bce1780361cb58cc499bc17b9d747c0286dccad46c026f48c95f8",
+        "bytes": 2284754,
+        "files": [
+          ["usr/lib/libcrypto.so.3", "rootfs/usr/lib/libcrypto.so.3", "0644"],
+          ["etc/ssl/openssl.cnf", "rootfs/etc/ssl/openssl.cnf", "0644"]
+        ]
+      }
+    ]
+  }
+}

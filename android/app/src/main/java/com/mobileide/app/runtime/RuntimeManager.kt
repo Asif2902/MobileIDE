@@ -84,6 +84,9 @@ class RuntimeManager(private val context: Context) {
     private val tmpDir: File by lazy { File(runtimeRoot, "tmp") }
     private val cacheDir: File by lazy { File(runtimeRoot, "cache") }
     private val etcDir: File by lazy { File(runtimeRoot, "etc") }
+    private val linuxGuestCompatibility: LinuxGuestCompatibility by lazy {
+        LinuxGuestCompatibility(context, runtimeRoot)
+    }
 
     // Global CLI install locations (npm -g, pip --user style, etc.)
     private val npmGlobalDir: File by lazy { File(homeDir, ".npm-global") }
@@ -249,6 +252,7 @@ class RuntimeManager(private val context: Context) {
             File(runtimeRoot, NATIVE_MAP_FILE),
             File(runtimeRoot, PREFIX_RETARGET_FILE),
             File(libDir, "node_modules/npm/bin/npm-cli.js"),
+            File(libDir, "adev-npm.js"),
             File(libDir, "node_modules/npm/bin/npx-cli.js"),
             File(libDir, "adev-node-preload.js"),
             File(libDir, "adev-child-process-compat.js"),
@@ -369,6 +373,7 @@ class RuntimeManager(private val context: Context) {
         createBusyboxAliases()
         createNpmShellAlias()
         refreshOptionalGlibcBindings()
+        refreshOptionalLinuxBindings()
         // Replace key bin/* symlinks with shebang trampolines so OpenCode / agents
         // can exec node|npm|git via PATH (termux-exec runs scripts on noexec).
         createPathTrampolines()
@@ -381,6 +386,7 @@ class RuntimeManager(private val context: Context) {
         // parsed, non-empty CA bundle actually exists on disk.
         onProgress?.invoke("Preparing certificates...", 0.92f)
         setupCaBundle()
+        refreshLinuxGuestCompatibility()
 
         onProgress?.invoke("Configuring environment...", 0.93f)
         adevEnv.writeContractFiles()
@@ -430,6 +436,7 @@ class RuntimeManager(private val context: Context) {
         createBusyboxAliases()
         createNpmShellAlias()
         refreshOptionalGlibcBindings()
+        refreshOptionalLinuxBindings()
         createPathTrampolines()
         setExecutablePermissions()
         setupShellWrappers()
@@ -439,6 +446,7 @@ class RuntimeManager(private val context: Context) {
         // previously failed CA assembly is repaired on the next launch instead of
         // leaving TLS verification permanently broken.
         setupCaBundle()
+        refreshLinuxGuestCompatibility()
         adevEnv.writeContractFiles()
         if (!installPathBindingsCurrent(requireMarker = false)) {
             throw IOException("Refreshed runtime executable bindings are incomplete")
@@ -507,6 +515,49 @@ class RuntimeManager(private val context: Context) {
             Os.chmod(runner.absolutePath, 0b111101101) // 0755
         } catch (_: Exception) {
             runner.setExecutable(true, true)
+        }
+    }
+
+    /**
+     * Recreate the tiny explicit runner after an APK upgrade without touching
+     * the independently downloaded Linux-user payload. Automatic execution is
+     * handled by the native ELF classifier; this command is the diagnostic and
+     * opt-in equivalent for callers that want to name the backend explicitly.
+     */
+    private fun refreshOptionalLinuxBindings() {
+        val linuxRoot = File(runtimeRoot, "linux")
+        if (!File(linuxRoot, "manifest.json").isFile) return
+        val emulator = File(linuxRoot, "bin/qemu-aarch64")
+        if (!emulator.isFile) return
+        val hostCompat = File(nativeLibDir, "liblib_adev_linux_compat.so")
+        val runner = File(linuxRoot, "bin/linux-run")
+        runner.writeText(
+            "#!/system/bin/sh\n" +
+                "ADEV_LINUX_ROOT=\"${linuxRoot.absolutePath}\"\n" +
+                "if [ \"\$#\" -eq 0 ]; then echo \"usage: linux-run <linux-arm64-program> [args...]\" >&2; exit 64; fi\n" +
+                "ADEV_LINUX_HOST_COMPAT=\"${hostCompat.absolutePath}\"\n" +
+                "if [ ! -f \"\$ADEV_LINUX_HOST_COMPAT\" ]; then echo \"ADEV linux host compatibility bridge is missing; update the ADEV APK\" >&2; exit 69; fi\n" +
+                "export LD_LIBRARY_PATH=\"\$ADEV_LINUX_ROOT/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"\n" +
+                "export LD_PRELOAD=\"\$ADEV_LINUX_HOST_COMPAT\"\n" +
+                "export ADEV_LINUX_BACKEND_ACTIVE=1\n" +
+                "exec \"\$ADEV_LINUX_ROOT/bin/qemu-aarch64\" -U LD_PRELOAD -U LD_LIBRARY_PATH " +
+                "-L \"\$ADEV_LINUX_ROOT/rootfs\" \"\$@\"\n"
+        )
+        try {
+            Os.chmod(runner.absolutePath, 0b111101101) // 0755
+        } catch (_: Exception) {
+            runner.setExecutable(true, true)
+        }
+    }
+
+    private fun refreshLinuxGuestCompatibility(): LinuxGuestCompatibility.Snapshot? {
+        return try {
+            linuxGuestCompatibility.refresh()
+        } catch (error: Exception) {
+            // The optional Linux guest must never prevent ADEV's Bionic runtime
+            // from initializing or launching a process.
+            Log.w(TAG, "Linux guest compatibility refresh failed: ${error.message}")
+            null
         }
     }
 
@@ -865,6 +916,7 @@ class RuntimeManager(private val context: Context) {
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val runtimeCli = File(libDir, "adev-runtime-cli.js")
+            val npmDispatcher = File(libDir, "adev-npm.js")
             val nodeCliLauncher = File(libDir, "adev-node-cli.js")
             val glibcLoader = File(nativeLibDir, "libbin_adev_glibc_ld.so")
             val phase3Test = File(libDir, "adev-phase3-test.js")
@@ -932,7 +984,14 @@ class RuntimeManager(private val context: Context) {
 
             if (hasNode) {
                 sb.appendLine("node() { \"$node\" \"\$@\"; }")
-                sb.appendLine("npm() { adev-workspace-guard npm \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npm-cli.js\" \"\$@\"; }")
+                sb.appendLine("npm() {")
+                sb.appendLine("  adev-workspace-guard npm \"\$@\" || return \$?")
+                if (npmDispatcher.isFile) {
+                    sb.appendLine("  \"$node\" \"${npmDispatcher.absolutePath}\" \"\$@\"")
+                } else {
+                    sb.appendLine("  \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npm-cli.js\" \"\$@\"")
+                }
+                sb.appendLine("}")
                 sb.appendLine("npx() { adev-workspace-guard npx \"\$@\" || return \$?; \"$node\" \"\$PREFIX/lib/node_modules/npm/bin/npx-cli.js\" \"\$@\"; }")
                 if (nodeGyp.exists()) {
                     sb.appendLine("node-gyp() { adev-workspace-guard native \"\$@\" || return \$?; \"$node\" \"${nodeGyp.absolutePath}\" \"\$@\"; }")
@@ -1016,6 +1075,13 @@ class RuntimeManager(private val context: Context) {
                 sb.appendLine("glibc-run() {")
                 sb.appendLine("  [ -f \"\$PREFIX/glibc/manifest.json\" ] || { echo \"glibc runtime is not installed; run: adev runtime install glibc\" >&2; return 69; }")
                 sb.appendLine("  \"\$PREFIX/glibc/bin/glibc-run\" \"\$@\"")
+                sb.appendLine("}")
+                sb.appendLine()
+            }
+            if (runtimeCli.isFile) {
+                sb.appendLine("linux-run() {")
+                sb.appendLine("  [ -f \"\$PREFIX/linux/manifest.json\" ] || { echo \"linux execution runtime is not installed; run: adev runtime install linux\" >&2; return 69; }")
+                sb.appendLine("  \"\$PREFIX/linux/bin/linux-run\" \"\$@\"")
                 sb.appendLine("}")
                 sb.appendLine()
             }
@@ -1309,6 +1375,7 @@ class RuntimeManager(private val context: Context) {
             val sshLauncher = File(libDir, "adev-ssh.js")
             val toolPackLauncher = File(libDir, "adev-toolpack.js")
             val runtimeCli = File(libDir, "adev-runtime-cli.js")
+            val npmDispatcher = File(libDir, "adev-npm.js")
             val nodeCliLauncher = File(libDir, "adev-node-cli.js")
             val glibcLoader = File(nativeLibDir, "libbin_adev_glibc_ld.so")
             val phase3Test = File(libDir, "adev-phase3-test.js")
@@ -1359,6 +1426,14 @@ class RuntimeManager(private val context: Context) {
                     "#!/system/bin/sh\n" +
                         "[ -f \"\$PREFIX/glibc/manifest.json\" ] || { echo \"glibc runtime is not installed; run: adev runtime install glibc\" >&2; exit 69; }\n" +
                         "exec \"\$PREFIX/glibc/bin/glibc-run\" \"\$@\"\n"
+                )
+            }
+            if (runtimeCli.isFile) {
+                writeScript(
+                    "linux-run",
+                    "#!/system/bin/sh\n" +
+                        "[ -f \"\$PREFIX/linux/manifest.json\" ] || { echo \"linux execution runtime is not installed; run: adev runtime install linux\" >&2; exit 69; }\n" +
+                        "exec \"\$PREFIX/linux/bin/linux-run\" \"\$@\"\n"
                 )
             }
 
@@ -1419,9 +1494,14 @@ adev_guard() {
                 val n = node.absolutePath
                 writeScript("node", "#!/system/bin/sh\nexec \"$n\" \"\$@\"\n")
                 if (npmCli.exists()) {
+                    val npmCommand = if (npmDispatcher.isFile) {
+                        "exec \"$n\" \"${npmDispatcher.absolutePath}\" \"\$@\""
+                    } else {
+                        "exec \"$n\" \"${npmCli.absolutePath}\" \"\$@\""
+                    }
                     writeScript(
                         "npm",
-                        guarded("npm", "exec \"$n\" \"${npmCli.absolutePath}\" \"\$@\"")
+                        guarded("npm", npmCommand)
                     )
                 }
                 if (npxCli.exists()) {
@@ -2861,7 +2941,8 @@ adev_guard() {
                 File(libDir, "adev-runtime-cli.js").isFile &&
                     File(nativeLibDir, "libbin_adev_glibc_loader.so").isFile &&
                     File(nativeLibDir, "libbin_adev_glibc_ld.so").isFile
-                )
+                ),
+            "linux-run" to File(libDir, "adev-runtime-cli.js").isFile
         )
         val nativeBuildReady = listOf(
             "node-gyp", "python", "make", "clang", "lld"
@@ -2913,6 +2994,8 @@ adev_guard() {
                         File(nativeLibDir, "libbin_adev_glibc_ld.so").isFile
                     ),
                 "glibc-installed" to File(runtimeRoot, "glibc/manifest.json").isFile,
+                "linux-user-optional" to File(libDir, "adev-runtime-cli.js").isFile,
+                "linux-user-installed" to File(runtimeRoot, "linux/manifest.json").isFile,
                 "cmake-ninja" to false,
                 "rust-cargo" to false,
                 "nasm" to false,
@@ -2962,6 +3045,10 @@ adev_guard() {
      * Get the environment map for process execution
      */
     fun getEnvironment(workingDirectory: String? = null): Map<String, String> {
+        // Android supplies DNS through LinkProperties rather than a writable
+        // /etc/resolv.conf. Refresh the optional guest immediately before a
+        // launch so Wi-Fi/mobile/VPN changes are reflected without restarting.
+        val linuxGuest = refreshLinuxGuestCompatibility()
         // Prefer absolute path to bash ELF in nativeLibraryDir (exec-safe).
         val bashNative = File(nativeLibDir, "libbin_bash.so")
         val shell = when {
@@ -2980,6 +3067,13 @@ adev_guard() {
         // tool-specific configuration layered on top of that contract.
         val env = mutableMapOf<String, String>()
         env.putAll(adevEnv.contract())
+        linuxGuest?.dnsServers?.takeIf { it.isNotEmpty() }?.let {
+            env["ADEV_DNS_SERVERS"] = it.joinToString(",")
+        }
+        linuxGuest?.upstreamDnsServers?.takeIf { it.isNotEmpty() }?.let {
+            env["ADEV_DNS_UPSTREAM_SERVERS"] = it.joinToString(",")
+        }
+        linuxGuest?.dnsSource?.let { env["ADEV_DNS_SOURCE"] = it }
         env.putAll(mapOf(
             // OpenCode reports the workspace root as its picker home while
             // retaining this path for XDG/Git/npm/credential state.

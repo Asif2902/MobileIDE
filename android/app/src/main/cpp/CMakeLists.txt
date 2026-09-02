@@ -37,6 +37,28 @@ add_executable(adev_npm_shell adev_npm_shell.cpp adev_runtime_env.c)
 # responsible for Android noexec/system-linker handling after resolution.
 add_library(adev_exec_compat SHARED adev_exec_compat.c adev_runtime_env.c)
 
+# Host-side compatibility used only by the optional QEMU linux-user backend.
+# It converts Android-seccomp-trapped identity syscalls into Linux no-op/EPERM
+# results so guest programs cannot kill the emulator with SIGSYS.
+add_library(adev_linux_compat SHARED adev_linux_compat.c)
+target_link_libraries(adev_linux_compat PRIVATE dl)
+target_link_options(adev_linux_compat PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/adev_linux_compat.map"
+    "-Wl,--strip-all"
+)
+target_compile_options(adev_linux_compat PRIVATE "-O2" "-g0" "-Wall" "-Wextra" "-Werror")
+target_compile_definitions(adev_linux_compat PRIVATE NDEBUG)
+set_target_properties(adev_linux_compat PROPERTIES
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    OUTPUT_NAME "lib_adev_linux_compat"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
 # Transparent Bionic entrypoint for Termux-style tools that execute
 # $PREFIX/glibc/lib/ld-linux-aarch64.so.1. Android cannot directly exec a
 # writable loader path, so that stable path points here; this launcher enters
