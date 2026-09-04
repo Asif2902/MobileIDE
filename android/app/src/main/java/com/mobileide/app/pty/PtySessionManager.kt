@@ -198,6 +198,13 @@ class PtySessionManager(private val runtimeManager: RuntimeManager) {
         session.backend.write(data)
     }
 
+    /** Write exact terminal protocol bytes (OSC/CSI/DSR replies) to the PTY. */
+    @Throws(IOException::class)
+    fun writeBytesToSession(sessionId: Int, data: ByteArray) {
+        val session = sessions[sessionId] ?: throw IOException("Session $sessionId not found")
+        session.backend.write(data)
+    }
+
     /**
      * Resize a session's terminal
      */
@@ -290,6 +297,7 @@ data class PtySession(
 interface TerminalBackend {
     val pid: Int
     fun write(data: String)
+    fun write(data: ByteArray)
     fun read(buffer: ByteArray): Int
     fun resize(cols: Int, rows: Int)
     fun isAlive(): Boolean
@@ -304,6 +312,7 @@ class NativePtyBackend(private val ptyProcess: PtyProcess) : TerminalBackend {
     override val pid: Int
         get() = ptyProcess.pid
     override fun write(data: String) = ptyProcess.write(data)
+    override fun write(data: ByteArray) = ptyProcess.write(data)
     override fun read(buffer: ByteArray): Int = ptyProcess.read(buffer)
     override fun resize(cols: Int, rows: Int) = ptyProcess.resize(cols, rows)
     override fun isAlive(): Boolean = ptyProcess.isProcessAlive()
@@ -342,7 +351,11 @@ class ProcessShellBackend(
     }
 
     override fun write(data: String) {
-        stdin.write(data.toByteArray(Charsets.UTF_8))
+        write(data.toByteArray(Charsets.UTF_8))
+    }
+
+    override fun write(data: ByteArray) {
+        stdin.write(data)
         stdin.flush()
     }
 

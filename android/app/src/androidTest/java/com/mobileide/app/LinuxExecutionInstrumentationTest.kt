@@ -132,6 +132,51 @@ class LinuxExecutionInstrumentationTest {
         assertTrue(nodeStillWorks.output, nodeStillWorks.output.contains("bionic-default-ok"))
     }
 
+    /** A Linux guest agent must be able to exec the same ADEV tools as Terminal. */
+    @Test
+    fun linuxGuestCanLaunchAdevToolchainWithoutLeakingHostExecMarkers() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val manager = RuntimeManager(instrumentation.targetContext)
+        manager.initializeRuntime()
+        installLinuxRuntime(manager)
+
+        val runner = ProcessManager(manager)
+        val cwd = File(manager.getWorkspacesDir())
+        val busybox = File(manager.getRuntimeRoot(), "linux/probes/busybox-static")
+        assertTrue("static Linux launcher fixture missing", busybox.isFile)
+
+        fun throughGuest(command: String, vararg args: String): Result = run(
+            runner,
+            busybox.absolutePath,
+            listOf("env", command) + args,
+            cwd,
+            timeoutSeconds = 120
+        )
+
+        listOf(
+            throughGuest("npm", "--version"),
+            throughGuest("python", "--version"),
+            throughGuest("git", "--version"),
+            throughGuest("sh", "-c", "printf adev-guest-shell-ok")
+        ).forEach { result ->
+            assertEquals(result.output, 0, result.status)
+            assertTrue("guest child produced no output", result.output.isNotBlank())
+            assertTrue(result.output, !result.output.contains("runtime entrypoint is missing"))
+            assertTrue(result.output, !result.output.contains("Permission denied"))
+        }
+
+        val nestedNode = throughGuest(
+            "node",
+            "-e",
+            "const{spawnSync}=require('node:child_process');" +
+                "const r=spawnSync('npm',['--version'],{encoding:'utf8'});" +
+                "if(r.error||r.status!==0)throw(r.error||new Error(r.stderr));" +
+                "process.stdout.write('nested:'+r.stdout.trim())"
+        )
+        assertEquals(nestedNode.output, 0, nestedNode.status)
+        assertTrue(nestedNode.output, nestedNode.output.contains("nested:"))
+    }
+
     /** Validate execution, DNS, TCP, and TLS through the installed Linux backend. */
     @Test
     fun runtimeDoctorPassesLinuxNetworkProbes() {

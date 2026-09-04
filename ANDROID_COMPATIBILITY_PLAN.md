@@ -1,7 +1,7 @@
 # Android Compatibility Audit and Fix Plan
 
 Audit date: 2026-09-02
-Application: A Dev Studio 1.3.34 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
+Application: A Dev Studio 1.3.35 / production `com.mobileide.app` / test `com.mobileide.app.phonetest`
 Runtime: 1.17.9
 Audited target: Android ARM64/x86_64 app, `minSdk 29`, `targetSdk 36`
 
@@ -1585,6 +1585,35 @@ Connected API-30 runtime/network evidence (2026-09-02):
   privileged namespaces, mounts, device access, kernel modules and assumptions
   that require a desktop seccomp context remain unavailable. The doctor now
   makes those failures observable instead of allowing silent SIGSYS crashes.
+
+## Linux child execution and terminal OSC routing — 1.3.35
+
+Status: **HOST/APK VERIFIED — CONNECTED-DEVICE GATE**
+
+- Linux-agent child commands previously inherited QEMU's virtual
+  `TERMUX_EXEC__PROC_SELF_EXE`. The newly launched ADEV environment broker then
+  searched beside QEMU rather than beside the APK-native Node/runtime payload,
+  causing normal npm, Python, Git and shell subprocesses to fail before their
+  command bodies ran. The native broker now reads its real Android executable
+  path without the compatibility readlink interposer, and Linux launches remove
+  both inherited `TERMUX_EXEC__PROC_SELF_*` variables before entering QEMU.
+- The QEMU-scoped host bridge now distinguishes real Android `SYS_SECCOMP`
+  delivery from guest signal handling. It records the blocked host syscall and,
+  on the supported host architectures, returns `ENOSYS` instead of letting an
+  otherwise recoverable compatibility miss terminate the guest with `SIGSYS`.
+  `adev runtime doctor --json` exposes the collected host syscall numbers.
+- Xterm protocol replies were sharing the ordinary `onData` keyboard channel.
+  Timing or encoding changes could strip the OSC framing and leave palette
+  response text in Bash's input queue after a TUI closed. A dedicated Base64
+  byte channel now routes xterm-generated replies straight to the PTY, while
+  keyboard input remains text-only. Active terminals flush immediately for
+  protocol correctness; hidden terminals retain bounded batching.
+- Jest (17 suites/93 tests), TypeScript, ESLint, runtime-policy, Android exec,
+  agent/runtime environment, Linux-runtime, dual-ABI native compilation,
+  phone-test APK and Android-test APK builds pass. New Android instrumentation
+  covers Linux guest command re-entry/nested Node spawning and byte-exact OSC
+  PTY replies. ADB had no connected target, so executing those instrumentation
+  tests on the phone remains the next evidence gate.
 
 ## DeepSeek DSH Android compatibility — runtime 1.17.8
 

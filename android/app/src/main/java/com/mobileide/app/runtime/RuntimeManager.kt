@@ -541,6 +541,7 @@ class RuntimeManager(private val context: Context) {
                 "export LD_PRELOAD=\"\$ADEV_LINUX_HOST_COMPAT\"\n" +
                 "export ADEV_LINUX_BACKEND_ACTIVE=1\n" +
                 "exec \"\$ADEV_LINUX_ROOT/bin/qemu-aarch64\" -U LD_PRELOAD -U LD_LIBRARY_PATH " +
+                "-U TERMUX_EXEC__PROC_SELF_EXE -U TERMUX_EXEC__PROC_SELF_INTERPRETER " +
                 "-L \"\$ADEV_LINUX_ROOT/rootfs\" \"\$@\"\n"
         )
         try {

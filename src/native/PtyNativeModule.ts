@@ -38,6 +38,7 @@ export interface TerminalExitEvent {
 export interface PtyNativeInterface {
   createSession(cols: number, rows: number, cwd: string | null): Promise<PtySession>;
   write(sessionId: number, data: string): Promise<boolean>;
+  writeBase64(sessionId: number, base64: string): Promise<boolean>;
   resize(sessionId: number, cols: number, rows: number): Promise<boolean>;
   destroySession(sessionId: number): Promise<boolean>;
   getSessions(): Promise<PtySessionInfo[]>;

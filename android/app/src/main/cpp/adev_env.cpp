@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <string>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <vector>
 
@@ -47,14 +48,33 @@ bool regular_file(const char* path) {
            S_ISREG(value.st_mode);
 }
 
-std::string native_library_dir() {
+std::string actual_self_executable() {
     char executable[PATH_MAX];
-    const ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    // This launcher is itself compiled with adev_exec_compat, whose public
+    // readlink interposer intentionally virtualizes /proc/self/exe for
+    // writable Bionic programs entered through Android's linker. The launcher
+    // must instead locate the APK-native executable that is running now. A raw
+    // readlinkat syscall bypasses that virtualization and also prevents a
+    // stale TERMUX_EXEC__PROC_SELF_EXE inherited from a QEMU guest from making
+    // npm/python/git search for payloads beside qemu-aarch64.
+    const ssize_t length = syscall(
+        SYS_readlinkat,
+        AT_FDCWD,
+        "/proc/self/exe",
+        executable,
+        sizeof(executable) - 1
+    );
     if (length <= 0) return {};
     executable[length] = '\0';
-    char* slash = std::strrchr(executable, '/');
-    if (slash == nullptr) return {};
-    *slash = '\0';
+    return executable;
+}
+
+std::string native_library_dir() {
+    std::string executable = actual_self_executable();
+    if (executable.empty()) return {};
+    const size_t slash = executable.rfind('/');
+    if (slash == std::string::npos) return {};
+    executable.resize(slash);
     return executable;
 }
 
@@ -109,12 +129,10 @@ std::string runtime_file(const char* relative) {
 
 bool launcher_alias(const char* path) {
     if (path == nullptr || std::strchr(path, '/') == nullptr) return false;
-    char executable[PATH_MAX];
     char candidate[PATH_MAX];
-    const ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
-    if (length <= 0) return false;
-    executable[length] = '\0';
-    return realpath(path, candidate) != nullptr && std::strcmp(candidate, executable) == 0;
+    const std::string executable = actual_self_executable();
+    return !executable.empty() && realpath(path, candidate) != nullptr &&
+        executable == candidate;
 }
 
 [[noreturn]] void exec_arguments(

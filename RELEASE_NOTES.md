@@ -1,3 +1,17 @@
+# A Dev Studio 1.3.35
+
+This beta closes two generic execution/terminal gaps exposed by Linux ARM64 agent tools and terminal user interfaces.
+
+- Linux-user child processes now locate ADEV's real APK-native launcher instead of inheriting QEMU's virtual `/proc/self/exe` identity. Commands spawned by Linux agents therefore re-enter the same ADEV compatibility path used by the interactive terminal, including npm, Python, Git, shell scripts, and nested Node children.
+- QEMU launches explicitly remove stale `TERMUX_EXEC__PROC_SELF_EXE` and `TERMUX_EXEC__PROC_SELF_INTERPRETER` variables before entering the Linux guest.
+- The QEMU-only host bridge now diagnoses genuine Android seccomp `SIGSYS` events with the blocked host syscall number and converts them to Linux-compatible `ENOSYS` results where the architecture permits, while preserving ordinary guest signal delivery.
+- `adev runtime doctor --json` reports observed host-seccomp syscall numbers alongside existing guest trace, DNS, TCP, TLS, and signal diagnostics.
+- Terminal-generated OSC/control replies now travel as exact bytes directly back to the requesting PTY. They no longer share the keyboard-input path or lose their `ESC ] ... ESC \\` framing and appear as printable shell commands after a TUI exits.
+- Visible terminals flush output immediately so protocol queries are answered while the requester is active; hidden terminals retain bounded batching for performance.
+- Regression coverage includes Linux guest-to-ADEV command re-entry, nested Node subprocesses, byte-exact OSC palette replies, PTY routing, and post-query shell usability.
+- Host Jest, TypeScript, lint, runtime-policy, Android execution, agent-environment, runtime-environment, Linux-runtime, Kotlin, native dual-ABI, phone-test APK, and Android-test APK checks pass. No phone was connected for this release turn, so the new instrumentation cases remain a device validation gate.
+- The downloadable APK is debug-test signed for direct phone testing. Production signing and runtime-lock regeneration still require the owner's external credentials; no signature bypass is included.
+
 # A Dev Studio 1.3.34
 
 This beta adds an optional, independently downloadable Linux ARM64 execution runtime without replacing ADEV's Android/Bionic developer environment.

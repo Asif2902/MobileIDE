@@ -203,6 +203,8 @@ assert.match(source, /LD_PRELOAD/);
 assert.match(source, /liblib_adev_linux_compat\.so/);
 assert.match(source, /ADEV_LINUX_TRACE/);
 assert.match(source, /emulator_argv\[output\+\+\] = "-L"/);
+assert.match(source, /TERMUX_EXEC__PROC_SELF_EXE/);
+assert.match(source, /TERMUX_EXEC__PROC_SELF_INTERPRETER/);
 assert.match(source, /\/system\/bin\/linker64/);
 assert.doesNotMatch(source, /muse|@openai\/codex|codex-linux-arm64/i);
 assert.match(npmCompatSource, /parent\.optionalDependencies/);
@@ -213,13 +215,27 @@ assert.doesNotMatch(npmCompatSource, /muse|@openai\/codex|codex-linux-arm64/i);
 assert.match(npmDispatcherSource, /require\(linuxCompat\)/);
 assert.match(npmDispatcherSource, /stdio: 'inherit'/);
 assert.match(envLauncherSource, /runtime_file\("lib\/adev-npm\.js"\)/);
+assert.match(envLauncherSource, /SYS_readlinkat/);
+assert.match(envLauncherSource, /actual_self_executable/);
 assert.doesNotMatch(npmDispatcherSource, /muse|@openai\/codex|codex-linux-arm64/i);
 assert.match(fs.readFileSync(cliPath, 'utf8'), /runtimeDoctor/);
 assert.match(fs.readFileSync(cliPath, 'utf8'), /dnsSource/);
 assert.match(fs.readFileSync(cliPath, 'utf8'), /-verify_hostname/);
+assert.match(fs.readFileSync(cliPath, 'utf8'), /hostSeccompSyscalls/);
+assert.deepEqual(
+  require(cliPath).processResult({
+    status: 0,
+    stderr: 'ADEV linux: Android seccomp blocked host syscall 293; returned ENOSYS\n',
+    stdout: '',
+  }, Date.now()).hostSeccompSyscalls,
+  [293],
+);
 assert.match(linuxCompatSource, /__NR_setgid/);
 assert.match(linuxCompatSource, /__NR_setuid/);
 assert.match(linuxCompatSource, /permission_denied/);
+assert.match(linuxCompatSource, /SYS_SECCOMP/);
+assert.match(linuxCompatSource, /returned ENOSYS/);
+assert.match(linuxCompatSource, /info->si_syscall/);
 assert.doesNotMatch(linuxCompatSource, /muse|codex|grok/i);
 assert.match(guestCompatibilitySource, /activeDnsServers/);
 assert.match(guestCompatibilitySource, /dnsResponseIsSafe/);

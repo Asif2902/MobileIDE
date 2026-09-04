@@ -19,6 +19,7 @@ import {
   PTY_EVENTS,
   TerminalOutputEvent,
   TerminalExitEvent,
+  PtyNativeModule,
   ClipboardNativeModule,
 } from '../../native';
 import { TerminalAccessoryBar } from './TerminalAccessoryBar';
@@ -111,18 +112,21 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
   const queueBridgeOutput = useCallback((data: string) => {
     bridgeOutput.current.push(data);
     bridgeOutputBytes.current += data.length;
+    // Active PTY output must reach xterm immediately. Terminal queries can be
+    // embedded in any output chunk; frame batching lets a TUI exit before its
+    // reply is generated, at which point the reply reaches the next shell.
+    if (activeRef.current) {
+      flushBridgeOutput();
+      return;
+    }
     // Collapse bursty build/server output into one WebView bridge call per
-    // frame. Hidden terminal tabs use a wider window to reduce background UI
-    // work while retaining every byte of scrollback.
+    // frame for hidden terminal tabs while retaining every byte of scrollback.
     if (bridgeOutputBytes.current >= 64 * 1024) {
       flushBridgeOutput();
       return;
     }
     if (outputFlushTimer.current === null) {
-      outputFlushTimer.current = setTimeout(
-        flushBridgeOutput,
-        activeRef.current ? 16 : 64,
-      );
+      outputFlushTimer.current = setTimeout(flushBridgeOutput, 64);
     }
   }, [flushBridgeOutput]);
 
@@ -266,6 +270,16 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, active = 
           
         case 'input':
           writeToSession(sessionId, message.data);
+          break;
+
+        case 'terminalResponse':
+          // xterm protocol responses are bytes, not user text. Bypass keyboard
+          // modifiers, command tracking and UTF-8 re-encoding completely.
+          if (typeof message.base64 === 'string' && message.base64.length > 0) {
+            PtyNativeModule.writeBase64(sessionId, message.base64).catch(error => {
+              console.error('Terminal protocol response failed:', error);
+            });
+          }
           break;
           
         case 'resize':

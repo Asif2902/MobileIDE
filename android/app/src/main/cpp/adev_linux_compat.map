@@ -1,5 +1,6 @@
 LIBC {
     global:
+        sigaction;
         syscall;
     local:
         *;

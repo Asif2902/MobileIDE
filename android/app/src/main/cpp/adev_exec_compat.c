@@ -840,8 +840,8 @@ static int adev_exec_linux_elf(
     const bool trace_enabled =
         trace_value != NULL && trace_value[0] != '\0' && strcmp(trace_value, "0") != 0;
     const size_t old_count = adev_argv_count(argv);
-    if (old_count == SIZE_MAX || old_count + 13 >= ADEV_MAX_ARGV) return -1;
-    char **emulator_argv = calloc(old_count + 13, sizeof(char *));
+    if (old_count == SIZE_MAX || old_count + 17 >= ADEV_MAX_ARGV) return -1;
+    char **emulator_argv = calloc(old_count + 17, sizeof(char *));
     if (emulator_argv == NULL) return -1;
     size_t output = 0;
     emulator_argv[output++] = emulator;
@@ -851,6 +851,14 @@ static int adev_exec_linux_elf(
     emulator_argv[output++] = "LD_PRELOAD";
     emulator_argv[output++] = "-U";
     emulator_argv[output++] = "LD_LIBRARY_PATH";
+    // These describe the current Android-linker indirection and are meaningful
+    // only to the QEMU host process. If a guest execs an APK-native ADEV alias,
+    // carrying either marker across safe_execve makes the child believe QEMU
+    // is its own executable and breaks all sibling payload discovery.
+    emulator_argv[output++] = "-U";
+    emulator_argv[output++] = "TERMUX_EXEC__PROC_SELF_EXE";
+    emulator_argv[output++] = "-U";
+    emulator_argv[output++] = "TERMUX_EXEC__PROC_SELF_INTERPRETER";
     // QEMU's guest path resolver applies this prefix only when a matching
     // guest file exists. Use it for static executables too: Android has no
     // conventional /etc/resolv.conf, so otherwise statically linked Linux

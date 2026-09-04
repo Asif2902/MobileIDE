@@ -38,8 +38,9 @@ add_executable(adev_npm_shell adev_npm_shell.cpp adev_runtime_env.c)
 add_library(adev_exec_compat SHARED adev_exec_compat.c adev_runtime_env.c)
 
 # Host-side compatibility used only by the optional QEMU linux-user backend.
-# It converts Android-seccomp-trapped identity syscalls into Linux no-op/EPERM
-# results so guest programs cannot kill the emulator with SIGSYS.
+  # It converts Android-seccomp-trapped identity syscalls into Linux no-op/EPERM
+  # results and raw host syscall traps into ENOSYS so a guest cannot kill the
+  # emulator with SIGSYS.
 add_library(adev_linux_compat SHARED adev_linux_compat.c)
 target_link_libraries(adev_linux_compat PRIVATE dl)
 target_link_options(adev_linux_compat PRIVATE

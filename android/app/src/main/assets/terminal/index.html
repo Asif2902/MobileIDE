@@ -260,6 +260,40 @@
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'input', data: data }));
     }
 
+    function terminalBytesToBase64(data) {
+      let bytes = '';
+      for (let index = 0; index < data.length; index++) {
+        bytes += String.fromCharCode(data.charCodeAt(index) & 0xff);
+      }
+      return window.btoa(bytes);
+    }
+
+    function sendTerminalResponse(data) {
+      if (!data) return;
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'terminalResponse',
+        base64: terminalBytesToBase64(data)
+      }));
+    }
+
+    function installTerminalResponseRouter(terminal) {
+      // xterm's public onData event combines physical/IME input with terminal-
+      // generated protocol replies. Its core retains the distinction through
+      // the wasUserInput flag. Intercept only the latter before onData drops
+      // that metadata, and preserve xterm's already-complete ESC/OSC/ST bytes.
+      const coreService = terminal && terminal._core && terminal._core.coreService;
+      if (!coreService || typeof coreService.triggerDataEvent !== 'function') {
+        throw new Error('xterm protocol response router is unavailable');
+      }
+      const triggerDataEvent = coreService.triggerDataEvent.bind(coreService);
+      coreService.triggerDataEvent = function (data, wasUserInput) {
+        if (wasUserInput === true) {
+          return triggerDataEvent(data, true);
+        }
+        sendTerminalResponse(data);
+      };
+    }
+
     let ctrlArmed = false;
     let altArmed = false;
     function notifyModifier() {
@@ -414,12 +448,14 @@
       }, true);
     }
     hardenAndroidInput();
+    installTerminalResponseRouter(term);
 
     term.onData((data) => {
       lastXtermInput = data;
       lastXtermInputAt = Date.now();
       sendInput(applyModifiers(data));
     });
+    term.onBinary(sendTerminalResponse);
     term.onResize(function () { /* fit posts resize; avoid double-fire */ });
 
     function copyToNative(text) {

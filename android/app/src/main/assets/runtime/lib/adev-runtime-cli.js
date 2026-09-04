@@ -638,6 +638,7 @@ function installLinuxRunner() {
       'export LD_PRELOAD="$ADEV_LINUX_HOST_COMPAT"\n' +
       'export ADEV_LINUX_BACKEND_ACTIVE=1\n' +
       'exec "$ADEV_LINUX_ROOT/bin/qemu-aarch64" -U LD_PRELOAD -U LD_LIBRARY_PATH ' +
+      '-U TERMUX_EXEC__PROC_SELF_EXE -U TERMUX_EXEC__PROC_SELF_INTERPRETER ' +
       '-L "$ADEV_LINUX_ROOT/rootfs" "$@"\n',
     {mode: 0o755},
   );
@@ -984,6 +985,11 @@ function processResult(result, startedAt) {
   const unknownSyscalls = [...stderr.matchAll(/Unknown syscall\s+(\d+)/g)]
     .map(match => Number(match[1]))
     .filter((value, index, values) => values.indexOf(value) === index);
+  const hostSeccompSyscalls = [
+    ...stderr.matchAll(/Android seccomp blocked host syscall\s+(\d+)/g),
+  ]
+    .map(match => Number(match[1]))
+    .filter((value, index, values) => values.indexOf(value) === index);
   const tracedSignals = [...stderr.matchAll(/---\s+SIG([A-Z0-9]+)/g)]
     .map(match => `SIG${match[1]}`)
     .filter((value, index, values) => values.indexOf(value) === index);
@@ -994,6 +1000,7 @@ function processResult(result, startedAt) {
     error: result.error?.message || null,
     durationMs: Date.now() - startedAt,
     unknownSyscalls,
+    hostSeccompSyscalls,
     tracedSignals,
     output: diagnosticText(stdout || stderr),
   };
@@ -1003,7 +1010,10 @@ function runLinuxGuest(executable, args, {trace = false, timeout = 20000, input}
   const emulator = path.join(linuxRoot, 'bin', 'qemu-aarch64');
   const rootfs = path.join(linuxRoot, 'rootfs');
   const commandArgs = [
-    '-U', 'LD_PRELOAD', '-U', 'LD_LIBRARY_PATH', '-L', rootfs,
+    '-U', 'LD_PRELOAD', '-U', 'LD_LIBRARY_PATH',
+    '-U', 'TERMUX_EXEC__PROC_SELF_EXE',
+    '-U', 'TERMUX_EXEC__PROC_SELF_INTERPRETER',
+    '-L', rootfs,
     ...(trace ? ['-strace'] : []),
     executable,
     ...args,
@@ -1243,6 +1253,7 @@ module.exports = {
   verifyLinuxPayload,
   readLinuxInstalled,
   inspectElfForDoctor,
+  processResult,
   runtimeDoctor,
   ensureLinuxCompatibilityFiles,
 };

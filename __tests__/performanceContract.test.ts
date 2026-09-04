@@ -21,11 +21,12 @@ describe('mobile performance contract', () => {
     expect(screen).toContain("<TerminalPanel visible={validActiveView === 'terminal'} />");
   });
 
-  it('batches terminal output before crossing the WebView bridge', () => {
+  it('delivers active terminal control traffic immediately and batches hidden output', () => {
     const terminal = source('src/components/terminal/TerminalView.tsx');
     expect(terminal).toContain('queueBridgeOutput');
     expect(terminal).toContain('64 * 1024');
-    expect(terminal).toContain('activeRef.current ? 16 : 64');
+    expect(terminal).toContain('if (activeRef.current)');
+    expect(terminal).toContain('setTimeout(flushBridgeOutput, 64)');
   });
 
   it('does not subscribe Monaco to the entire editor store', () => {

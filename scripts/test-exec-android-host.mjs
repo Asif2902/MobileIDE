@@ -182,7 +182,8 @@ assert.match(runtimeManager, /"MOBILEIDE_ENV" to File\(nativeLibDir, "libbin_ade
 
 assert.match(envLauncher, /std::strcmp\(command, "node"\)/);
 assert.match(envLauncher, /verified_env_path\("MOBILEIDE_NODE"\)/);
-assert.match(envLauncher, /readlink\("\/proc\/self\/exe"/);
+assert.match(envLauncher, /SYS_readlinkat/);
+assert.match(envLauncher, /actual_self_executable/);
 assert.match(envLauncher, /sibling\("libbin_node\.so"\)/);
 assert.match(envLauncher, /std::strcmp\(command, "python"\)/);
 assert.match(envLauncher, /verified_env_path\("PYTHON"\)/);

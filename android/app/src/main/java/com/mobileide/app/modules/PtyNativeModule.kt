@@ -1,5 +1,6 @@
 package com.mobileide.app.modules
 
+import android.util.Base64
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.mobileide.app.pty.PtySessionManager
@@ -81,6 +82,24 @@ class PtyNativeModule(reactContext: ReactApplicationContext) :
             try {
                 val manager = getSessionManager()
                 manager.writeToSession(sessionId, data)
+                withContext(Dispatchers.Main) {
+                    promise.resolve(true)
+                }
+            } catch (e: Throwable) {
+                withContext(Dispatchers.Main) {
+                    promise.reject("PTY_WRITE_ERROR", e.message)
+                }
+            }
+        }
+    }
+
+    /** Write terminal-emulator protocol response bytes without text recoding. */
+    @ReactMethod
+    fun writeBase64(sessionId: Int, base64: String, promise: Promise) {
+        scope.launch {
+            try {
+                val data = Base64.decode(base64, Base64.NO_WRAP)
+                getSessionManager().writeBytesToSession(sessionId, data)
                 withContext(Dispatchers.Main) {
                     promise.resolve(true)
                 }
